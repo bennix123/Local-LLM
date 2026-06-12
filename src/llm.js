@@ -13,9 +13,25 @@ import {
 } from "node-llama-cpp";
 import { getModel } from "./models.js";
 
+import os from "node:os";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MODELS_DIR = path.join(__dirname, "..", "models");
-const MANIFEST_PATH = path.join(MODELS_DIR, "manifest.json");
+
+const APP_DATA_DIR =
+  process.env.LOCALAPPDATA ||
+  process.env.APPDATA ||
+  path.join(os.homedir(), ".local", "share");
+
+const MODELS_DIR = path.join(
+  APP_DATA_DIR,
+  "LocalLLMBankRAG",
+  "models"
+);
+
+const MANIFEST_PATH = path.join(
+  MODELS_DIR,
+  "manifest.json"
+);
 
 let llama = null;
 let model = null;

@@ -2,12 +2,23 @@
   "name": "local-llm-bank-rag",
   "version": "1.0.0",
   "private": true,
-  "description": "Offline, embedded local-LLM bank-statement assistant (node-llama-cpp). Upload a bank sheet, store it in SQLite, ask anything. Works on macOS & Windows with no external server.",
+  "author": {
+    "name": "Radhika Babar",
+    "email": "radhikababar43@gmail.com"
+  },
+  "description": "Offline, embedded local-LLM bank-statement assistant powered by node-llama-cpp.",
   "type": "module",
-  "main": "server.js",
+  "main": "electron/main.js",
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server.js"
+    "start": "electron .",
+    "build": "electron-builder --publish never",
+    "build-mac": "electron-builder --mac dmg --publish never",
+    "build-win": "electron-builder --win nsis --publish never",
+    "build-linux": "electron-builder --linux AppImage deb --publish never",
+    "release-mac": "electron-builder --mac dmg --publish always",
+    "release-win": "electron-builder --win nsis --publish always",
+    "release-linux": "electron-builder --linux AppImage deb --publish always",
+    "dist": "electron-builder"
   },
   "engines": {
     "node": ">=22.5"
@@ -19,5 +30,65 @@
     "papaparse": "^5.4.1",
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.localbankrag.app",
+    "productName": "Local LLM Bank RAG",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "src/**/*",
+      "server.js",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.finance"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    }
   }
 }
