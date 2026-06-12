@@ -1,0 +1,23 @@
+{
+  "name": "local-llm-bank-rag",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline, embedded local-LLM bank-statement assistant (node-llama-cpp). Upload a bank sheet, store it in SQLite, ask anything. Works on macOS & Windows with no external server.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^2.1.1",
+    "node-llama-cpp": "^3.6.0",
+    "papaparse": "^5.4.1",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  }
+}
