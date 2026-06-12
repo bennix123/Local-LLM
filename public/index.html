@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Bank Assistant · Offline LLM</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>🏦 Local Bank Statement Assistant</h1>
+      <span id="offline-badge" class="badge hidden">● Offline · runs on your machine</span>
+    </header>
+
+    <!-- First-run: pick & download a model -->
+    <section id="setup" class="card hidden">
+      <h2>Step 1 · Download a local model</h2>
+      <p class="muted">
+        Pick a small model to download once. After it's on your machine, this
+        app works fully <strong>offline</strong> — your statements never leave your computer.
+      </p>
+      <div id="model-list"></div>
+      <button id="download-btn" disabled>Download selected model</button>
+      <div id="download-progress" class="hidden">
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <p id="progress-text" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- Now-offline notice -->
+    <div id="offline-notice" class="notice hidden">
+      ✅ <strong>Model ready.</strong> This app is now <strong>offline</strong> — no
+      internet is needed. Your bank data stays on this device.
+    </div>
+
+    <!-- Main app -->
+    <main id="app" class="hidden">
+      <section class="card">
+        <h2>Step 2 · Upload your bank statement</h2>
+        <p class="muted">CSV, Excel (.xlsx/.xls), or a text-based PDF.</p>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.txt" />
+        <div id="doc-info" class="doc-info hidden"></div>
+      </section>
+
+      <section class="card">
+        <h2>Step 3 · Ask anything about it</h2>
+        <div id="chat" class="chat"></div>
+        <form id="chat-form">
+          <input
+            id="chat-input"
+            type="text"
+            placeholder="e.g. How much did I spend in total? What's my biggest debit?"
+            autocomplete="off"
+            disabled
+          />
+          <button id="send-btn" disabled>Send</button>
+        </form>
+        <p class="muted" id="model-tag"></p>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

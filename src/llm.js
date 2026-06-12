@@ -1,0 +1,148 @@
+// Embedded LLM engine powered by node-llama-cpp.
+// Runs the model fully in-process (llama.cpp) — no Ollama, no external server,
+// no network once the model file is on disk. Prebuilt llama.cpp binaries ship
+// with the npm package, so this works on macOS & Windows without a compiler.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  getLlama,
+  createModelDownloader,
+  LlamaChatSession,
+} from "node-llama-cpp";
+import { getModel } from "./models.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const MODELS_DIR = path.join(__dirname, "..", "models");
+const MANIFEST_PATH = path.join(MODELS_DIR, "manifest.json");
+
+let llama = null;
+let model = null;
+let context = null;
+let contextSequence = null;
+let loadedModelId = null;
+
+// Serialize prompts: one generation at a time on the single context sequence.
+let queue = Promise.resolve();
+
+function ensureDir() {
+  fs.mkdirSync(MODELS_DIR, { recursive: true });
+}
+
+function readManifest() {
+  try {
+    return JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeManifest(manifest) {
+  fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+}
+
+/** Models that have been fully downloaded and are present on disk. */
+export function listDownloadedModels() {
+  const manifest = readManifest();
+  return Object.entries(manifest)
+    .filter(([, filePath]) => filePath && fs.existsSync(filePath))
+    .map(([id]) => id);
+}
+
+export function getLoadedModelId() {
+  return loadedModelId;
+}
+
+export function isReady() {
+  return Boolean(model && contextSequence);
+}
+
+/**
+ * Download a model by catalog id. `onProgress({downloadedSize, totalSize})`
+ * is called repeatedly so the UI can show a progress bar.
+ */
+export async function downloadModel(id, onProgress) {
+  const entry = getModel(id);
+  if (!entry) throw new Error(`Unknown model id: ${id}`);
+  ensureDir();
+
+  const downloader = await createModelDownloader({
+    modelUri: entry.uri,
+    dirPath: MODELS_DIR,
+    onProgress,
+  });
+  const modelPath = await downloader.download();
+
+  const manifest = readManifest();
+  manifest[id] = modelPath;
+  writeManifest(manifest);
+  return modelPath;
+}
+
+/** Load a downloaded model into memory and prepare a chat context. */
+export async function loadModel(id) {
+  const manifest = readManifest();
+  const modelPath = manifest[id];
+  if (!modelPath || !fs.existsSync(modelPath)) {
+    throw new Error(`Model "${id}" is not downloaded yet.`);
+  }
+
+  if (!llama) llama = await getLlama();
+
+  // Tear down any previously loaded model first.
+  await unload();
+
+  model = await llama.loadModel({ modelPath });
+  context = await model.createContext();
+  contextSequence = context.getSequence();
+  loadedModelId = id;
+  return id;
+}
+
+export async function unload() {
+  try {
+    if (context) await context.dispose();
+  } catch {
+    /* ignore */
+  }
+  context = null;
+  contextSequence = null;
+  if (model) {
+    try {
+      await model.dispose();
+    } catch {
+      /* ignore */
+    }
+  }
+  model = null;
+  loadedModelId = null;
+}
+
+/**
+ * Run one chat turn. `systemPrompt` carries the bank-statement context built
+ * by the caller; `userMessage` is the question. Streams tokens via onChunk.
+ * Returns the full response text.
+ */
+export function chat(systemPrompt, userMessage, onChunk) {
+  // Chain onto the queue so concurrent requests don't corrupt the sequence.
+  const run = queue.then(async () => {
+    if (!isReady()) throw new Error("No model is loaded.");
+    const session = new LlamaChatSession({ contextSequence, systemPrompt });
+    try {
+      const response = await session.prompt(userMessage, {
+        temperature: 0.2, // low temp: we want faithful numbers, not creativity
+        maxTokens: 800,
+        onTextChunk: (text) => {
+          if (onChunk) onChunk(text);
+        },
+      });
+      return response;
+    } finally {
+      session.dispose();
+    }
+  });
+  // Keep the queue alive even if this turn throws.
+  queue = run.catch(() => {});
+  return run;
+}

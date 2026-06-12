@@ -1,3 +1,13 @@
+# Node
+node_modules/
+server.log
+npm-debug.log*
+
+# Downloaded LLM models (large GGUF files) & local data
+models/
+data/
+*.gguf
+
 # Python cache
 __pycache__/
 *.py[cod]
