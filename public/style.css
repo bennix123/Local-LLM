@@ -127,6 +127,81 @@ input[type="file"] { color: var(--muted); }
   font-size: 0.9rem;
 }
 
+/* Processing steps */
+.processing {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(79, 140, 255, 0.05);
+}
+.steps { list-style: none; margin: 0; padding: 0; }
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  transition: color 0.2s;
+}
+.step-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: inline-block;
+  position: relative;
+}
+/* pending: empty grey circle (default) */
+/* active: spinning ring */
+.step.active { color: var(--text); }
+.step.active .step-icon {
+  border-color: var(--accent);
+  border-top-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+/* done: green check */
+.step.done { color: var(--text); }
+.step.done .step-icon {
+  border-color: var(--accent-2);
+  background: var(--accent-2);
+}
+.step.done .step-icon::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #0f1117;
+  font-weight: 700;
+}
+/* error: red */
+.step.error { color: #ff6b6b; }
+.step.error .step-icon { border-color: #ff6b6b; }
+.step.error .step-icon::after {
+  content: "!";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #ff6b6b;
+  font-weight: 700;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chat-cta {
+  margin-top: 14px;
+  background: var(--accent-2);
+  color: #0f1117;
+  font-weight: 600;
+}
+
 /* Chat */
 .chat {
   min-height: 120px;

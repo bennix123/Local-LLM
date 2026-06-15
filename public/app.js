@@ -148,23 +148,91 @@ $("download-btn").addEventListener("click", async () => {
   });
 });
 
-// --- Upload flow ----------------------------------------------------------
+// --- Upload flow (with staged processing status) --------------------------
+const STEP_ORDER = ["upload", "parse", "index", "ready"];
+
+function stepEl(name) {
+  return document.querySelector(`.step[data-step="${name}"]`);
+}
+function setStep(name, state) {
+  const el = stepEl(name);
+  if (el) el.className = "step" + (state ? " " + state : "");
+}
+function resetSteps() {
+  STEP_ORDER.forEach((s) => setStep(s, ""));
+}
+function setStepLabel(name, text) {
+  const el = stepEl(name);
+  if (el) el.querySelector(".step-label").textContent = text;
+}
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
 $("file-input").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+
+  // Reset UI into "processing" mode.
+  $("doc-info").classList.add("hidden");
+  $("chat-cta").classList.add("hidden");
+  updateChatEnabled(false);
+  resetSteps();
+  $("processing").classList.remove("hidden");
+
+  const isPdf = /\.pdf$/i.test(file.name);
+  setStepLabel(
+    "parse",
+    isPdf
+      ? "Transcoding PDF pages & extracting text"
+      : "Reading & parsing rows"
+  );
+
+  // 1) Uploading
+  setStep("upload", "active");
   const fd = new FormData();
   fd.append("file", file);
-  $("doc-info").classList.remove("hidden");
-  $("doc-info").textContent = "⏳ Parsing & indexing…";
-  const r = await fetch("/api/upload", { method: "POST", body: fd });
-  const data = await r.json();
-  if (!r.ok) {
-    $("doc-info").textContent = "❌ " + data.error;
-    updateChatEnabled(false);
-    return;
+
+  try {
+    const uploadPromise = fetch("/api/upload", { method: "POST", body: fd });
+
+    // Give the upload step a brief moment, then move to parsing while we wait.
+    await wait(450);
+    setStep("upload", "done");
+    setStep("parse", "active");
+
+    const r = await uploadPromise;
+    const data = await r.json();
+
+    if (!r.ok) {
+      setStep("parse", "error");
+      $("doc-info").classList.remove("hidden");
+      $("doc-info").textContent = "❌ " + (data.error || "Upload failed.");
+      return;
+    }
+
+    // 2) Parsing done → 3) Indexing (short, for visual feedback)
+    setStep("parse", "done");
+    setStep("index", "active");
+    await wait(400);
+    setStep("index", "done");
+
+    // 4) Ready
+    setStep("ready", "done");
+    showDocInfo(data.document);
+    $("doc-info").classList.remove("hidden");
+    updateChatEnabled(true);
+    $("chat-cta").classList.remove("hidden");
+  } catch (err) {
+    const active = STEP_ORDER.find((s) => stepEl(s)?.classList.contains("active"));
+    if (active) setStep(active, "error");
+    $("doc-info").classList.remove("hidden");
+    $("doc-info").textContent = "❌ " + err.message;
   }
-  showDocInfo(data.document);
-  updateChatEnabled(true);
+});
+
+// Jump from the upload card straight into the chat.
+$("chat-cta").addEventListener("click", () => {
+  $("chat-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  $("chat-input").focus();
 });
 
 // --- Chat flow (streamed) -------------------------------------------------

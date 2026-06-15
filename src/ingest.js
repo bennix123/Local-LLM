@@ -26,11 +26,12 @@ function rowToLine(rowObj, columns, index) {
 }
 
 function tabularToChunks(records) {
-  if (!records.length) return { columns: [], rowCount: 0, chunks: [] };
+  if (!records.length)
+    return { columns: [], rowCount: 0, chunks: [], records: [] };
   const columns = Object.keys(records[0]);
   const rows = records.slice(0, MAX_ROWS);
   const chunks = rows.map((r, i) => rowToLine(r, columns, i));
-  return { columns, rowCount: rows.length, chunks };
+  return { columns, rowCount: rows.length, chunks, records: rows };
 }
 
 export function parseCsv(buffer) {
@@ -66,7 +67,7 @@ export async function parsePdf(buffer) {
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   const chunks = lines.slice(0, MAX_ROWS);
-  return { columns: [], rowCount: chunks.length, chunks };
+  return { columns: [], rowCount: chunks.length, chunks, records: [] };
 }
 
 /** Dispatch on file extension. Returns { columns, rowCount, chunks }. */

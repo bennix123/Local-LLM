@@ -16,6 +16,7 @@ import {
   hasDocument,
 } from "./src/db.js";
 import { parseFile } from "./src/ingest.js";
+import { computeStatsSummary } from "./src/stats.js";
 import {
   listDownloadedModels,
   downloadModel,
@@ -106,11 +107,13 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
         .status(400)
         .json({ error: "Could not read any rows/text from that file." });
     }
+    const summary = computeStatsSummary(parsed.columns, parsed.records);
     replaceDocument({
       fileName: originalname,
       columns: parsed.columns,
       rowCount: parsed.rowCount,
       chunks: parsed.chunks,
+      summary,
     });
     res.json({ ok: true, document: getMeta() });
   } catch (err) {

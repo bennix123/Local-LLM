@@ -35,7 +35,7 @@ export function initDb() {
 }
 
 /** Replace the entire stored document with a fresh set of text chunks. */
-export function replaceDocument({ fileName, columns, rowCount, chunks }) {
+export function replaceDocument({ fileName, columns, rowCount, chunks, summary }) {
   db.exec("DELETE FROM chunks;");
   db.exec("DELETE FROM meta;");
 
@@ -43,6 +43,7 @@ export function replaceDocument({ fileName, columns, rowCount, chunks }) {
   setMeta.run("fileName", fileName);
   setMeta.run("columns", JSON.stringify(columns || []));
   setMeta.run("rowCount", String(rowCount ?? chunks.length));
+  setMeta.run("summary", summary || "");
 
   const insert = db.prepare(
     "INSERT INTO chunks (content, row_index) VALUES (?, ?);"
@@ -71,6 +72,7 @@ export function getMeta() {
     fileName: out.fileName || null,
     columns: out.columns ? JSON.parse(out.columns) : [],
     rowCount: out.rowCount ? Number(out.rowCount) : 0,
+    summary: out.summary || "",
   };
 }
 

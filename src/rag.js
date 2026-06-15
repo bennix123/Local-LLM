@@ -13,8 +13,10 @@ import {
   searchChunks,
 } from "./db.js";
 
-// ~4 chars/token; keep well under small models' context windows.
-const FULL_CONTEXT_CHAR_BUDGET = 24000;
+// ~4 chars/token. Kept under the 8192-token context (leaving room for the
+// facts block, the question, and the answer). Aggregate questions are still
+// answered correctly from the PRE-COMPUTED FACTS even in search mode.
+const FULL_CONTEXT_CHAR_BUDGET = 18000;
 
 export function buildSystemPrompt(question) {
   const meta = getMeta();
@@ -31,23 +33,29 @@ export function buildSystemPrompt(question) {
   }
 
   const header = [
-    "You are a precise assistant that answers questions about the user's uploaded bank statement.",
+    "You are a precise assistant that answers questions about the user's bank statement.",
+    "The full statement data is included below in this prompt. You DO have access to it.",
+    "Never say you lack access to the data or the file — the data is right here.",
+    "",
     "Rules:",
-    "- Use ONLY the statement data below. Do not invent transactions or numbers.",
-    "- When asked for totals, sums, counts, or averages, compute them step by step from the rows and double-check the arithmetic.",
+    "- Answer using ONLY the data below. Do not invent transactions, dates, or numbers.",
+    "- For any total, sum, count, min, max, or average, USE THE PRE-COMPUTED FACTS section. Those figures are exact — trust them over doing your own mental math.",
     "- Keep currency/number formatting as it appears in the data.",
-    "- If the answer is not in the data, say you cannot find it in the statement.",
+    "- Be concise. Give the answer directly. Do NOT repeat yourself or restate the same sentence.",
+    "- If something genuinely is not in the data, say so in one short sentence.",
     "",
     `Statement file: ${meta.fileName || "unknown"}`,
     meta.columns.length ? `Columns: ${meta.columns.join(", ")}` : null,
-    `Total rows in statement: ${meta.rowCount}`,
-    mode === "search"
-      ? `NOTE: The statement is large; below are only the rows most relevant to the question (not all ${meta.rowCount} rows). Totals may be incomplete.`
-      : null,
     "",
-    "=== STATEMENT DATA ===",
+    meta.summary ? "=== PRE-COMPUTED FACTS (authoritative; use these for any math) ===" : null,
+    meta.summary || null,
+    meta.summary ? "=== END OF FACTS ===\n" : null,
+    mode === "search"
+      ? `NOTE: The statement is large; the rows below are only those most relevant to the question (not all ${meta.rowCount}). Use the PRE-COMPUTED FACTS above for any totals.`
+      : null,
+    "=== STATEMENT ROWS ===",
     rows.join("\n"),
-    "=== END OF DATA ===",
+    "=== END OF ROWS ===",
   ]
     .filter((l) => l !== null)
     .join("\n");

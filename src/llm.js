@@ -38,6 +38,7 @@ let model = null;
 let context = null;
 let contextSequence = null;
 let loadedModelId = null;
+let useCpu = false; // flips to true once a GPU OOM forces a CPU fallback
 
 // Serialize prompts: one generation at a time on the single context sequence.
 let queue = Promise.resolve();
@@ -104,15 +105,51 @@ export async function loadModel(id) {
     throw new Error(`Model "${id}" is not downloaded yet.`);
   }
 
-  if (!llama) llama = await getLlama();
-
   // Tear down any previously loaded model first.
   await unload();
 
-  model = await llama.loadModel({ modelPath });
-  context = await model.createContext();
-  contextSequence = context.getSequence();
+  // Keep the context small: a big KV cache is what makes low-VRAM GPUs run out
+  // of memory (Vulkan "ErrorOutOfDeviceMemory"). 8192 comfortably fits a whole
+  // bank statement (~6k tokens) + question + answer.
+  const CONTEXT_SIZE = 8192;
+
+  async function tryLoad(forceCpu) {
+    llama = await getLlama(forceCpu ? { gpu: false } : {});
+    model = await llama.loadModel({ modelPath });
+    context = await model.createContext({ contextSize: CONTEXT_SIZE });
+    contextSequence = context.getSequence();
+  }
+
+  try {
+    await tryLoad(useCpu);
+  } catch (err) {
+    // GPU likely ran out of memory — fall back to CPU and retry once.
+    if (!useCpu) {
+      console.warn(
+        "[llm] GPU load failed (" +
+          (err?.message || err) +
+          "). Falling back to CPU."
+      );
+      useCpu = true;
+      await unload();
+      await tryLoad(true);
+    } else {
+      throw err;
+    }
+  }
   loadedModelId = id;
+
+  // Warm-up: the first inference pays a one-time cost (buffer allocation,
+  // graph build, cache warm). Pay it now — during the "Loading model…" state —
+  // so the user's FIRST real question responds quickly instead of stalling.
+  try {
+    const warm = new LlamaChatSession({ contextSequence });
+    await warm.prompt("Hi", { maxTokens: 1 });
+    warm.dispose();
+    await contextSequence.clearHistory(); // discard warm-up tokens
+  } catch {
+    /* warm-up is best-effort; ignore failures */
+  }
   return id;
 }
 
@@ -148,7 +185,17 @@ export function chat(systemPrompt, userMessage, onChunk) {
     try {
       const response = await session.prompt(userMessage, {
         temperature: 0.2, // low temp: we want faithful numbers, not creativity
-        maxTokens: 800,
+        maxTokens: 500,
+        // Penalize repetition so weak models don't loop the same sentence.
+        repeatPenalty: {
+          penalty: 1.3,
+          frequencyPenalty: 0.3,
+          presencePenalty: 0.3,
+          lastTokens: 256,
+        },
+        // DRY penalty: specifically targets repeated multi-token sequences,
+        // i.e. the "same sentence over and over" degeneration loop.
+        dryRepeatPenalty: { strength: 0.8 },
         onTextChunk: (text) => {
           if (onChunk) onChunk(text);
         },

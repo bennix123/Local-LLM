@@ -39,10 +39,34 @@
         <h2>Step 2 · Upload your bank statement</h2>
         <p class="muted">CSV, Excel (.xlsx/.xls), or a text-based PDF.</p>
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.txt" />
+
+        <!-- Processing status (shown while the document is being prepared) -->
+        <div id="processing" class="processing hidden">
+          <ol class="steps">
+            <li class="step" data-step="upload">
+              <span class="step-icon"></span>
+              <span class="step-label">Uploading document</span>
+            </li>
+            <li class="step" data-step="parse">
+              <span class="step-icon"></span>
+              <span class="step-label">Transcoding &amp; reading content</span>
+            </li>
+            <li class="step" data-step="index">
+              <span class="step-icon"></span>
+              <span class="step-label">Indexing into local database</span>
+            </li>
+            <li class="step" data-step="ready">
+              <span class="step-icon"></span>
+              <span class="step-label">Ready to chat</span>
+            </li>
+          </ol>
+        </div>
+
         <div id="doc-info" class="doc-info hidden"></div>
+        <button id="chat-cta" class="chat-cta hidden">💬 Chat with your document</button>
       </section>
 
-      <section class="card">
+      <section class="card" id="chat-section">
         <h2>Step 3 · Ask anything about it</h2>
         <div id="chat" class="chat"></div>
         <form id="chat-form">
