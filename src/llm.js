@@ -20,7 +20,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_DATA_DIR =
   process.env.LOCALAPPDATA ||
   process.env.APPDATA ||
-  path.join(os.homedir(), ".local", "share");
+  (process.platform === "darwin"
+    ? path.join(os.homedir(), "Library", "Application Support")
+    : path.join(os.homedir(), ".local", "share"));
 
 const MODELS_DIR = path.join(
   APP_DATA_DIR,
@@ -42,6 +44,9 @@ let useCpu = false; // flips to true once a GPU OOM forces a CPU fallback
 
 // Serialize prompts: one generation at a time on the single context sequence.
 let queue = Promise.resolve();
+
+// Serialize model loading to prevent race conditions on useCpu flag.
+let loadLock = Promise.resolve();
 
 function ensureDir() {
   fs.mkdirSync(MODELS_DIR, { recursive: true });
@@ -99,77 +104,65 @@ export async function downloadModel(id, onProgress) {
 
 /** Load a downloaded model into memory and prepare a chat context. */
 export async function loadModel(id) {
-  const manifest = readManifest();
-  const modelPath = manifest[id];
-  if (!modelPath || !fs.existsSync(modelPath)) {
-    throw new Error(`Model "${id}" is not downloaded yet.`);
-  }
-
-  // Tear down any previously loaded model first.
-  await unload();
-
-  // Keep the context small: a big KV cache is what makes low-VRAM GPUs run out
-  // of memory (Vulkan "ErrorOutOfDeviceMemory"). 8192 comfortably fits a whole
-  // bank statement (~6k tokens) + question + answer.
-  const CONTEXT_SIZE = 8192;
-
-  async function tryLoad(forceCpu) {
-    llama = await getLlama(forceCpu ? { gpu: false } : {});
-    model = await llama.loadModel({ modelPath });
-    context = await model.createContext({ contextSize: CONTEXT_SIZE });
-    contextSequence = context.getSequence();
-  }
-
-  try {
-    await tryLoad(useCpu);
-  } catch (err) {
-    // GPU likely ran out of memory — fall back to CPU and retry once.
-    if (!useCpu) {
-      console.warn(
-        "[llm] GPU load failed (" +
-          (err?.message || err) +
-          "). Falling back to CPU."
-      );
-      useCpu = true;
-      await unload();
-      await tryLoad(true);
-    } else {
-      throw err;
+  const run = loadLock.then(async () => {
+    const manifest = readManifest();
+    const modelPath = manifest[id];
+    if (!modelPath || !fs.existsSync(modelPath)) {
+      throw new Error(`Model "${id}" is not downloaded yet.`);
     }
-  }
-  loadedModelId = id;
 
-  // Warm-up: the first inference pays a one-time cost (buffer allocation,
-  // graph build, cache warm). Pay it now — during the "Loading model…" state —
-  // so the user's FIRST real question responds quickly instead of stalling.
-  try {
-    const warm = new LlamaChatSession({ contextSequence });
-    await warm.prompt("Hi", { maxTokens: 1 });
-    warm.dispose();
-    await contextSequence.clearHistory(); // discard warm-up tokens
-  } catch {
-    /* warm-up is best-effort; ignore failures */
-  }
-  return id;
+    await unload();
+
+    const CONTEXT_SIZE = 8192;
+
+    async function tryLoad(forceCpu) {
+      llama = await getLlama(forceCpu ? { gpu: false } : {});
+      model = await llama.loadModel({ modelPath });
+      context = await model.createContext({ contextSize: CONTEXT_SIZE });
+      contextSequence = context.getSequence();
+    }
+
+    try {
+      await tryLoad(useCpu);
+    } catch (err) {
+      if (!useCpu) {
+        console.warn(
+          `[llm] GPU load failed (${err?.message || err}). Falling back to CPU.`
+        );
+        useCpu = true;
+        await unload();
+        await tryLoad(true);
+      } else {
+        throw err;
+      }
+    }
+    loadedModelId = id;
+
+    try {
+      const warm = new LlamaChatSession({ contextSequence });
+      await warm.prompt("Hi", { maxTokens: 1 });
+      warm.dispose();
+      await contextSequence.clearHistory();
+    } catch {
+      /* warm-up is best-effort */
+    }
+    return id;
+  });
+
+  loadLock = run.catch(() => {});
+  return run;
 }
 
 export async function unload() {
-  try {
-    if (context) await context.dispose();
-  } catch {
-    /* ignore */
-  }
+  try { if (context) await context.dispose(); } catch { /* ignore */ }
   context = null;
   contextSequence = null;
-  if (model) {
-    try {
-      await model.dispose();
-    } catch {
-      /* ignore */
-    }
-  }
+  try { if (model) await model.dispose(); } catch { /* ignore */ }
   model = null;
+  try { if (llama) { await llama.dispose(); } } catch { /* ignore */ }
+  llama = null;
   loadedModelId = null;
+  useCpu = false;
 }
 
 /**

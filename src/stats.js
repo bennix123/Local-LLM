@@ -1,154 +1,242 @@
+
 // Deterministic aggregation for tabular bank statements.
 //
-// Small local LLMs are unreliable at arithmetic over many rows (they skip rows,
-// miscalculate, or loop). So we compute the real figures here, in code, and feed
-// them to the model as authoritative "facts". The model then just *reports*
-// numbers instead of trying to add them up itself.
+// Strategy: Small LLMs are unreliable at arithmetic, so we pre-compute EVERY
+// possible answer and feed them as a structured "FACTS TABLE" that the LLM
+// simply reads from. The model's only job is to locate the right row in the
+// table and repeat it verbatim — zero reasoning required.
 
-/** Parse a messy money/number string -> Number, or null if not numeric. */
 export function toNumber(raw) {
   if (raw == null) return null;
   let s = String(raw).trim();
   if (s === "") return null;
-  // Looks like a date/time (e.g. 2026-05-01, 05/12/2026, 12:30) — not a number.
   if (/\d[-/:]\d/.test(s)) return null;
   let negative = false;
-  // Accountancy style: (123.45) means -123.45
   if (/^\(.*\)$/.test(s)) {
     negative = true;
     s = s.slice(1, -1);
   }
   if (/^-/.test(s)) negative = true;
-  // Strip currency symbols, thousands separators, spaces, letters.
   s = s.replace(/[^0-9.]/g, "");
   if (s === "" || s === ".") return null;
-  // Reject things that were clearly dates (e.g. 2026.05.01 collapsed oddly).
   const n = Number(s);
   if (Number.isNaN(n)) return null;
   return negative ? -n : n;
 }
 
 function fmt(n) {
-  // Keep 2 decimals for money-like values, trim trailing for integers.
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-/**
- * @param {string[]} columns
- * @param {Array<Object>} records  raw parsed rows (objects keyed by column)
- * @returns {string|null} a human/LLM readable summary block, or null if there's
- *   nothing numeric to summarize (e.g. a scanned PDF with no columns).
- */
-export function computeStatsSummary(columns, records) {
-  if (!columns?.length || !records?.length) return null;
+function findCol(columns, patterns) {
+  for (const p of patterns) {
+    const col = columns.find((c) => new RegExp(p, "i").test(c));
+    if (col) return col;
+  }
+  return null;
+}
 
-  // Classify columns as numeric vs text.
-  const numericCols = [];
-  const textCols = [];
+function classifyNumericColumns(columns, records) {
+  const numeric = [];
   for (const col of columns) {
-    let numeric = 0;
-    let nonEmpty = 0;
+    let numericCount = 0, nonEmpty = 0;
     for (const r of records) {
       const v = r[col];
       if (v == null || String(v).trim() === "") continue;
       nonEmpty++;
-      if (toNumber(v) !== null) numeric++;
+      if (toNumber(v) !== null) numericCount++;
     }
-    if (nonEmpty > 0 && numeric / nonEmpty >= 0.6) numericCols.push(col);
-    else if (nonEmpty > 0) textCols.push(col);
+    if (nonEmpty > 0 && numericCount / nonEmpty >= 0.6) numeric.push(col);
   }
+  return numeric;
+}
 
+export function computeStatsSummary(columns, records) {
+  if (!columns?.length || !records?.length) return null;
+
+  const numericCols = classifyNumericColumns(columns, records);
   if (numericCols.length === 0) return null;
 
-  // Pick a "description" column for labeling extremes: the text column with the
-  // longest average content (usually the merchant/description field).
-  let descCol = null;
-  let bestLen = -1;
-  for (const col of textCols) {
-    let total = 0;
-    let count = 0;
-    for (const r of records) {
-      const v = r[col];
-      if (v != null && String(v).trim() !== "") {
-        total += String(v).length;
-        count++;
-      }
-    }
-    const avg = count ? total / count : 0;
-    if (avg > bestLen) {
-      bestLen = avg;
-      descCol = col;
-    }
-  }
+  const descCol = findCol(columns, ["description", "payee", "merchant", "name", "narrative", "details", "memo"]) ||
+    columns.find((c) => !numericCols.includes(c)) ||
+    columns[0];
+
+  const amountCol = findCol(columns, ["amount", "sum", "value", "total", "debit", "credit"]) ||
+    numericCols[0];
+
+  const dateCol = findCol(columns, ["date", "time", "posted", "trans_date", "transaction_date"]);
+
+  const categoryCol = findCol(columns, ["category", "type", "tag", "group", "class"]);
+
+  const typeCol = findCol(columns, ["type", "transaction_type", "txn_type", "dr_cr", "debit_credit"]);
 
   const lines = [];
-  lines.push(`Total rows: ${records.length}`);
 
-  for (const col of numericCols) {
-    let sum = 0;
-    let count = 0;
-    let min = Infinity;
-    let max = -Infinity;
-    let minRow = -1;
-    let maxRow = -1;
-    records.forEach((r, i) => {
-      const n = toNumber(r[col]);
-      if (n === null) return;
-      count++;
-      sum += n;
-      if (n < min) {
-        min = n;
-        minRow = i;
-      }
-      if (n > max) {
-        max = n;
-        maxRow = i;
-      }
-    });
-    if (count === 0) continue;
+  // ── 1. OVERVIEW ─────────────────────────────────────────────────
+  let totalIncome = 0, totalExpense = 0;
+  let countIncome = 0, countExpense = 0;
+  let maxCredit = 0, maxCreditRow = -1, maxCreditAmt = 0;
+  let maxDebit = 0, maxDebitRow = -1, maxDebitAmt = 0;
 
-    const label = (i) =>
-      descCol && records[i] && records[i][descCol]
-        ? ` (Row ${i + 1}: ${String(records[i][descCol]).trim()})`
-        : ` (Row ${i + 1})`;
-
-    lines.push(
-      `Column "${col}": count=${count}, sum=${fmt(sum)}, ` +
-        `min=${fmt(min)}${label(minRow)}, max=${fmt(max)}${label(maxRow)}, ` +
-        `average=${fmt(sum / count)}`
-    );
+  for (let i = 0; i < records.length; i++) {
+    const n = toNumber(records[i][amountCol]);
+    if (n === null) continue;
+    if (n > 0) {
+      totalIncome += n;
+      countIncome++;
+      if (n > maxCredit) { maxCredit = n; maxCreditRow = i; maxCreditAmt = n; }
+    } else {
+      totalExpense += n;
+      countExpense++;
+      const absN = Math.abs(n);
+      if (absN > maxDebit) { maxDebit = absN; maxDebitRow = i; maxDebitAmt = n; }
+    }
   }
 
-  // Per-payee/description breakdown so the model can answer filtered sums like
-  // "how much did I spend at <merchant>" without doing multi-row math itself.
-  const spendCol =
-    numericCols.find((c) =>
-      /debit|withdraw|amount|spent|charge|paid|expense/i.test(c)
-    ) ||
-    numericCols.find(
-      (c) => !/balance|credit|deposit|income|date|time/i.test(c)
-    ) ||
-    null;
+  const netTotal = totalIncome + totalExpense;
+  const label = (i) => descCol && records[i] ? String(records[i][descCol]).trim().split(" - ")[0] : `Row ${i + 1}`;
 
-  if (descCol && spendCol) {
-    const groups = new Map();
+  lines.push("=== FINANCIAL OVERVIEW ===");
+  lines.push(`Total transactions: ${records.length}`);
+  lines.push(`Total income: $${fmt(totalIncome)} (${countIncome} credits)`);
+  lines.push(`Total expenses: -$${fmt(Math.abs(totalExpense))} (${countExpense} debits)`);
+  lines.push(`Net total: $${fmt(netTotal)}`);
+  lines.push(`Average transaction: $${fmt(netTotal / records.length)}`);
+  lines.push(`Largest credit: $${fmt(maxCreditAmt)} from ${label(maxCreditRow)}`);
+  lines.push(`Largest debit: -$${fmt(maxDebit)} to ${label(maxDebitRow)}`);
+  lines.push("");
+
+  // ── 2. CATEGORY BREAKDOWN ────────────────────────────────────────
+  if (categoryCol) {
+    const byCat = new Map();
+    const byCatIncome = new Map();
+    const byCatExpense = new Map();
     for (const r of records) {
-      const n = toNumber(r[spendCol]);
+      const cat = String(r[categoryCol] || "Uncategorized").trim();
+      const n = toNumber(r[amountCol]);
       if (n === null) continue;
-      const key = String(r[descCol] ?? "").trim() || "(blank)";
-      groups.set(key, (groups.get(key) || 0) + n);
+      if (!byCat.has(cat)) { byCat.set(cat, 0); byCatIncome.set(cat, 0); byCatExpense.set(cat, 0); }
+      byCat.set(cat, byCat.get(cat) + 1);
+      if (n > 0) byCatIncome.set(cat, byCatIncome.get(cat) + n);
+      else byCatExpense.set(cat, byCatExpense.get(cat) + Math.abs(n));
     }
-    const top = [...groups.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20);
-    if (top.length) {
+
+    const ranked = [...byCat.entries()].sort((a, b) => {
+      const aTotal = Math.abs(byCatIncome.get(a[0]) || 0) + Math.abs(byCatExpense.get(a[0]) || 0);
+      const bTotal = Math.abs(byCatIncome.get(b[0]) || 0) + Math.abs(byCatExpense.get(b[0]) || 0);
+      return bTotal - aTotal;
+    });
+
+    lines.push("=== CATEGORY BREAKDOWN (sorted by total volume) ===");
+    for (const [cat, count] of ranked) {
+      const income = byCatIncome.get(cat) || 0;
+      const expense = byCatExpense.get(cat) || 0;
+      const parts = [`${count} txn`];
+      if (income > 0) parts.push(`earned $${fmt(income)}`);
+      if (expense > 0) parts.push(`spent $${fmt(expense)}`);
+      lines.push(`${cat}: ${parts.join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  // ── 3. TOP EXPENSE CATEGORIES ────────────────────────────────────
+  if (categoryCol) {
+    const expenseCats = [];
+    for (const r of records) {
+      const n = toNumber(r[amountCol]);
+      if (n !== null && n < 0) {
+        const cat = String(r[categoryCol] || "Uncategorized").trim();
+        const existing = expenseCats.find((e) => e.cat === cat);
+        if (existing) existing.total += Math.abs(n);
+        else expenseCats.push({ cat, total: Math.abs(n) });
+      }
+    }
+    expenseCats.sort((a, b) => b.total - a.total);
+    if (expenseCats.length > 0) {
+      lines.push("=== TOP SPENDING CATEGORIES ===");
+      expenseCats.slice(0, 10).forEach((e, i) => {
+        lines.push(`${i + 1}. ${e.cat}: $${fmt(e.total)}`);
+      });
       lines.push("");
-      lines.push(
-        `Total "${spendCol}" grouped by "${descCol}" (each payee's combined total):`
-      );
-      for (const [key, total] of top) lines.push(`- ${key}: ${fmt(total)}`);
     }
   }
+
+  // ── 4. MONTHLY BREAKDOWN ─────────────────────────────────────────
+  if (dateCol) {
+    const byMonth = new Map();
+    for (const r of records) {
+      const dateStr = String(r[dateCol] || "").trim();
+      const month = dateStr.length >= 7 ? dateStr.substring(0, 7) : dateStr;
+      if (!month) continue;
+      const n = toNumber(r[amountCol]);
+      if (n === null) continue;
+      if (!byMonth.has(month)) byMonth.set(month, { income: 0, expense: 0, count: 0 });
+      const m = byMonth.get(month);
+      m.count++;
+      if (n > 0) m.income += n;
+      else m.expense += Math.abs(n);
+    }
+
+    if (byMonth.size > 0) {
+      lines.push("=== MONTHLY BREAKDOWN ===");
+      for (const [month, data] of [...byMonth.entries()].sort()) {
+        const net = data.income - data.expense;
+        const sign = net >= 0 ? "+" : "";
+        lines.push(`${month}: ${data.count} txns, income $${fmt(data.income)}, expenses $${fmt(data.expense)}, net ${sign}$${fmt(net)}`);
+      }
+      lines.push("");
+    }
+  }
+
+  // ── 5. TOP PAYEES ────────────────────────────────────────────────
+  if (descCol) {
+    const byPayee = new Map();
+    for (const r of records) {
+      const payee = String(r[descCol] || "").trim().split(" - ")[0];
+      const n = toNumber(r[amountCol]);
+      if (n === null) continue;
+      if (!byPayee.has(payee)) byPayee.set(payee, { gross: 0, count: 0 });
+      const p = byPayee.get(payee);
+      p.gross += Math.abs(n);
+      p.count++;
+    }
+    const sorted = [...byPayee.entries()].sort((a, b) => b[1].gross - a[1].gross).slice(0, 20);
+    if (sorted.length > 0) {
+      lines.push("=== TOP 20 PAYEES BY TOTAL VOLUME ===");
+      sorted.forEach(([name, data], i) => {
+        lines.push(`${i + 1}. ${name}: ${data.count} txns, total $${fmt(data.gross)}`);
+      });
+      lines.push("");
+    }
+  }
+
+  // ── 6. LARGEST INDIVIDUAL TRANSACTIONS ───────────────────────────
+  const byAbs = records
+    .map((r, i) => ({ i, amt: toNumber(r[amountCol]), desc: String(r[descCol] || r[amountCol] || "").trim(), date: dateCol ? String(r[dateCol] || "").trim() : "" }))
+    .filter((t) => t.amt !== null)
+    .sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt))
+    .slice(0, 10);
+
+  if (byAbs.length > 0) {
+    lines.push("=== TOP 10 LARGEST TRANSACTIONS ===");
+    byAbs.forEach((t, i) => {
+      const sign = t.amt >= 0 ? "+" : "-";
+      lines.push(`${i + 1}. ${t.date} | ${t.desc.split(" - ")[0]} | ${sign}$${fmt(Math.abs(t.amt))}`);
+    });
+    lines.push("");
+  }
+
+  // ── 7. RECENT TRANSACTIONS ───────────────────────────────────────
+  const recent = records.slice(-10).map((r) => {
+    const amt = toNumber(r[amountCol]);
+    const desc = descCol ? String(r[descCol] || "").trim().split(" - ")[0] : "";
+    const date = dateCol ? String(r[dateCol] || "").trim() : "";
+    const sign = amt !== null && amt >= 0 ? "+" : "-";
+    return `${date} | ${desc} | ${sign}$${fmt(Math.abs(amt || 0))}`;
+  });
+  lines.push("=== LAST 10 TRANSACTIONS ===");
+  recent.forEach((r) => lines.push(r));
+  lines.push("");
 
   return lines.join("\n");
 }

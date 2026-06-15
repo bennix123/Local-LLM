@@ -13,6 +13,7 @@ const DB_PATH = path.join(__dirname, "..", "data", "bank.db");
 let db;
 
 export function initDb() {
+  if (db) return db;
   // Ensure the data directory exists (DatabaseSync won't create parent dirs).
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   db = new DatabaseSync(DB_PATH);

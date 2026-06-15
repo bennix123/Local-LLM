@@ -1,10 +1,10 @@
-// Builds the system prompt (context) fed to the model for each question.
+
+// Builds the system prompt fed to the LLM for each question.
 //
-// Bank statements are usually small, and questions are often aggregate ones
-// ("how much did I spend on food", "what's my biggest debit"). Pure top-K
-// keyword retrieval can't answer totals. So: if the whole statement fits in a
-// reasonable context budget, we feed EVERY row. Only for very large sheets do
-// we fall back to FTS5 keyword retrieval of the most relevant rows.
+// AGGREGATE mode: feeds only the pre-computed facts table. LLM copies the
+//   relevant line verbatim — zero reasoning, zero hallucination risk.
+// FULL mode: all rows fit in context — feeds everything.
+// SEMANTIC/SEARCH mode: runs vector/keyword retrieval for specific lookups.
 
 import {
   getMeta,
@@ -12,53 +12,84 @@ import {
   getTotalContentLength,
   searchChunks,
 } from "./db.js";
+import { isChromaReady, semanticSearchChunks } from "./chromaDb.js";
 
-// ~4 chars/token. Kept under the 8192-token context (leaving room for the
-// facts block, the question, and the answer). Aggregate questions are still
-// answered correctly from the PRE-COMPUTED FACTS even in search mode.
 const FULL_CONTEXT_CHAR_BUDGET = 18000;
 
-export function buildSystemPrompt(question) {
+const AGGREGATE_PATTERNS = [
+  /\bhow much\b/i, /\btotal\b/i, /\boverall\b/i, /\bsum\b/i,
+  /\bnet\b/i, /\bspent on\b/i, /\bspending\b/i, /\bcategor(y|ies)\b/i,
+  /\bbreakdown\b/i, /\b(most|biggest|largest|highest|smallest|lowest)\b/i,
+  /\btop\s*\d+/i, /\baverage\b/i, /\bincome\b/i, /\bexpenses?\b/i,
+  /\bsave\b/i, /\bsavings\b/i, /\bmonth(ly)?\b/i,
+  /\bwhat (is|was|are|were)\b/i, /\bhow many\b/i,
+];
+
+function isAggregateQuestion(question) {
+  return AGGREGATE_PATTERNS.some((p) => p.test(question));
+}
+
+export async function buildSystemPrompt(question) {
   const meta = getMeta();
   const totalLen = getTotalContentLength();
+  const isAgg = isAggregateQuestion(question);
 
-  let rows;
-  let mode;
+  let rows, mode;
+
   if (totalLen <= FULL_CONTEXT_CHAR_BUDGET) {
     rows = getAllChunks();
     mode = "full";
+  } else if (isAgg) {
+    mode = "facts_only";
+    rows = [];
+  } else if (isChromaReady()) {
+    rows = await semanticSearchChunks(question, 30);
+    mode = "semantic";
   } else {
     rows = searchChunks(question, 30);
     mode = "search";
   }
 
-  const header = [
-    "You are a precise assistant that answers questions about the user's bank statement.",
-    "The full statement data is included below in this prompt. You DO have access to it.",
-    "Never say you lack access to the data or the file — the data is right here.",
-    "",
-    "Rules:",
-    "- Answer using ONLY the data below. Do not invent transactions, dates, or numbers.",
-    "- For any total, sum, count, min, max, or average, USE THE PRE-COMPUTED FACTS section. Those figures are exact — trust them over doing your own mental math.",
-    "- Keep currency/number formatting as it appears in the data.",
-    "- Be concise. Give the answer directly. Do NOT repeat yourself or restate the same sentence.",
-    "- If something genuinely is not in the data, say so in one short sentence.",
-    "",
-    `Statement file: ${meta.fileName || "unknown"}`,
-    meta.columns.length ? `Columns: ${meta.columns.join(", ")}` : null,
-    "",
-    meta.summary ? "=== PRE-COMPUTED FACTS (authoritative; use these for any math) ===" : null,
-    meta.summary || null,
-    meta.summary ? "=== END OF FACTS ===\n" : null,
-    mode === "search"
-      ? `NOTE: The statement is large; the rows below are only those most relevant to the question (not all ${meta.rowCount}). Use the PRE-COMPUTED FACTS above for any totals.`
-      : null,
-    "=== STATEMENT ROWS ===",
-    rows.join("\n"),
-    "=== END OF ROWS ===",
-  ]
-    .filter((l) => l !== null)
-    .join("\n");
+  return buildPrompt(meta, mode, rows);
+}
 
-  return header;
+function buildPrompt(meta, mode, rows) {
+  const facts = meta.summary || "";
+  const parts = [];
+
+  parts.push("You are a bank statement assistant. Keep answers SHORT — 1 to 3 lines. Never ramble. Never explain reasoning. Never say \"based on the data\". Give the answer directly.");
+
+  if (mode === "facts_only") {
+    parts.push("");
+    parts.push("=== FACTS TABLE (copy the exact line that answers the question) ===");
+    parts.push(facts);
+    parts.push("=== END FACTS ===");
+    parts.push("");
+    parts.push("RULES:");
+    parts.push("- Copy the answer exactly from the facts above. Never change a number.");
+    parts.push("- \"Biggest single expense\" means the \"Largest debit\" line, not a category total.");
+    parts.push("- Answer in 1-2 lines only. Do not add commentary.");
+  } else {
+    parts.push("");
+    parts.push(`Statement: ${meta.fileName || "unknown"} — ${meta.rowCount} rows`);
+
+    if (facts) {
+      parts.push("");
+      parts.push("=== FACTS TABLE (for totals use these, not manual math) ===");
+      parts.push(facts);
+      parts.push("=== END FACTS ===");
+    }
+
+    if (rows.length > 0) {
+      parts.push("");
+      parts.push(`=== ${mode === "full" ? "ALL" : "RELEVANT"} TRANSACTIONS (${rows.length} rows) ===`);
+      parts.push(rows.join("\n"));
+      parts.push("=== END TRANSACTIONS ===");
+    }
+
+    parts.push("");
+    parts.push("RULES: For totals use facts. For itemized listings use rows. 1-3 lines max.");
+  }
+
+  return parts.join("\n");
 }
