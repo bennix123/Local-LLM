@@ -5,7 +5,7 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
-import { detectCurrency, resetCurrency } from "./currency.js";
+import { detectCurrency, resetCurrency, setCurrency } from "./currency.js";
 
 const MAX_ROWS = 20000;
 
@@ -110,14 +110,143 @@ export function parseXlsx(buffer) {
   return tabularToChunks(normalizeRecords(cleaned));
 }
 
+// ── Position-aware PDF table parsing (HDFC-style statements) ───────────────
+// pdf-parse's plain text mashes columns together. We instead recover x/y
+// coordinates via the pagerender hook, reconstruct visual lines, bucket items
+// into columns by x, and group them into transactions (handling multi-line
+// wrapped narrations). Falls back to a plain line dump for unknown layouts.
+
+const HDFC_COL = { dateMax: 55, narrMax: 289, refMax: 362, valMax: 405, wdrMax: 491, depMax: 564 };
+const PDF_DATE_RE = /^\d{2}\/\d{2}\/\d{2}$/;
+
+async function extractPdfItems(buffer) {
+  const items = [];
+  await pdfParse(buffer, {
+    pagerender: async (pageData) => {
+      const tc = await pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false });
+      const page = pageData.pageNumber;
+      for (const it of tc.items) {
+        if (it.str == null) continue;
+        items.push({ page, x: it.transform[4], y: it.transform[5], str: it.str });
+      }
+      return "";
+    },
+  });
+  return items;
+}
+
+function itemsToLines(items) {
+  const byPage = new Map();
+  for (const it of items) {
+    if (!byPage.has(it.page)) byPage.set(it.page, []);
+    byPage.get(it.page).push(it);
+  }
+  const lines = [];
+  for (const page of [...byPage.keys()].sort((a, b) => a - b)) {
+    const pageItems = byPage.get(page).sort((a, b) => b.y - a.y || a.x - b.x);
+    let cur = null;
+    for (const it of pageItems) {
+      if (!cur || Math.abs(it.y - cur.y) > 3) { cur = { page, y: it.y, items: [] }; lines.push(cur); }
+      cur.items.push(it);
+    }
+  }
+  for (const ln of lines) ln.items.sort((a, b) => a.x - b.x);
+  return lines;
+}
+
+function looksLikeHdfc(lines) {
+  return lines.some((ln) => {
+    const s = ln.items.map((i) => i.str).join(" ");
+    return /Withdrawal Amt/i.test(s) && /Deposit Amt/i.test(s) && /Closing Balance/i.test(s);
+  });
+}
+
+function bucketLine(ln) {
+  const b = { date: [], narr: [], ref: [], val: [], wdr: [], dep: [], bal: [] };
+  for (const it of ln.items) {
+    const x = it.x;
+    if (x < HDFC_COL.dateMax) b.date.push(it);
+    else if (x < HDFC_COL.narrMax) b.narr.push(it);
+    else if (x < HDFC_COL.refMax) b.ref.push(it);
+    else if (x < HDFC_COL.valMax) b.val.push(it);
+    else if (x < HDFC_COL.wdrMax) b.wdr.push(it);
+    else if (x < HDFC_COL.depMax) b.dep.push(it);
+    else b.bal.push(it);
+  }
+  return b;
+}
+
+const colText = (arr) => arr.map((i) => i.str).join("").trim();
+const colNum = (arr) => {
+  const s = colText(arr).replace(/,/g, "");
+  return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null;
+};
+
+function parseHdfcTransactions(lines) {
+  const out = [];
+  let cur = null;
+  const flush = () => { if (cur) out.push(cur); cur = null; };
+  for (const ln of lines) {
+    const b = bucketLine(ln);
+    const dateStr = colText(b.date);
+    if (PDF_DATE_RE.test(dateStr)) {
+      flush();
+      cur = { Date: dateStr, Narration: colText(b.narr), withdrawal: colNum(b.wdr), deposit: colNum(b.dep), Balance: colNum(b.bal) };
+    } else {
+      const onlyNarr = b.date.length === 0 && b.ref.length === 0 && b.val.length === 0 &&
+        b.wdr.length === 0 && b.dep.length === 0 && b.bal.length === 0 && b.narr.length > 0;
+      if (cur && onlyNarr) cur.Narration += colText(b.narr);
+    }
+  }
+  flush();
+  return out;
+}
+
+function pdfPayee(narr) {
+  const parts = narr.split("-");
+  if (/^UPI/i.test(parts[0])) return (parts[1] || "").replace(/\s+/g, " ").trim();
+  const i = parts.findIndex((p) => /^(TPT|NEFT|IMPS|ME DC|ACH|MMT|RTGS)$/i.test(p.trim()));
+  if (i >= 0 && parts[i + 1]) return parts[i + 1].replace(/\s+/g, " ").trim();
+  return (parts[0] || "").replace(/\s+/g, " ").trim();
+}
+
+function isoFromDdMmYy(d) {
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+  return m ? `20${m[3]}-${m[2]}-${m[1]}` : d;
+}
+
 export async function parsePdf(buffer) {
-  const data = await pdfParse(buffer);
-  const lines = (data.text || "")
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  const chunks = lines.slice(0, MAX_ROWS);
-  return { columns: [], rowCount: chunks.length, chunks, records: [] };
+  const items = await extractPdfItems(buffer);
+  const lines = itemsToLines(items);
+
+  if (looksLikeHdfc(lines)) {
+    // The account header states the currency (e.g. "Currency : INR"); honor it,
+    // since the parsed amounts carry no symbol of their own.
+    const allText = lines.map((l) => l.items.map((i) => i.str).join(" ")).join(" ");
+    if (/\bINR\b|Currency\s*:?\s*INR|\bRs\.?\b/i.test(allText)) setCurrency("INR");
+
+    const raw = parseHdfcTransactions(lines);
+    if (raw.length >= 5) {
+      const records = raw.map((r) => {
+        const signed = r.withdrawal != null ? -r.withdrawal : r.deposit != null ? r.deposit : 0;
+        const narr = r.Narration.replace(/\s+/g, " ").trim();
+        return {
+          Date: isoFromDdMmYy(r.Date),
+          Description: `${pdfPayee(narr)} - ${narr}`,
+          Amount: signed >= 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2),
+          Balance: r.Balance != null ? r.Balance.toFixed(2) : "",
+        };
+      });
+      return tabularToChunks(records);
+    }
+  }
+
+  // Fallback: plain visual lines (unknown layout / non-tabular PDF).
+  const textLines = lines
+    .map((ln) => ln.items.map((i) => i.str).join(" ").trim())
+    .filter((l) => l.length > 0)
+    .slice(0, MAX_ROWS);
+  return { columns: [], rowCount: textLines.length, chunks: textLines, records: [] };
 }
 
 export async function parseFile(fileName, buffer) {

@@ -36,7 +36,7 @@ export function initDb() {
 }
 
 /** Replace the entire stored document with a fresh set of text chunks. */
-export function replaceDocument({ fileName, columns, rowCount, chunks, summary }) {
+export function replaceDocument({ fileName, columns, rowCount, chunks, summary, records, currency }) {
   db.exec("DELETE FROM chunks;");
   db.exec("DELETE FROM meta;");
 
@@ -45,6 +45,8 @@ export function replaceDocument({ fileName, columns, rowCount, chunks, summary }
   setMeta.run("columns", JSON.stringify(columns || []));
   setMeta.run("rowCount", String(rowCount ?? chunks.length));
   setMeta.run("summary", summary || "");
+  setMeta.run("records", JSON.stringify(records || []));
+  setMeta.run("currency", currency || "");
 
   const insert = db.prepare(
     "INSERT INTO chunks (content, row_index) VALUES (?, ?);"
@@ -74,6 +76,7 @@ export function getMeta() {
     columns: out.columns ? JSON.parse(out.columns) : [],
     rowCount: out.rowCount ? Number(out.rowCount) : 0,
     summary: out.summary || "",
+    currency: out.currency || "",
   };
 }
 
@@ -82,6 +85,13 @@ export function getAllChunks() {
     .prepare("SELECT content FROM chunks ORDER BY row_index ASC;")
     .all()
     .map((r) => r.content);
+}
+
+/** Structured transaction records (for precise deterministic aggregation). */
+export function getRecords() {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'records';").get();
+  if (!row || !row.value) return [];
+  try { return JSON.parse(row.value); } catch { return []; }
 }
 
 export function getTotalContentLength() {

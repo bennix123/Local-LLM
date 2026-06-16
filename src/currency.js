@@ -51,6 +51,12 @@ export function detectCurrency(records) {
   return detected;
 }
 
+export function setCurrency(code) {
+  const p = CURRENCY_PATTERNS.find((x) => x.code === code);
+  if (p) detected = p;
+  return detected;
+}
+
 export function getCurrencySymbol() {
   return detected ? detected.symbol : "";
 }

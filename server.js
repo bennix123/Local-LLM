@@ -13,10 +13,21 @@ import {
   replaceDocument,
   clearDocument,
   getMeta,
+  getRecords,
   hasDocument,
 } from "./src/db.js";
 import { parseFile } from "./src/ingest.js";
 import { computeStatsSummary } from "./src/stats.js";
+import {
+  aggregateByKeywords,
+  topTransactions,
+  smallestDebit,
+  recAmount,
+  recMonth,
+  monthLabel,
+  payeeOf,
+} from "./src/aggregate.js";
+import { fmtAmountLabel, getCurrencyCode, setCurrency } from "./src/currency.js";
 import {
   listDownloadedModels,
   downloadModel,
@@ -33,6 +44,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 initDb();
+// Restore the currency detected at upload time (it's runtime-only otherwise).
+const _startMeta = getMeta();
+if (_startMeta.currency) setCurrency(_startMeta.currency);
 await initChromaDb();
 await initRedis();
 
@@ -123,6 +137,8 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
       rowCount: parsed.rowCount,
       chunks: parsed.chunks,
       summary,
+      records: parsed.records,
+      currency: getCurrencyCode(),
     });
 
     replaceChromaDocument(parsed.chunks, { fileName: originalname });
@@ -142,7 +158,161 @@ app.post("/api/reset", (req, res) => {
 });
 
 // --- Chat (streamed plain-text response) ----------------------------------
+
+// Precise aggregation over the structured records (exact sums the LLM can't do
+// reliably). Returns a string answer, or null to fall through to summary/LLM.
+const STOP_TERMS = new Set([
+  "food", "delivery", "groceries", "grocery", "internet", "mobile", "recharge",
+  "entertainment", "like", "money", "total", "overall", "my", "the", "a", "an",
+  "in", "on", "for", "at", "to", "of", "spending", "spend", "spent", "transaction",
+  "transactions", "account", "statement", "period", "entire", "things", "stuff",
+  "payment", "payments", "everything", "all", "month", "months",
+  "january", "february", "march", "april", "may", "june", "july", "august",
+  "september", "october", "november", "december",
+]);
+const money = (n) => fmtAmountLabel(Math.abs(n));
+
+function termToKeywords(term) {
+  return term
+    .split(/,|\band\b|\/|&|\+|;/)
+    .map((s) => s.replace(/[?.!,]/g, "").replace(/\b(in total|across all months|across|every month|per month|each month|monthly|during|over|specifically)\b/gi, "").trim())
+    .filter((s) => s.length > 1 && !STOP_TERMS.has(s.toLowerCase()));
+}
+
+function extractEntityKeywords(question) {
+  const paren = question.match(/\(([^)]+)\)/);
+  if (paren) { const k = termToKeywords(paren[1]); if (k.length) return k; }
+  const like = question.match(/\blike\s+(.+?)(?:\?|$)/i);
+  if (like) { const k = termToKeywords(like[1]); if (k.length) return k; }
+  // Capitalized proper nouns (skip question/stop words)
+  const caps = [...question.matchAll(/\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\b/g)]
+    .map((m) => m[1])
+    .filter((c) => !/^(How|What|Which|Did|Do|Does|Is|Are|My|The|Yes|No|I|A|An|Spending|Total)$/i.test(c.split(" ")[0]) || c.split(" ").length > 1);
+  if (caps.length) { const k = termToKeywords(caps.join(", ")); if (k.length) return k; }
+  const prep = question.match(/\b(?:to|on|for|at)\s+(.+?)(?:\?|$)/i);
+  if (prep) { const k = termToKeywords(prep[1]); if (k.length) return k; }
+  return [];
+}
+
+function preciseAnswer(question) {
+  const records = getRecords();
+  if (!records.length) return null;
+  const q = question.toLowerCase();
+  const perMonth = /\b(every month|per month|each month|monthly|month wise|month-wise|by month)\b/i.test(question);
+
+  // Global total spending (no specific merchant) — e.g. "total spending for the
+  // entire statement period", "how much did I spend overall"
+  if (/\b(spend|spending|spent|expenses?)\b/i.test(q) && /\b(total|overall|altogether|entire|in all|in total)\b/i.test(q)) {
+    const ents = extractEntityKeywords(question);
+    const meaningful = ents.filter((e) => aggregateByKeywords(records, [e]).count > 0);
+    if (!meaningful.length) {
+      const debits = records.filter((r) => recAmount(r) < 0);
+      const tot = debits.reduce((s, r) => s + Math.abs(recAmount(r)), 0);
+      return `Total spending: ${money(tot)} across ${debits.length} debit transactions.`;
+    }
+  }
+
+  // UPI count
+  if (/\bupi\b/i.test(q) && /\b(how many|number of|count|total number|how much)\b/i.test(q)) {
+    const n = records.filter((r) => /upi/i.test(r.Description)).length;
+    return `${n} of ${records.length} transactions were made via UPI.`;
+  }
+
+  // Smallest single expense
+  if (/\b(smallest|least|lowest|minimum|tiniest)\b/i.test(q) && /\b(amount|spent|spend|transaction|expense|purchase)\b/i.test(q) && !/categor|month/i.test(q)) {
+    const s = smallestDebit(records);
+    if (s) return `Smallest expense: ${money(recAmount(s))} — ${payeeOf(s)} on ${s.Date}.`;
+  }
+
+  // Top-N largest expenses
+  const topN = q.match(/top\s*(\d+)/i);
+  if (topN && /\b(transaction|purchase|expense|spending|spend|payment)\b/i.test(q) && !/categor/i.test(q)) {
+    const n = Math.min(20, Math.max(1, parseInt(topN[1])));
+    const list = topTransactions(records, n, "debit").map((r, i) => `${i + 1}. ${money(recAmount(r))} — ${payeeOf(r)} (${r.Date})`);
+    return `Top ${n} largest expenses:\n${list.join("\n")}`;
+  }
+  if (/\b(biggest|largest|highest)\b/i.test(q) && /\b(single\s+)?(transaction|purchase|expense|payment|debit)\b/i.test(q) && !/categor|month|income|credit|deposit/i.test(q)) {
+    const t = topTransactions(records, 1, "debit")[0];
+    if (t) return `Largest single expense: ${money(recAmount(t))} — ${payeeOf(t)} on ${t.Date}.`;
+  }
+  if (/\b(biggest|largest|highest)\b/i.test(q) && /\b(income|credit|deposit|salary|received)\b/i.test(q)) {
+    const t = topTransactions(records, 1, "credit")[0];
+    if (t) return `Largest single credit: ${money(recAmount(t))} — ${payeeOf(t)} on ${t.Date}.`;
+  }
+
+  // Salary (credits matching "salary"; excludes EarlySalary loan debits)
+  if (/\bsalary\b/i.test(q)) {
+    const a = aggregateByKeywords(records, ["salary"]);
+    const credits = [...a.byMonth.entries()].filter(([, mm]) => mm.credit > 0).sort();
+    if (a.credit > 0) {
+      if (perMonth) {
+        const lines = credits.map(([m, mm]) => `  ${monthLabel(m)}: ${money(mm.credit)}`);
+        return `Salary credited by month:\n${lines.join("\n")}\nTotal salary: ${money(a.credit)} (${credits.length} credits).`;
+      }
+      return `Total salary credited: ${money(a.credit)} across ${credits.length} salary credits.`;
+    }
+  }
+
+  // Interest earned
+  if (/\binterest\b/i.test(q)) {
+    const a = aggregateByKeywords(records, ["interest"]);
+    if (a.credit > 0) return `Total interest earned: ${money(a.credit)} (${a.matched.filter((r) => recAmount(r) > 0).length} credits).`;
+  }
+
+  // Money received from people (non-salary/interest credits, excluding reversals & self)
+  if (/\b(receive|received|got|credited)\b/i.test(q) && /\b(people|others|other people|someone|anyone|friends|else|individuals)\b/i.test(q)) {
+    const credits = records.filter((r) => recAmount(r) > 0 && !/salary|interest|\bREV\b|reversal|abhishek kumar/i.test(r.Description));
+    const total = credits.reduce((s, r) => s + recAmount(r), 0);
+    return `Yes. Excluding salary and interest, you received ${money(total)} across ${credits.length} credits from other parties (transfers, refunds, etc.).`;
+  }
+
+  // Which month most / least spending
+  if (/\bmonth\b/i.test(q) && /\b(most|highest|maximum|max|biggest)\b/i.test(q) && /\b(spen|expense)/i.test(q)) {
+    const mm = monthlyDebit(records); const arr = [...mm.entries()].sort((a, b) => b[1] - a[1]);
+    if (arr.length) return `You spent the most in ${monthLabel(arr[0][0])}: ${money(arr[0][1])}.`;
+  }
+  if (/\bmonth\b/i.test(q) && /\b(least|lowest|minimum|min|smallest)\b/i.test(q) && /\b(spen|expense)/i.test(q)) {
+    const mm = monthlyDebit(records); const arr = [...mm.entries()].sort((a, b) => a[1] - b[1]);
+    if (arr.length) return `You spent the least in ${monthLabel(arr[0][0])}: ${money(arr[0][1])}.`;
+  }
+
+  // Entity / merchant aggregation
+  if (/\b(spen[dt]|spending|pay|paid|send|sent|transfer|how much|total|cost|charge)\b/i.test(q)) {
+    const keywords = extractEntityKeywords(question);
+    if (keywords.length) {
+      const a = aggregateByKeywords(records, keywords);
+      if (a.count > 0) {
+        const credit = /from me\b/i.test(question)
+          ? false
+          : /\b(received|got|credited|came from|income from)\b/i.test(question) && !/\b(spen[dt]|pay|paid|send|sent)\b/i.test(question);
+        const label = keywords.join(", ");
+        if (perMonth) {
+          const lines = [...a.byMonth.entries()].sort().map(([m, mm]) => `  ${monthLabel(m)}: ${money(credit ? mm.credit : mm.debit)} (${mm.count} txn)`);
+          const total = credit ? a.credit : a.debit;
+          return `${credit ? "Received from" : "Paid to"} ${label} by month:\n${lines.join("\n")}\nTotal: ${money(total)} across ${a.count} transactions.`;
+        }
+        const value = credit ? a.credit : a.debit;
+        return `${credit ? "Total received from" : "Total spent on"} ${label}: ${money(value)} across ${a.count} transaction${a.count > 1 ? "s" : ""}.`;
+      }
+    }
+  }
+
+  return null;
+}
+
+function monthlyDebit(records) {
+  const m = new Map();
+  for (const r of records) {
+    const n = recAmount(r);
+    if (n < 0) m.set(recMonth(r), (m.get(recMonth(r)) || 0) + Math.abs(n));
+    else if (!m.has(recMonth(r))) m.set(recMonth(r), m.get(recMonth(r)) || 0);
+  }
+  return m;
+}
+
 function deterministicAnswer(question, meta) {
+  const precise = preciseAnswer(question);
+  if (precise) return precise;
   if (!meta.summary) return null;
   const facts = meta.summary;
   const q = question.toLowerCase();
@@ -250,11 +420,11 @@ function deterministicAnswer(question, meta) {
   // Biggest/largest/highest
   if (/(\bhighest\b|\bbiggest\b|\blargest\b)/i.test(q)) {
     if (/\b(spen[dt]|expense|debit|payment|purchase)\b/i.test(q) || /\bamount\b.*\bspen[dt]\b/i.test(q)) {
-      const m = facts.match(/Largest debit:\s*(-?[^\d]*[\d,]+\\.\d{2})\\s+to\\s+(.+)/i);
+      const m = facts.match(/Largest debit:\s*(-?[^\d]*[\d,]+\.\d{2})\s+to\s+(.+)/i);
       if (m) return `Largest single expense: ${m[1]} to ${m[2]}`;
     }
     if (/\b(credit|income|deposit|earn)\b/i.test(q)) {
-      const m = facts.match(/Largest credit:\s*(-?[^\d]*[\d,]+\\.\d{2})\\s+from\\s+(.+)/i);
+      const m = facts.match(/Largest credit:\s*(-?[^\d]*[\d,]+\.\d{2})\s+from\s+(.+)/i);
       if (m) return `Largest single income: ${m[1]} from ${m[2]}`;
     }
   }
