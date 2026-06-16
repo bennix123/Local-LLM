@@ -141,7 +141,15 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
       currency: getCurrencyCode(),
     });
 
+    clearChromaDocument();
     replaceChromaDocument(parsed.chunks, { fileName: originalname });
+
+    // Also build contextual embeddings for new data (Anthropic Contextual Retrieval)
+    const { contextualizeChunks } = await import("./src/context.js");
+    const { replaceChromaDocumentContextual } = await import("./src/chromaDb.js");
+    const ctxChunks = contextualizeChunks(parsed.chunks, getMeta());
+    replaceChromaDocumentContextual(ctxChunks, { fileName: originalname });
+
     cacheDel("bank:*");
 
     res.json({ ok: true, document: getMeta() });
