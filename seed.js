@@ -4,9 +4,11 @@
 //
 // Usage:  node seed.js
 
-import { initChromaDb, isChromaReady, clearChromaDocument, replaceChromaDocument } from "./src/chromaDb.js";
-import { initDb, replaceDocument, clearDocument, hasDocument } from "./src/db.js";
+import { initChromaDb, isChromaReady, clearChromaDocument, replaceChromaDocument, replaceChromaDocumentContextual } from "./src/chromaDb.js";
+import { initDb, replaceDocument, clearDocument, hasDocument, getMeta } from "./src/db.js";
 import { computeStatsSummary } from "./src/stats.js";
+import { contextualizeChunks } from "./src/context.js";
+import { detectCurrency } from "./src/currency.js";
 
 // ── Data generation ──────────────────────────────────────────────────────
 
@@ -166,9 +168,9 @@ function generateTransactions(count = 500) {
       Date: date,
       Description: `${payee} - ${pick(DESCRIPTIONS[category] || ["Transaction"])}`,
       Category: category,
-      Amount: type === "Credit" ? `+${amount.toFixed(2)}` : `-${amount.toFixed(2)}`,
+      Amount: type === "Credit" ? `+$${amount.toFixed(2)}` : `-$${amount.toFixed(2)}`,
       Type: type,
-      Balance: balance.toFixed(2),
+      Balance: `$${balance.toFixed(2)}`,
     });
   }
 
@@ -325,6 +327,7 @@ const chunks = recordsToChunks(records);
 console.log(`Formatted into ${chunks.length} chunks.`);
 
 // Compute stats summary
+detectCurrency(records);
 const statsSummary = computeStatsSummary(columns, records);
 console.log("\nStats Summary:\n" + (statsSummary ? statsSummary.substring(0, 500) + "..." : "none"));
 
@@ -356,10 +359,15 @@ await initChromaDb();
 if (isChromaReady()) {
   await clearChromaDocument();
 
-  // Store individual transaction chunks for semantic row-level search
-  console.log(`Pushing ${chunks.length} transaction chunks as embeddings...`);
+  // Store raw transaction chunks
+  console.log(`Pushing ${chunks.length} raw transaction chunks...`);
   await replaceChromaDocument(chunks, { fileName: "seed_500_transactions.csv" });
-  console.log("Transactions pushed to ChromaDB.\n");
+
+  // Contextualize and store enriched chunks (Anthropic Contextual Retrieval)
+  console.log(`Contextualizing and pushing ${chunks.length} contextual chunks...`);
+  const ctxChunks = contextualizeChunks(chunks, getMeta());
+  await replaceChromaDocumentContextual(ctxChunks, { fileName: "seed_500_transactions.csv" });
+  console.log("Contextual retrieval index built.\n");
 } else {
   console.log("ChromaDB not available — skipping vector push.");
 }

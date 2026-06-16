@@ -17,12 +17,14 @@ import os from "node:os";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const XDG_PATH = path.join(os.homedir(), ".local", "share");
+const MACOS_PATH = path.join(os.homedir(), "Library", "Application Support");
 const APP_DATA_DIR =
   process.env.LOCALAPPDATA ||
   process.env.APPDATA ||
-  (process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Application Support")
-    : path.join(os.homedir(), ".local", "share"));
+  (fs.existsSync(path.join(MACOS_PATH, "LocalLLMBankRAG"))
+    ? MACOS_PATH
+    : XDG_PATH);
 
 const MODELS_DIR = path.join(
   APP_DATA_DIR,

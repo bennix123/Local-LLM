@@ -1,31 +1,37 @@
 
 // Deterministic aggregation for tabular bank statements.
-//
-// Strategy: Small LLMs are unreliable at arithmetic, so we pre-compute EVERY
-// possible answer and feed them as a structured "FACTS TABLE" that the LLM
-// simply reads from. The model's only job is to locate the right row in the
-// table and repeat it verbatim — zero reasoning required.
+// Auto-detects currency from data — no hardcoded $.
+
+import { detectCurrency, fmtAmountLabel, getCurrencySymbol, getCurrencyCode, resetCurrency } from "./currency.js";
 
 export function toNumber(raw) {
   if (raw == null) return null;
   let s = String(raw).trim();
   if (s === "") return null;
-  if (/\d[-/:]\d/.test(s)) return null;
+  // Indian Dr/Cr notation: "500.00 Dr" means debit (negative)
+  const drcr = s.match(/\b(Dr|Cr)\b/i);
   let negative = false;
-  if (/^\(.*\)$/.test(s)) {
-    negative = true;
-    s = s.slice(1, -1);
-  }
+  if (/^\(.*\)$/.test(s)) { negative = true; s = s.slice(1, -1); }
   if (/^-/.test(s)) negative = true;
-  s = s.replace(/[^0-9.]/g, "");
+  if (drcr && drcr[1].toLowerCase() === "dr") negative = true;
+  s = s.replace(/[^0-9.\-]/g, "");
   if (s === "" || s === ".") return null;
+  // Reject date-like strings
+  if (/\d{1,2}[-\/:]\d{1,2}(?:[-\/:]\d{2,4})?/.test(raw)) {
+    // Allow if it has a currency symbol and looks monetary
+    if (!/[₹$€£¥\bRs\b]/i.test(raw) && !/Dr|Cr/i.test(raw)) return null;
+  }
   const n = Number(s);
   if (Number.isNaN(n)) return null;
-  return negative ? -n : n;
+  return negative ? -Math.abs(n) : n;
 }
 
 function fmt(n) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function cfmt(n) {
+  return fmtAmountLabel(n);
 }
 
 function findCol(columns, patterns) {
@@ -98,12 +104,12 @@ export function computeStatsSummary(columns, records) {
 
   lines.push("=== FINANCIAL OVERVIEW ===");
   lines.push(`Total transactions: ${records.length}`);
-  lines.push(`Total income: $${fmt(totalIncome)} (${countIncome} credits)`);
-  lines.push(`Total expenses: -$${fmt(Math.abs(totalExpense))} (${countExpense} debits)`);
-  lines.push(`Net total: $${fmt(netTotal)}`);
-  lines.push(`Average transaction: $${fmt(netTotal / records.length)}`);
-  lines.push(`Largest credit: $${fmt(maxCreditAmt)} from ${label(maxCreditRow)}`);
-  lines.push(`Largest debit: -$${fmt(maxDebit)} to ${label(maxDebitRow)}`);
+  lines.push(`Total income: ${cfmt(totalIncome)} (${countIncome} credits)`);
+  lines.push(`Total expenses: ${cfmt(totalExpense)} (${countExpense} debits)`);
+  lines.push(`Net total: ${cfmt(netTotal)}`);
+  lines.push(`Average transaction: ${cfmt(netTotal / records.length)}`);
+  lines.push(`Largest credit: ${cfmt(maxCreditAmt)} from ${label(maxCreditRow)}`);
+  lines.push(`Largest debit: ${cfmt(maxDebitAmt)} to ${label(maxDebitRow)}`);
   lines.push("");
 
   // ── 2. CATEGORY BREAKDOWN ────────────────────────────────────────
@@ -132,8 +138,8 @@ export function computeStatsSummary(columns, records) {
       const income = byCatIncome.get(cat) || 0;
       const expense = byCatExpense.get(cat) || 0;
       const parts = [`${count} txn`];
-      if (income > 0) parts.push(`earned $${fmt(income)}`);
-      if (expense > 0) parts.push(`spent $${fmt(expense)}`);
+      if (income > 0) parts.push(`earned ${cfmt(income)}`);
+      if (expense > 0) parts.push(`spent ${cfmt(expense)}`);
       lines.push(`${cat}: ${parts.join(", ")}`);
     }
     lines.push("");
@@ -155,7 +161,7 @@ export function computeStatsSummary(columns, records) {
     if (expenseCats.length > 0) {
       lines.push("=== TOP SPENDING CATEGORIES ===");
       expenseCats.slice(0, 10).forEach((e, i) => {
-        lines.push(`${i + 1}. ${e.cat}: $${fmt(e.total)}`);
+        lines.push(`${i + 1}. ${e.cat}: ${cfmt(e.total)}`);
       });
       lines.push("");
     }
@@ -182,7 +188,7 @@ export function computeStatsSummary(columns, records) {
       for (const [month, data] of [...byMonth.entries()].sort()) {
         const net = data.income - data.expense;
         const sign = net >= 0 ? "+" : "";
-        lines.push(`${month}: ${data.count} txns, income $${fmt(data.income)}, expenses $${fmt(data.expense)}, net ${sign}$${fmt(net)}`);
+        lines.push(`${month}: ${data.count} txns, income ${cfmt(data.income)}, expenses ${cfmt(-data.expense)}, net ${cfmt(net)}`);
       }
       lines.push("");
     }
@@ -204,7 +210,7 @@ export function computeStatsSummary(columns, records) {
     if (sorted.length > 0) {
       lines.push("=== TOP 20 PAYEES BY TOTAL VOLUME ===");
       sorted.forEach(([name, data], i) => {
-        lines.push(`${i + 1}. ${name}: ${data.count} txns, total $${fmt(data.gross)}`);
+        lines.push(`${i + 1}. ${name}: ${data.count} txns, total ${cfmt(data.gross)}`);
       });
       lines.push("");
     }
@@ -218,21 +224,59 @@ export function computeStatsSummary(columns, records) {
     .slice(0, 10);
 
   if (byAbs.length > 0) {
-    lines.push("=== TOP 10 LARGEST TRANSACTIONS ===");
+    lines.push(`=== TOP 10 LARGEST TRANSACTIONS ===`);
     byAbs.forEach((t, i) => {
       const sign = t.amt >= 0 ? "+" : "-";
-      lines.push(`${i + 1}. ${t.date} | ${t.desc.split(" - ")[0]} | ${sign}$${fmt(Math.abs(t.amt))}`);
+      lines.push(`${i + 1}. ${t.date} | ${t.desc.split(" - ")[0]} | ${cfmt(t.amt)}`);
     });
     lines.push("");
   }
 
-  // ── 7. RECENT TRANSACTIONS ───────────────────────────────────────
+  // ── 7. LEAST SPENDING CATEGORIES ─────────────────────────────────
+  if (categoryCol) {
+    const expenseCats = [];
+    for (const r of records) {
+      const n = toNumber(r[amountCol]);
+      if (n !== null && n < 0) {
+        const cat = String(r[categoryCol] || "Uncategorized").trim();
+        const existing = expenseCats.find((e) => e.cat === cat);
+        if (existing) existing.total += Math.abs(n);
+        else expenseCats.push({ cat, total: Math.abs(n) });
+      }
+    }
+    expenseCats.sort((a, b) => a.total - b.total);
+    if (expenseCats.length > 0) {
+      lines.push("=== BOTTOM 10 SPENDING CATEGORIES (least spent) ===");
+      expenseCats.slice(0, 10).forEach((e, i) => {
+        lines.push(`${i + 1}. ${e.cat}: ${cfmt(e.total)}`);
+      });
+      lines.push("");
+    }
+  }
+
+  // ── 8. REMAINING BALANCE ─────────────────────────────────────────
+  let runningBalance = null;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const balanceCol = findCol(columns, ["balance", "remaining", "closing", "available"]);
+    if (balanceCol) {
+      const b = toNumber(records[i][balanceCol]);
+      if (b !== null) { runningBalance = b; break; }
+    }
+    if (runningBalance !== null) break;
+  }
+  if (runningBalance !== null) {
+    lines.push("=== REMAINING BALANCE ===");
+    lines.push(`Current balance: ${cfmt(runningBalance)}`);
+    lines.push("");
+  }
+
+  // ── 9. RECENT TRANSACTIONS ───────────────────────────────────────
   const recent = records.slice(-10).map((r) => {
     const amt = toNumber(r[amountCol]);
     const desc = descCol ? String(r[descCol] || "").trim().split(" - ")[0] : "";
     const date = dateCol ? String(r[dateCol] || "").trim() : "";
     const sign = amt !== null && amt >= 0 ? "+" : "-";
-    return `${date} | ${desc} | ${sign}$${fmt(Math.abs(amt || 0))}`;
+    return `${date} | ${desc} | ${cfmt(amt || 0)}`;
   });
   lines.push("=== LAST 10 TRANSACTIONS ===");
   recent.forEach((r) => lines.push(r));
