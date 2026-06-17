@@ -68,6 +68,16 @@ import {
 import { buildSystemPrompt, isPeriodQuestion, periodExactAnswer } from "./src/rag.js";
 import { initChromaDb, isChromaReady, replaceChromaDocument, clearChromaDocument, getChromaError } from "./src/chromaDb.js";
 import { initRedis, isRedisReady, getRedisError, cacheSet, cacheGet, cacheDel, disconnectRedis } from "./src/redis.js";
+import { classifyIntent } from "./src/router.js";
+import { hybridSearch, buildHybridPrompt } from "./src/retrieval.js";
+import {
+  handleOverview, handleLeastSpendMonth, handleMostSpendMonth,
+  handleTopMerchants, handleCategoryBreakdown, handleLargestExpense,
+  handleLargestIncome, handleTopExpenses, handleCurrentBalance,
+  handleEntityLookup, handleReceivedFromPeople,
+  handleSubscriptions, handleMonthlySpend, handleRecentTransactions,
+  handleSmallestExpense, handleMonthSpend,
+} from "./src/analytics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -172,7 +182,19 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
     });
     replaceTransactions(records);
 
-    replaceChromaDocument(parsed.chunks, { fileName: originalname });
+    // Contextual Retrieval: if model loaded, generate per-chunk summaries
+    if (isReady()) {
+      try {
+        const { contextualizeChunks } = await import("./src/contextualize.js");
+        const ctxChunks = await contextualizeChunks(parsed.chunks, getMeta());
+        replaceChromaDocument(ctxChunks, { fileName: originalname });
+      } catch (ctxErr) {
+        console.warn("Contextualization failed, using raw chunks:", ctxErr.message);
+        replaceChromaDocument(parsed.chunks, { fileName: originalname });
+      }
+    } else {
+      replaceChromaDocument(parsed.chunks, { fileName: originalname });
+    }
     cacheDel("bank:*");
 
     res.json({ ok: true, document: getMeta() });
@@ -852,6 +874,29 @@ app.post("/api/chat", async (req, res) => {
 
   const meta = getMeta();
 
+  // ── Intent Router (Step 1 of Architecture Fix) ──
+  // Classify BEFORE anything touches RAG. AGGREGATION → SQL. LOOKUP → FTS5.
+  // Only SEMANTIC/SUMMARY queries reach the LLM.
+  const { intent, type: routeType } = classifyIntent(message);
+  console.log(`[router] "${message.substring(0, 40)}" → ${intent}`);
+
+  // AGGREGATION: deterministic SQL, no LLM needed — instant, 100% accurate
+  if (intent === "AGGREGATION") {
+    const aggResult = await routeAggregation(message);
+    if (aggResult) {
+      res.type("text/plain").send(aggResult.answer); return;
+    }
+  }
+
+  // LOOKUP: FTS5 keyword search, no LLM needed
+  if (intent === "LOOKUP") {
+    const kw = extractLookupKeyword(message);
+    if (kw) {
+      const lookupResult = handleEntityLookup(kw);
+      res.type("text/plain").send(lookupResult.answer); return;
+    }
+  }
+
   // Exact-figure questions are answered DIRECTLY from the deterministic layer —
   // 100% numeric fidelity, instant, and no model needed (a small LLM can slip a
   // digit when copying large numbers). Only period/trend and open-ended
@@ -929,6 +974,62 @@ app.post("/api/chat", async (req, res) => {
     res.end();
   }
 });
+
+// ── SQL aggregation router ──────────────────────────────────────────
+async function routeAggregation(q) {
+  const ql = q.toLowerCase();
+
+  // Month-year pattern: "spend in December 2024", "January 2025 expenses"
+  const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const monthMap = {january:"01",february:"02",march:"03",april:"04",may:"05",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
+  for (const m of months) {
+    if (ql.includes(m)) {
+      const yearMatch = ql.match(/(\d{4})/);
+      if (yearMatch) {
+        const ym = `${yearMatch[1]}-${monthMap[m]}`;
+        return handleMonthSpend(ym);
+      }
+    }
+  }
+
+  // Detect entity name in question → route to keyword lookup, not overview
+  const entityName = extractLookupKeyword(q);
+  const hasEntity = entityName && entityName.length > 2;
+  if (hasEntity) return handleEntityLookup(entityName);
+
+  if (/least.*(spend|month)|(spend|month).*least/i.test(q)) return handleLeastSpendMonth();
+  if (/most.*(spend|month)|(spend|month).*most/i.test(q)) return handleMostSpendMonth();
+  if (/smallest|lowest|minimum\b/i.test(q) && /(?:amount|spend|expense|debit|transaction|payment)/i.test(q)) return handleSmallestExpense();
+  if (/top.*merchant|top.*payee/i.test(q)) { const n = parseInt((q.match(/top\s*(\d+)/i) || [])[1] || 10); return handleTopMerchants(n); }
+  if (/category.*breakdown|breakdown.*category/i.test(q)) return handleCategoryBreakdown();
+  if (/(?:biggest|largest|highest)\b.*\b(?:expense|debit|spend|transaction)\b/i.test(q)) return handleLargestExpense();
+  if (/(?:biggest|largest|highest)\b.*\b(?:income|credit|earn)\b/i.test(q)) return handleLargestIncome();
+  if (/balance/i.test(q) && /(?:current|remaining|now|left)/i.test(q)) return handleCurrentBalance();
+  if (/balance/i.test(q) && /(?:january|february|march|april|may|june|july|august|september|october|november|december)/i.test(q)) return handleOverview();
+  if (/monthly|by month|per month/i.test(q)) return handleMonthlySpend();
+  if (/subscription|recurring/i.test(q)) return handleSubscriptions();
+  if (/how much.*(?:total|overall|spend|income)/i.test(q) || /overview|summary/i.test(q)) return handleOverview();
+
+  return handleOverview();
+}
+
+function extractLookupKeyword(q) {
+  const bankKeywords = /\b(interest|dividend|refund|cashback|salary|rent|upi|neft|imps|cred|phonepe|paytm|netflix|amazon|swiggy|zomato|electricity|insurance|excitel|pvr|inox|restaurant|cafe|hotel|food|dining|grocer|medical|hospital|pharmacy|fuel|petrol|diesel|restaurants|foods|groceries)\b/ig;
+  const kw = q.match(bankKeywords);
+  if (kw) return kw.join(" ");
+  
+  const patterns = [
+    /(?:spend|spent|pay|paid|earn|earned|got|receive)\b.*\b(?:on|to|for|from|in)\s+(.+?)(?:\?|$|,|specifically)/i,
+    /(?:for|from|to|with|about|on)\s+([A-Z][a-zA-Z\s]+?)(?:\?|$)/i,
+    /(?:find|search|show|list|look)\s+(?:me\s+)?(.+?)(?:\?|$)/i,
+  ];
+  for (const p of patterns) {
+    const m = q.match(p);
+    if (m && m[1] && m[1].trim().length > 2) return m[1].trim();
+  }
+  const caps = q.match(/\b[A-Z][a-z]{2,}\b/g);
+  return caps ? caps[caps.length - 1] : null;
+}
 
 app.listen(PORT, () => {
   console.log(`\n  Local LLM Bank Assistant running:  http://localhost:${PORT}\n`);
