@@ -182,19 +182,16 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
     });
     replaceTransactions(records);
 
-    // Contextual Retrieval: if model loaded, generate per-chunk summaries
-    if (isReady()) {
-      try {
-        const { contextualizeChunks } = await import("./src/contextualize.js");
-        const ctxChunks = await contextualizeChunks(parsed.chunks, getMeta());
-        replaceChromaDocument(ctxChunks, { fileName: originalname });
-      } catch (ctxErr) {
-        console.warn("Contextualization failed, using raw chunks:", ctxErr.message);
-        replaceChromaDocument(parsed.chunks, { fileName: originalname });
-      }
-    } else {
-      replaceChromaDocument(parsed.chunks, { fileName: originalname });
-    }
+    // Store raw chunks in ChromaDB
+    replaceChromaDocument(parsed.chunks, { fileName: originalname });
+
+    // Contextual Retrieval: prepend statement-level context to each chunk
+    // (fast — no LLM calls needed, uses pre-computed statement metadata)
+    const { contextualizeChunks } = await import("./src/context.js");
+    const { replaceChromaDocumentContextual } = await import("./src/chromaDb.js");
+    const ctxChunks = contextualizeChunks(parsed.chunks, getMeta());
+    replaceChromaDocumentContextual(ctxChunks, { fileName: originalname });
+
     cacheDel("bank:*");
 
     res.json({ ok: true, document: getMeta() });
