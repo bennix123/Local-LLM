@@ -32,6 +32,63 @@ export function initDb() {
       row_index UNINDEXED
     );
   `);
+  // Hierarchical period summaries (month + rolling 3/6/9/12-month rollups).
+  // `embedding` is a JSON float array so vector search runs in-process (no
+  // Chroma server) — required for the offline/iPhone target.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS period_summaries (
+      id           TEXT PRIMARY KEY,
+      anchor       TEXT,
+      window       INTEGER,
+      period_label TEXT,
+      start_date   TEXT,
+      end_date     TEXT,
+      metrics      TEXT,
+      narrative    TEXT,
+      embedding    TEXT
+    );
+  `);
+  // On-device prompt cache (Redis fallback). Survives offline.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prompt_cache (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+  // Structured transactions table — the scalable store. Aggregation runs as
+  // indexed SQL (SUM/GROUP BY) so memory stays flat at lakhs of rows, instead
+  // of parsing a giant JSON blob per request.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id          INTEGER PRIMARY KEY,
+      date        TEXT,
+      ym          TEXT,
+      description TEXT,
+      payee       TEXT,
+      category    TEXT,
+      amount      REAL,
+      balance     REAL,
+      is_upi      INTEGER
+    );
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_ym ON transactions(ym);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_amount ON transactions(amount);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category);");
+  // Materialized per-(month,year) summary. Recomputed whenever that month's
+  // transactions change, so reads/rollups never re-scan raw rows.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS month_summaries (
+      ym         TEXT PRIMARY KEY,
+      income     REAL,
+      spending   REAL,
+      net        REAL,
+      count      INTEGER,
+      upi        INTEGER,
+      categories TEXT,
+      payees     TEXT,
+      largest    TEXT
+    );
+  `);
   return db;
 }
 
@@ -87,11 +144,236 @@ export function getAllChunks() {
     .map((r) => r.content);
 }
 
-/** Structured transaction records (for precise deterministic aggregation). */
+// ── Transactions table (scalable store + SQL aggregation) ───────────────────
+
+export function replaceTransactions(records) {
+  db.exec("DELETE FROM transactions;");
+  const ins = db.prepare(
+    "INSERT INTO transactions (date, ym, description, payee, category, amount, balance, is_upi) VALUES (?,?,?,?,?,?,?,?)"
+  );
+  db.exec("BEGIN;");
+  try {
+    for (const r of records) {
+      const amt = parseFloat(String(r.Amount).replace(/[^0-9.\-]/g, "")) || 0;
+      const desc = r.Description || "";
+      const bal = r.Balance != null && r.Balance !== "" ? parseFloat(r.Balance) : null;
+      ins.run(r.Date || "", String(r.Date || "").slice(0, 7), desc, desc.split(" - ")[0].trim(),
+        r.Category || "Other / Transfers", amt, Number.isNaN(bal) ? null : bal, /upi/i.test(desc) ? 1 : 0);
+    }
+    db.exec("COMMIT;");
+  } catch (e) { db.exec("ROLLBACK;"); throw e; }
+  recomputeAllMonths();
+}
+
+export function hasTransactions() {
+  return Number(db.prepare("SELECT COUNT(*) AS n FROM transactions;").get().n) > 0;
+}
+
+/** All transactions as record objects (for batch build / tests; not per-request). */
 export function getRecords() {
+  if (hasTransactions()) {
+    return db.prepare("SELECT date, description, category, amount, balance FROM transactions ORDER BY id;").all().map((r) => ({
+      Date: r.date, Description: r.description, Category: r.category,
+      Amount: (r.amount >= 0 ? "+" : "") + Number(r.amount).toFixed(2),
+      Balance: r.balance != null ? Number(r.balance).toFixed(2) : "",
+    }));
+  }
   const row = db.prepare("SELECT value FROM meta WHERE key = 'records';").get();
   if (!row || !row.value) return [];
   try { return JSON.parse(row.value); } catch { return []; }
+}
+
+// ── SQL aggregation (indexed; constant memory regardless of row count) ───────
+
+export function txOverview() {
+  return db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit,
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit,
+    COUNT(*) AS count,
+    COALESCE(SUM(is_upi),0) AS upi,
+    COALESCE(SUM(CASE WHEN amount<0 THEN 1 ELSE 0 END),0) AS debitCount
+    FROM transactions;`).get();
+}
+function likeClause(keywords) {
+  return { where: keywords.map(() => "lower(description) LIKE ?").join(" OR "), params: keywords.map((k) => `%${String(k).toLowerCase()}%`) };
+}
+export function txKeyword(keywords) {
+  const { where, params } = likeClause(keywords);
+  return db.prepare(`SELECT COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit,
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit, COUNT(*) AS count
+    FROM transactions WHERE ${where};`).get(...params);
+}
+export function txKeywordByMonth(keywords) {
+  const { where, params } = likeClause(keywords);
+  return db.prepare(`SELECT ym, COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit,
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit, COUNT(*) AS count
+    FROM transactions WHERE ${where} GROUP BY ym ORDER BY ym;`).all(...params);
+}
+export function txMonthSpend(ym) {
+  return db.prepare("SELECT COALESCE(SUM(-amount),0) AS debit, COUNT(*) AS count FROM transactions WHERE ym=? AND amount<0;").get(ym);
+}
+export function txMonthlySpend() {
+  return db.prepare("SELECT ym, COALESCE(SUM(-amount),0) AS debit FROM transactions WHERE amount<0 GROUP BY ym ORDER BY debit DESC;").all();
+}
+export function txYearMonthly(year) {
+  return db.prepare(`SELECT ym,
+    COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit,
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit,
+    COUNT(*) AS count
+    FROM transactions WHERE ym LIKE ? GROUP BY ym ORDER BY ym;`).all(`${year}-%`);
+}
+export function txCategorySpend(cat) {
+  return db.prepare("SELECT COALESCE(SUM(-amount),0) AS debit, COUNT(*) AS count FROM transactions WHERE category=? AND amount<0;").get(cat);
+}
+export function txKeywordMonth(keywords, ym) {
+  const { where, params } = likeClause(keywords);
+  return db.prepare(`SELECT COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit,
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit, COUNT(*) AS count
+    FROM transactions WHERE ym=? AND (${where});`).get(ym, ...params);
+}
+export function txCategoryMonth(cat, ym) {
+  return db.prepare("SELECT COALESCE(SUM(-amount),0) AS debit, COUNT(*) AS count FROM transactions WHERE ym=? AND category=? AND amount<0;").get(ym, cat);
+}
+export function txLargestDebit() { return db.prepare("SELECT * FROM transactions WHERE amount<0 ORDER BY amount ASC LIMIT 1;").get(); }
+export function txLargestCredit() { return db.prepare("SELECT * FROM transactions WHERE amount>0 ORDER BY amount DESC LIMIT 1;").get(); }
+export function txSmallestDebit() { return db.prepare("SELECT * FROM transactions WHERE amount<0 ORDER BY amount DESC LIMIT 1;").get(); }
+export function txTopDebits(n) { return db.prepare("SELECT * FROM transactions WHERE amount<0 ORDER BY amount ASC LIMIT ?;").all(n); }
+export function txCategoryBreakdown(limit = 8) {
+  return db.prepare("SELECT category, SUM(-amount) AS spend, COUNT(*) AS count FROM transactions WHERE amount<0 GROUP BY category ORDER BY spend DESC LIMIT ?;").all(limit);
+}
+export function txRecent(n = 12) {
+  return db.prepare("SELECT date, payee, category, amount FROM transactions ORDER BY date DESC, id DESC LIMIT ?;").all(n);
+}
+export function txCurrentBalance() {
+  const r = db.prepare("SELECT balance FROM transactions WHERE balance IS NOT NULL ORDER BY date DESC, id DESC LIMIT 1;").get();
+  return r ? r.balance : null;
+}
+export function txPage({ offset = 0, limit = 50, q = "" } = {}) {
+  let where = "", params = [];
+  if (q && q.trim()) { where = "WHERE lower(description) LIKE ?"; params = [`%${q.toLowerCase()}%`]; }
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM transactions ${where};`).get(...params).n;
+  const rows = db.prepare(`SELECT date, payee, category, amount, balance FROM transactions ${where} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?;`).all(...params, limit, offset);
+  return { total, rows };
+}
+export function txTopPayees(limit = 6) {
+  return db.prepare("SELECT payee, SUM(-amount) AS spend, COUNT(*) AS count FROM transactions WHERE amount<0 GROUP BY payee ORDER BY spend DESC LIMIT ?;").all(limit);
+}
+const SUBS_KEYS = ["netflix", "spotify", "hotstar", "prime", "disney", "youtube", "jio", "airtel", "excitel", "vodafone", "audible", "icloud", "google one"];
+export function txSubscriptions() {
+  const where = SUBS_KEYS.map(() => "lower(description) LIKE ?").join(" OR ");
+  return db.prepare(`SELECT payee, SUM(-amount) AS total, COUNT(*) AS count, MAX(date) AS last
+    FROM transactions WHERE amount<0 AND (${where}) GROUP BY payee ORDER BY total DESC LIMIT 12;`)
+    .all(...SUBS_KEYS.map((k) => `%${k}%`));
+}
+export function txReceivedFromPeople() {
+  return db.prepare(`SELECT COALESCE(SUM(amount),0) AS credit, COUNT(*) AS count FROM transactions
+    WHERE amount>0 AND lower(description) NOT LIKE '%salary%' AND lower(description) NOT LIKE '%interest%'
+    AND description NOT LIKE '%REV%' AND lower(description) NOT LIKE '%abhishek kumar%';`).get();
+}
+
+// ── Materialized month summaries (recomputed on data change) ─────────────────
+
+/** Recompute and upsert the summary for one month (YYYY-MM). */
+export function recomputeMonth(ym) {
+  const m = db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS income,
+    COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS spending,
+    COUNT(*) AS count, COALESCE(SUM(is_upi),0) AS upi
+    FROM transactions WHERE ym=?;`).get(ym);
+  if (!m || m.count === 0) { db.prepare("DELETE FROM month_summaries WHERE ym=?;").run(ym); return; }
+  const cats = db.prepare("SELECT category, SUM(-amount) AS spend FROM transactions WHERE ym=? AND amount<0 GROUP BY category;").all(ym);
+  const catMap = {}; for (const c of cats) catMap[c.category] = Math.round(c.spend * 100) / 100;
+  const payees = db.prepare("SELECT payee, SUM(ABS(amount)) AS vol FROM transactions WHERE ym=? GROUP BY payee ORDER BY vol DESC LIMIT 20;").all(ym)
+    .map((p) => ({ name: p.payee, vol: Math.round(p.vol * 100) / 100 }));
+  const lg = db.prepare("SELECT amount, payee, date FROM transactions WHERE ym=? ORDER BY ABS(amount) DESC LIMIT 1;").get(ym);
+  db.prepare(`INSERT OR REPLACE INTO month_summaries (ym,income,spending,net,count,upi,categories,payees,largest)
+    VALUES (?,?,?,?,?,?,?,?,?);`).run(ym, m.income, m.spending, Math.round((m.income - m.spending) * 100) / 100,
+    m.count, m.upi, JSON.stringify(catMap), JSON.stringify(payees), JSON.stringify(lg || null));
+}
+
+/** Rebuild every month summary (used after a full transactions reload). */
+export function recomputeAllMonths() {
+  const yms = db.prepare("SELECT DISTINCT ym FROM transactions ORDER BY ym;").all().map((r) => r.ym);
+  db.exec("DELETE FROM month_summaries;");
+  for (const ym of yms) recomputeMonth(ym);
+  return yms.length;
+}
+
+function parseMonthRow(r) {
+  return { ym: r.ym, income: r.income, spending: r.spending, net: r.net, count: r.count, upi: r.upi,
+    categories: JSON.parse(r.categories || "{}"), payees: JSON.parse(r.payees || "[]"), largest: JSON.parse(r.largest || "null") };
+}
+export function getMonthSummaries() { return db.prepare("SELECT * FROM month_summaries ORDER BY ym;").all().map(parseMonthRow); }
+export function getMonthSummary(ym) { const r = db.prepare("SELECT * FROM month_summaries WHERE ym=?;").get(ym); return r ? parseMonthRow(r) : null; }
+export function yearMonthSummaries(year) { return db.prepare("SELECT * FROM month_summaries WHERE ym LIKE ? ORDER BY ym;").all(`${year}-%`).map(parseMonthRow); }
+export function hasMonthSummaries() { return Number(db.prepare("SELECT COUNT(*) AS n FROM month_summaries;").get().n) > 0; }
+
+/** Replace one month's transactions and recompute that month's summary. */
+export function updateMonthData(ym, records) {
+  db.prepare("DELETE FROM transactions WHERE ym=?;").run(ym);
+  const ins = db.prepare("INSERT INTO transactions (date, ym, description, payee, category, amount, balance, is_upi) VALUES (?,?,?,?,?,?,?,?)");
+  db.exec("BEGIN;");
+  try {
+    for (const r of records) {
+      const amt = parseFloat(String(r.Amount).replace(/[^0-9.\-]/g, "")) || 0;
+      const desc = r.Description || "";
+      const bal = r.Balance != null && r.Balance !== "" ? parseFloat(r.Balance) : null;
+      ins.run(r.Date || "", String(r.Date || "").slice(0, 7), desc, desc.split(" - ")[0].trim(),
+        r.Category || "Other / Transfers", amt, Number.isNaN(bal) ? null : bal, /upi/i.test(desc) ? 1 : 0);
+    }
+    db.exec("COMMIT;");
+  } catch (e) { db.exec("ROLLBACK;"); throw e; }
+  recomputeMonth(ym);
+}
+
+// ── Period summaries (hierarchical, with in-process embeddings) ─────────────
+
+export function replacePeriodSummaries(items) {
+  db.exec("DELETE FROM period_summaries;");
+  const ins = db.prepare(
+    `INSERT INTO period_summaries (id, anchor, window, period_label, start_date, end_date, metrics, narrative, embedding)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+  );
+  db.exec("BEGIN;");
+  try {
+    for (const it of items) {
+      ins.run(
+        it.id, it.anchor, it.window, it.periodLabel, it.start, it.end,
+        JSON.stringify(it.metrics || {}),
+        it.narrative || "",
+        it.embedding ? JSON.stringify(it.embedding) : null
+      );
+    }
+    db.exec("COMMIT;");
+  } catch (e) {
+    db.exec("ROLLBACK;");
+    throw e;
+  }
+}
+
+export function getPeriodSummaries() {
+  return db.prepare("SELECT * FROM period_summaries;").all().map((r) => ({
+    id: r.id, anchor: r.anchor, window: r.window, periodLabel: r.period_label,
+    start: r.start_date, end: r.end_date,
+    metrics: r.metrics ? JSON.parse(r.metrics) : {},
+    narrative: r.narrative || "",
+    embedding: r.embedding ? JSON.parse(r.embedding) : null,
+  }));
+}
+
+export function hasPeriodSummaries() {
+  return Number(db.prepare("SELECT COUNT(*) AS n FROM period_summaries;").get().n) > 0;
+}
+
+// ── SQLite prompt cache (offline fallback for the Redis prompt cache) ───────
+
+export function promptCacheGet(key) {
+  const row = db.prepare("SELECT value FROM prompt_cache WHERE key = ?;").get(key);
+  return row ? row.value : null;
+}
+
+export function promptCacheSet(key, value) {
+  db.prepare("INSERT OR REPLACE INTO prompt_cache (key, value) VALUES (?, ?);").run(key, value);
 }
 
 export function getTotalContentLength() {

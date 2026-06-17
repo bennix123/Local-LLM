@@ -15,7 +15,34 @@ import {
   getMeta,
   getRecords,
   hasDocument,
+  replaceTransactions,
+  hasTransactions,
+  txOverview,
+  txKeyword,
+  txKeywordByMonth,
+  txMonthSpend,
+  txMonthlySpend,
+  txYearMonthly,
+  txCategorySpend,
+  txKeywordMonth,
+  txCategoryMonth,
+  txLargestDebit,
+  txLargestCredit,
+  txSmallestDebit,
+  txTopDebits,
+  txReceivedFromPeople,
+  txCategoryBreakdown,
+  txRecent,
+  txCurrentBalance,
+  txTopPayees,
+  txSubscriptions,
+  txPage,
+  hasMonthSummaries,
+  getMonthSummary,
+  getMonthSummaries,
+  yearMonthSummaries,
 } from "./src/db.js";
+import { rebuildPeriods, updateMonthAndRebuild } from "./src/summaries.js";
 import { parseFile } from "./src/ingest.js";
 import { computeStatsSummary } from "./src/stats.js";
 import {
@@ -27,7 +54,8 @@ import {
   monthLabel,
   payeeOf,
 } from "./src/aggregate.js";
-import { fmtAmountLabel, getCurrencyCode, setCurrency } from "./src/currency.js";
+import { fmtAmountLabel, getCurrencyCode, setCurrency, getCurrencySymbol } from "./src/currency.js";
+import { categorize } from "./src/periods.js";
 import {
   listDownloadedModels,
   downloadModel,
@@ -36,7 +64,7 @@ import {
   isReady,
   chat,
 } from "./src/llm.js";
-import { buildSystemPrompt } from "./src/rag.js";
+import { buildSystemPrompt, isPeriodQuestion, periodExactAnswer } from "./src/rag.js";
 import { initChromaDb, isChromaReady, replaceChromaDocument, clearChromaDocument, getChromaError } from "./src/chromaDb.js";
 import { initRedis, isRedisReady, getRedisError, cacheSet, cacheGet, cacheDel, disconnectRedis } from "./src/redis.js";
 
@@ -130,16 +158,18 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
         .status(400)
         .json({ error: "Could not read any rows/text from that file." });
     }
-    const summary = computeStatsSummary(parsed.columns, parsed.records);
+    const records = (parsed.records || []).map((r) => ({ ...r, Category: r.Category || categorize(r) }));
+    const summary = computeStatsSummary(parsed.columns, records);
     replaceDocument({
       fileName: originalname,
       columns: parsed.columns,
       rowCount: parsed.rowCount,
       chunks: parsed.chunks,
       summary,
-      records: parsed.records,
+      records: [], // stored in the transactions table instead of a JSON blob
       currency: getCurrencyCode(),
     });
+    replaceTransactions(records);
 
     replaceChromaDocument(parsed.chunks, { fileName: originalname });
     cacheDel("bank:*");
@@ -157,6 +187,49 @@ app.post("/api/reset", (req, res) => {
   res.json({ ok: true });
 });
 
+// Dashboard data — everything the post-upload overview needs, in one shot.
+app.get("/api/dashboard", (req, res) => {
+  if (!hasTransactions()) return res.json({ ready: false });
+  const meta = getMeta();
+  const o = txOverview();
+  const months = getMonthSummaries();
+  const lg = txLargestDebit(), sm = txSmallestDebit();
+  res.json({
+    ready: true,
+    fileName: meta.fileName,
+    currency: getCurrencySymbol() || "₹",
+    totals: { income: o.credit, spending: o.debit, net: o.credit - o.debit, count: o.count, upi: o.upi },
+    balance: txCurrentBalance(),
+    categories: txCategoryBreakdown(8).map((c) => ({ name: c.category, amount: c.spend, count: c.count })),
+    recent: txRecent(12).map((r) => ({ date: r.date, payee: r.payee, category: r.category, amount: r.amount })),
+    months: months.map((m) => ({ ym: m.ym, income: m.income, spending: m.spending, net: m.net, count: m.count })),
+    topPayees: txTopPayees(6).map((p) => ({ name: p.payee, amount: p.spend, count: p.count })),
+    subscriptions: txSubscriptions().map((s) => ({ name: s.payee, total: s.total, count: s.count, last: s.last })),
+    largest: lg ? { amount: lg.amount, payee: lg.payee, date: lg.date } : null,
+    smallest: sm ? { amount: sm.amount, payee: sm.payee, date: sm.date } : null,
+  });
+});
+
+// Paged + searchable raw transactions (for the "Your data" tab).
+app.get("/api/transactions", (req, res) => {
+  if (!hasTransactions()) return res.json({ total: 0, rows: [] });
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  res.json(txPage({ offset, limit, q: String(req.query.q || "") }));
+});
+
+// Re-put one month's transactions → recompute that month's summary + rollups.
+app.post("/api/update-month", async (req, res) => {
+  const { ym, records } = req.body || {};
+  if (!ym || !Array.isArray(records)) return res.status(400).json({ error: "Provide { ym: 'YYYY-MM', records: [...] }" });
+  try {
+    const r = await updateMonthAndRebuild(ym, records);
+    res.json({ ok: true, ...r, summary: getMonthSummary(ym) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // --- Chat (streamed plain-text response) ----------------------------------
 
 // Precise aggregation over the structured records (exact sums the LLM can't do
@@ -170,7 +243,7 @@ const STOP_TERMS = new Set([
   "january", "february", "march", "april", "may", "june", "july", "august",
   "september", "october", "november", "december",
 ]);
-const money = (n) => fmtAmountLabel(Math.abs(n));
+const money = (n) => getCurrencySymbol() + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function termToKeywords(term) {
   return term
@@ -194,120 +267,172 @@ function extractEntityKeywords(question) {
   return [];
 }
 
+// SQL-backed exact answers — constant memory at any row count (lakhs+).
+// Answers are returned as Markdown (heading + table) for readable rendering.
+const MN_NUM = { january: "01", february: "02", march: "03", april: "04", may: "05", june: "06", july: "07", august: "08", september: "09", october: "10", november: "11", december: "12" };
+const cap1 = (s) => s[0].toUpperCase() + s.slice(1).toLowerCase();
+const num = (n) => Number(n).toLocaleString("en-IN");
+const mdTable = (headers, rows) =>
+  `| ${headers.join(" | ")} |\n| ${headers.map(() => "---").join(" | ")} |\n` + rows.map((r) => `| ${r.join(" | ")} |`).join("\n");
+const factTable = (title, rows) => `**${title}**\n\n${mdTable(["Field", "Value"], rows)}`;
+const CAT_Q = [
+  [/grocer/i, "Groceries"], [/\btransport|commut/i, "Transport"],
+  [/food|dining|restaurant/i, "Food & Dining"], [/shopping/i, "Shopping"],
+  [/utilit|\bbills?\b/i, "Utilities"], [/entertain/i, "Entertainment"],
+  [/health|medical/i, "Healthcare"], [/invest|insurance/i, "Investment & Insurance"],
+];
+
 function preciseAnswer(question) {
-  const records = getRecords();
-  if (!records.length) return null;
+  if (!hasTransactions()) return null;
   const q = question.toLowerCase();
   const perMonth = /\b(every month|per month|each month|monthly|month wise|month-wise|by month)\b/i.test(question);
 
-  // Global total spending (no specific merchant) — e.g. "total spending for the
-  // entire statement period", "how much did I spend overall"
+  // Global total spending (no specific merchant)
   if (/\b(spend|spending|spent|expenses?)\b/i.test(q) && /\b(total|overall|altogether|entire|in all|in total)\b/i.test(q)) {
     const ents = extractEntityKeywords(question);
-    const meaningful = ents.filter((e) => aggregateByKeywords(records, [e]).count > 0);
-    if (!meaningful.length) {
-      const debits = records.filter((r) => recAmount(r) < 0);
-      const tot = debits.reduce((s, r) => s + Math.abs(recAmount(r)), 0);
-      return `Total spending: ${money(tot)} across ${debits.length} debit transactions.`;
+    if (!ents.some((e) => txKeyword([e]).count > 0)) {
+      const o = txOverview();
+      return factTable("Total spending", [["Total spent", money(o.debit)], ["Debit transactions", num(o.debitCount)]]);
+    }
+  }
+
+  // Spending on an entity OR category within a specific month
+  if (/\b(spen[dt]|spending|pay|paid|cost|how much)\b/i.test(q)) {
+    const mm = question.match(new RegExp(`\\b(${Object.keys(MN_NUM).join("|")})\\s+(\\d{4})\\b`, "i"));
+    if (mm) {
+      const ym = `${mm[2]}-${MN_NUM[mm[1].toLowerCase()]}`;
+      const when = `${cap1(mm[1])} ${mm[2]}`;
+      for (const [re, cat] of CAT_Q) {
+        if (re.test(q)) { const c = txCategoryMonth(cat, ym); if (c && c.count > 0) return factTable(`${cat} — ${when}`, [["Spent", money(c.debit)], ["Transactions", num(c.count)]]); }
+      }
+      const kws = extractEntityKeywords(question.replace(mm[0], " ").replace(/\bin\b/gi, " "));
+      if (kws.length) { const a = txKeywordMonth(kws, ym); if (a && a.count > 0) return factTable(`${kws.join(", ")} — ${when}`, [["Spent", money(a.debit)], ["Transactions", num(a.count)]]); }
+    }
+  }
+
+  // Spending in a specific month (whole month)
+  if (/\b(spen[dt]|spending|expense|cost)\b/i.test(q)) {
+    const mm = question.match(new RegExp(`\\b(${Object.keys(MN_NUM).join("|")})\\s+(\\d{4})\\b`, "i"));
+    if (mm) {
+      const m = getMonthSummary(`${mm[2]}-${MN_NUM[mm[1].toLowerCase()]}`); // materialized summary
+      if (m && m.count > 0) return factTable(`Spending — ${cap1(mm[1])} ${mm[2]}`, [["Spent", money(m.spending)], ["Transactions", num(m.count)]]);
     }
   }
 
   // UPI count
   if (/\bupi\b/i.test(q) && /\b(how many|number of|count|total number|how much)\b/i.test(q)) {
-    const n = records.filter((r) => /upi/i.test(r.Description)).length;
-    return `${n} of ${records.length} transactions were made via UPI.`;
+    const o = txOverview();
+    return factTable("UPI transactions", [["UPI payments", num(o.upi)], ["Total transactions", num(o.count)]]);
   }
 
   // Smallest single expense
   if (/\b(smallest|least|lowest|minimum|tiniest)\b/i.test(q) && /\b(amount|spent|spend|transaction|expense|purchase)\b/i.test(q) && !/categor|month/i.test(q)) {
-    const s = smallestDebit(records);
-    if (s) return `Smallest expense: ${money(recAmount(s))} — ${payeeOf(s)} on ${s.Date}.`;
+    const s = txSmallestDebit();
+    if (s) return factTable("Smallest expense", [["Amount", money(s.amount)], ["Payee", s.payee], ["Date", s.date]]);
   }
 
   // Top-N largest expenses
   const topN = q.match(/top\s*(\d+)/i);
-  if (topN && /\b(transaction|purchase|expense|spending|spend|payment)\b/i.test(q) && !/categor/i.test(q)) {
+  if (topN && /\b(transactions?|purchases?|expenses?|spending|spent|spend|payments?)\b/i.test(q) && !/categor/i.test(q)) {
     const n = Math.min(20, Math.max(1, parseInt(topN[1])));
-    const list = topTransactions(records, n, "debit").map((r, i) => `${i + 1}. ${money(recAmount(r))} — ${payeeOf(r)} (${r.Date})`);
-    return `Top ${n} largest expenses:\n${list.join("\n")}`;
+    const rows = txTopDebits(n).map((r, i) => [i + 1, money(r.amount), r.payee, r.date]);
+    return `**Top ${n} largest expenses**\n\n${mdTable(["#", "Amount", "Payee", "Date"], rows)}`;
   }
   if (/\b(biggest|largest|highest)\b/i.test(q) && /\b(single\s+)?(transaction|purchase|expense|payment|debit)\b/i.test(q) && !/categor|month|income|credit|deposit/i.test(q)) {
-    const t = topTransactions(records, 1, "debit")[0];
-    if (t) return `Largest single expense: ${money(recAmount(t))} — ${payeeOf(t)} on ${t.Date}.`;
+    const t = txLargestDebit();
+    if (t) return factTable("Largest single expense", [["Amount", money(t.amount)], ["Payee", t.payee], ["Date", t.date]]);
   }
   if (/\b(biggest|largest|highest)\b/i.test(q) && /\b(income|credit|deposit|salary|received)\b/i.test(q)) {
-    const t = topTransactions(records, 1, "credit")[0];
-    if (t) return `Largest single credit: ${money(recAmount(t))} — ${payeeOf(t)} on ${t.Date}.`;
+    const t = txLargestCredit();
+    if (t) return factTable("Largest single credit", [["Amount", money(t.amount)], ["From", t.payee], ["Date", t.date]]);
   }
 
-  // Salary (credits matching "salary"; excludes EarlySalary loan debits)
+  // Salary
   if (/\bsalary\b/i.test(q)) {
-    const a = aggregateByKeywords(records, ["salary"]);
-    const credits = [...a.byMonth.entries()].filter(([, mm]) => mm.credit > 0).sort();
+    const a = txKeyword(["salary"]);
     if (a.credit > 0) {
       if (perMonth) {
-        const lines = credits.map(([m, mm]) => `  ${monthLabel(m)}: ${money(mm.credit)}`);
-        return `Salary credited by month:\n${lines.join("\n")}\nTotal salary: ${money(a.credit)} (${credits.length} credits).`;
+        const rows = txKeywordByMonth(["salary"]).filter((r) => r.credit > 0).map((r) => [monthLabel(r.ym), money(r.credit)]);
+        rows.push(["**Total**", `**${money(a.credit)}**`]);
+        return `**Salary credited by month**\n\n${mdTable(["Month", "Amount"], rows)}`;
       }
-      return `Total salary credited: ${money(a.credit)} across ${credits.length} salary credits.`;
+      return factTable("Salary credited", [["Total salary", money(a.credit)]]);
     }
   }
 
   // Interest earned
   if (/\binterest\b/i.test(q)) {
-    const a = aggregateByKeywords(records, ["interest"]);
-    if (a.credit > 0) return `Total interest earned: ${money(a.credit)} (${a.matched.filter((r) => recAmount(r) > 0).length} credits).`;
+    const a = txKeyword(["interest"]);
+    if (a.credit > 0) return factTable("Interest earned", [["Total interest", money(a.credit)]]);
   }
 
-  // Money received from people (non-salary/interest credits, excluding reversals & self)
+  // Money received from people
   if (/\b(receive|received|got|credited)\b/i.test(q) && /\b(people|others|other people|someone|anyone|friends|else|individuals)\b/i.test(q)) {
-    const credits = records.filter((r) => recAmount(r) > 0 && !/salary|interest|\bREV\b|reversal|abhishek kumar/i.test(r.Description));
-    const total = credits.reduce((s, r) => s + recAmount(r), 0);
-    return `Yes. Excluding salary and interest, you received ${money(total)} across ${credits.length} credits from other parties (transfers, refunds, etc.).`;
+    const p = txReceivedFromPeople();
+    return factTable("Received from others (excl. salary & interest)", [["Total received", money(p.credit)], ["Credits", num(p.count)]]);
   }
 
-  // Which month most / least spending
+  // Which month most / least spending (from materialized month summaries)
   if (/\bmonth\b/i.test(q) && /\b(most|highest|maximum|max|biggest)\b/i.test(q) && /\b(spen|expense)/i.test(q)) {
-    const mm = monthlyDebit(records); const arr = [...mm.entries()].sort((a, b) => b[1] - a[1]);
-    if (arr.length) return `You spent the most in ${monthLabel(arr[0][0])}: ${money(arr[0][1])}.`;
+    const ms = getMonthSummaries();
+    if (ms.length) { const t = [...ms].sort((a, b) => b.spending - a.spending)[0]; return factTable("Highest-spending month", [["Month", monthLabel(t.ym)], ["Spent", money(t.spending)]]); }
   }
   if (/\bmonth\b/i.test(q) && /\b(least|lowest|minimum|min|smallest)\b/i.test(q) && /\b(spen|expense)/i.test(q)) {
-    const mm = monthlyDebit(records); const arr = [...mm.entries()].sort((a, b) => a[1] - b[1]);
-    if (arr.length) return `You spent the least in ${monthLabel(arr[0][0])}: ${money(arr[0][1])}.`;
+    const ms = getMonthSummaries();
+    if (ms.length) { const t = [...ms].sort((a, b) => a.spending - b.spending)[0]; return factTable("Lowest-spending month", [["Month", monthLabel(t.ym)], ["Spent", money(t.spending)]]); }
   }
 
   // Entity / merchant aggregation
   if (/\b(spen[dt]|spending|pay|paid|send|sent|transfer|how much|total|cost|charge)\b/i.test(q)) {
     const keywords = extractEntityKeywords(question);
     if (keywords.length) {
-      const a = aggregateByKeywords(records, keywords);
+      const a = txKeyword(keywords);
       if (a.count > 0) {
         const credit = /from me\b/i.test(question)
           ? false
           : /\b(received|got|credited|came from|income from)\b/i.test(question) && !/\b(spen[dt]|pay|paid|send|sent)\b/i.test(question);
         const label = keywords.join(", ");
         if (perMonth) {
-          const lines = [...a.byMonth.entries()].sort().map(([m, mm]) => `  ${monthLabel(m)}: ${money(credit ? mm.credit : mm.debit)} (${mm.count} txn)`);
-          const total = credit ? a.credit : a.debit;
-          return `${credit ? "Received from" : "Paid to"} ${label} by month:\n${lines.join("\n")}\nTotal: ${money(total)} across ${a.count} transactions.`;
+          const rows = txKeywordByMonth(keywords).map((r) => [monthLabel(r.ym), money(credit ? r.credit : r.debit), num(r.count)]);
+          rows.push(["**Total**", `**${money(credit ? a.credit : a.debit)}**`, `**${num(a.count)}**`]);
+          return `**${credit ? "Received from" : "Paid to"} ${label} — by month**\n\n${mdTable(["Month", "Amount", "Txns"], rows)}`;
         }
-        const value = credit ? a.credit : a.debit;
-        return `${credit ? "Total received from" : "Total spent on"} ${label}: ${money(value)} across ${a.count} transaction${a.count > 1 ? "s" : ""}.`;
+        return factTable(`${credit ? "Received from" : "Spent on"} ${label}`, [[credit ? "Received" : "Spent", money(credit ? a.credit : a.debit)], ["Transactions", num(a.count)]]);
       }
+    }
+  }
+
+  // Spending by category (after entity, so "food delivery (Swiggy...)" still wins)
+  if (/\b(spen[dt]|spending|expense|cost|how much)\b/i.test(q)) {
+    for (const [re, cat] of CAT_Q) {
+      if (!re.test(q)) continue;
+      const c = txCategorySpend(cat);
+      if (c.count > 0) return factTable(`Spending — ${cat}`, [["Spent", money(c.debit)], ["Transactions", num(c.count)]]);
     }
   }
 
   return null;
 }
 
-function monthlyDebit(records) {
-  const m = new Map();
-  for (const r of records) {
-    const n = recAmount(r);
-    if (n < 0) m.set(recMonth(r), (m.get(recMonth(r)) || 0) + Math.abs(n));
-    else if (!m.has(recMonth(r))) m.set(recMonth(r), m.get(recMonth(r)) || 0);
-  }
-  return m;
+// Month-by-month breakdown for a whole year (e.g. "month-wise expenditure 2024")
+// — served straight from the materialized month summaries.
+function yearBreakdown(question) {
+  if (!hasMonthSummaries()) return null;
+  const q = question.toLowerCase();
+  const yr = question.match(/\b(20\d{2})\b/);
+  const monthly = /\bmonth(ly)?\b|month[- ]?wise|each month|per month|every month|month by month|breakdown/i.test(q);
+  if (!yr || !monthly) return null;
+  if (new RegExp(`\\b(${Object.keys(MN_NUM).join("|")})\\b`, "i").test(q)) return null; // specific month → other handler
+  const rows = yearMonthSummaries(yr[1]);
+  if (!rows.length) return null;
+  let ti = 0, ts = 0, tn = 0;
+  const body = rows.map((r) => {
+    ti += r.income; ts += r.spending; tn += r.count;
+    const net = r.income - r.spending;
+    return [monthLabel(r.ym), money(r.income), money(r.spending), `${net < 0 ? "-" : "+"}${money(net)}`, num(r.count)];
+  });
+  body.push(["**Total**", `**${money(ti)}**`, `**${money(ts)}**`, `**${(ti - ts < 0 ? "-" : "+") + money(ti - ts)}**`, `**${num(tn)}**`]);
+  return `**Monthly breakdown — ${yr[1]}**\n\n${mdTable(["Month", "Income", "Spending", "Net", "Txns"], body)}`;
 }
 
 function deterministicAnswer(question, meta) {
@@ -522,48 +647,42 @@ app.post("/api/chat", async (req, res) => {
       .json({ error: "Upload a bank statement first." });
 
   const meta = getMeta();
-  const cacheKey = `bank:chat:${meta.fileName}:${message}`;
 
-  const preAnswer = deterministicAnswer(message, meta);
-  if (preAnswer) {
+  // Exact-figure questions are answered DIRECTLY from the deterministic layer —
+  // 100% numeric fidelity, instant, and no model needed (a small LLM can slip a
+  // digit when copying large numbers). Only period/trend and open-ended
+  // questions go to the LLM.
+  // Routing: year monthly-breakdown → period (single window) → other facts.
+  // Vague trend/compare and open-ended questions fall through to the LLM.
+  const exact = yearBreakdown(message) ||
+    (isPeriodQuestion(message) ? periodExactAnswer(message) : deterministicAnswer(message, meta));
+  if (exact) {
     res.writeHead(200, {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
       "X-Answer": "deterministic",
     });
-    res.write(preAnswer);
-    cacheSet(cacheKey, preAnswer, 1800);
+    res.write(exact);
     return res.end();
   }
 
+  // Period/trend + open-ended → LLM (LFM2 2.6B), grounded by the retrieved
+  // summaries / facts built in buildSystemPrompt.
   if (!isReady())
     return res.status(400).json({ error: "No model loaded yet." });
-
-  const cached = await cacheGet(cacheKey);
-  if (cached) {
-    res.writeHead(200, {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "X-Cache": "HIT",
-    });
-    res.write(cached);
-    return res.end();
-  }
 
   res.writeHead(200, {
     "Content-Type": "text/plain; charset=utf-8",
     "Cache-Control": "no-cache",
+    "X-Answer": "llm",
   });
 
-  
   try {
     const systemPrompt = await buildSystemPrompt(message);
-    let fullResponse = "";
     await chat(systemPrompt, message, (chunk) => {
-      fullResponse += chunk;
-      res.write(chunk);
+      // Sanitize stray currency glyphs the small model sometimes emits (₺/₿/$…) → ₹
+      res.write(chunk.replace(/[$¥€£₿₾₺₻₼₽₦₩₪₫₥﷼]/g, "₹"));
     });
-    cacheSet(cacheKey, fullResponse, 1800);
     res.end();
   } catch (err) {
     res.write(`\n[error] ${err.message}`);
