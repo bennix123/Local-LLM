@@ -63,6 +63,7 @@ import {
   getLoadedModelId,
   isReady,
   chat,
+  routeIntent,
 } from "./src/llm.js";
 import { buildSystemPrompt, isPeriodQuestion, periodExactAnswer } from "./src/rag.js";
 import { initChromaDb, isChromaReady, replaceChromaDocument, clearChromaDocument, getChromaError } from "./src/chromaDb.js";
@@ -435,6 +436,209 @@ function yearBreakdown(question) {
   return `**Monthly breakdown — ${yr[1]}**\n\n${mdTable(["Month", "Income", "Spending", "Net", "Txns"], body)}`;
 }
 
+// Every-month breakdown when no year is given (e.g. "tell me the month wise").
+// Served straight from the materialized month summaries — never the LLM.
+function allMonthsBreakdown(question) {
+  if (!hasMonthSummaries()) return null;
+  const q = question.toLowerCase();
+  const monthly = /month[- ]?wise|each month|per month|every month|month by month|\bmonthly\b|by month/i.test(q);
+  if (!monthly) return null;
+  if (/\b(20\d{2})\b/.test(q)) return null; // year given → yearBreakdown handles it
+  if (new RegExp(`\\b(${Object.keys(MN_NUM).join("|")})\\b`, "i").test(q)) return null; // specific month → other handler
+  const rows = getMonthSummaries();
+  if (!rows.length) return null;
+  let ti = 0, ts = 0, tn = 0;
+  const body = rows.map((r) => {
+    ti += r.income; ts += r.spending; tn += r.count;
+    const net = r.income - r.spending;
+    return [monthLabel(r.ym), money(r.income), money(r.spending), `${net < 0 ? "-" : "+"}${money(net)}`, num(r.count)];
+  });
+  body.push(["**Total**", `**${money(ti)}**`, `**${money(ts)}**`, `**${(ti - ts < 0 ? "-" : "+") + money(ti - ts)}**`, `**${num(tn)}**`]);
+  return `**Monthly breakdown — all months**\n\n${mdTable(["Month", "Income", "Spending", "Net", "Txns"], body)}`;
+}
+
+// "Which months / years do you have data for?" — lists available months by year.
+function monthsAvailable(question) {
+  if (!hasMonthSummaries()) return null;
+  const q = question.toLowerCase();
+  const asksList = /\b(list|which|what|how many|available|range|covered?|do you have|you have)\b/i.test(q);
+  const aboutMonths = /\b(months?|years?|periods?|data)\b/i.test(q);
+  if (!asksList || !aboutMonths) return null;
+  // Don't steal income/spending breakdown queries — those want amounts.
+  if (/\b(spen[dt]|spending|income|expense|salary|paid|earn)\b/i.test(q)) return null;
+  const ms = getMonthSummaries();
+  if (!ms.length) return null;
+  const byYear = {};
+  for (const r of ms) { const y = r.ym.slice(0, 4); (byYear[y] ||= []).push(r); }
+  const years = Object.keys(byYear).sort();
+  const body = [];
+  for (const y of years) {
+    const rows = byYear[y];
+    const names = rows.map((r) => monthLabel(r.ym).split(" ")[0]).join(", ");
+    const cnt = rows.reduce((s, r) => s + r.count, 0);
+    body.push([y, num(rows.length), names, num(cnt)]);
+  }
+  const totMonths = ms.length, totTx = ms.reduce((s, r) => s + r.count, 0);
+  body.push([`**Total**`, `**${num(totMonths)}**`, "", `**${num(totTx)}**`]);
+  return `**Data coverage — ${monthLabel(ms[0].ym)} to ${monthLabel(ms[ms.length - 1].ym)}**\n\n${mdTable(["Year", "Months", "Which months", "Txns"], body)}`;
+}
+
+// Overall summary / overview / "how much data" — totals + full month-year table.
+// Pure SQL aggregation, never the LLM (a small model invents huge wrong figures).
+function overviewSummary(question) {
+  if (!hasMonthSummaries()) return null;
+  const q = question.toLowerCase();
+  if (!/\b(summary|overview|snapshot|full picture|how much data|overall|net (loss|gain|position)|total (transactions?|amount)|all (calculations?|the data))\b/i.test(q)) return null;
+  if (extractEntityKeywords(question).some((e) => txKeyword([e]).count > 0)) return null; // entity-specific → other handler
+  const o = txOverview();
+  const bal = txCurrentBalance();
+  const net = o.credit - o.debit;
+  const totals = [
+    ["Transactions", num(o.count)],
+    ["Total income (credits)", money(o.credit)],
+    ["Total spending (debits)", money(o.debit)],
+    ["Net", `${net < 0 ? "-" : "+"}${money(net)}`],
+    ["UPI payments", num(o.upi)],
+  ];
+  if (bal != null) totals.push(["Closing balance", money(bal)]);
+  let out = factTable("Overall summary", totals);
+  const ms = getMonthSummaries();
+  if (ms.length) {
+    let ti = 0, ts = 0, tn = 0;
+    const body = ms.map((r) => {
+      ti += r.income; ts += r.spending; tn += r.count;
+      const n = r.income - r.spending;
+      return [monthLabel(r.ym), money(r.income), money(r.spending), `${n < 0 ? "-" : "+"}${money(n)}`, num(r.count)];
+    });
+    body.push(["**Total**", `**${money(ti)}**`, `**${money(ts)}**`, `**${(ti - ts < 0 ? "-" : "+") + money(ti - ts)}**`, `**${num(tn)}**`]);
+    out += `\n\n**Month-by-month**\n\n${mdTable(["Month", "Income", "Spending", "Net", "Txns"], body)}`;
+  }
+  return out;
+}
+
+// Deterministic spending snapshot (top categories) — prepended to advice
+// answers so the user always sees correct, comma-formatted figures while the
+// LLM supplies only the qualitative reasoning.
+function spendingSnapshot() {
+  if (!hasTransactions()) return null;
+  const cats = txCategoryBreakdown(8);
+  if (!cats.length) return null;
+  const o = txOverview();
+  const rows = cats.map((c, i) => [i + 1, c.category, money(c.spend), num(c.count)]);
+  return `**Your top spending categories** (total spent ${money(o.debit)})\n\n${mdTable(["#", "Category", "Spent", "Txns"], rows)}`;
+}
+
+// Number-free grounding for advice answers: the model gets only ranked NAMES
+// (categories + merchants), never figures — so it literally cannot mis-copy a
+// number. The exact figures are shown separately in the snapshot table.
+function adviceContext() {
+  if (!hasTransactions()) return null;
+  const cats = txCategoryBreakdown(8).map((c) => c.category);
+  const payees = txTopPayees(8).map((p) => p.payee);
+  if (!cats.length) return null;
+  return `You are a friendly personal-finance assistant. The user's spending categories, highest to lowest, are: ${cats.join(", ")}. Their most-paid merchants are: ${payees.join(", ")}.
+
+Give short, practical, qualitative money-saving advice based on these. IMPORTANT: do NOT state any rupee amounts, numbers, or percentages of totals — the exact figures are already shown to the user in a table. Refer to categories and merchants by name only. Keep it to 3-5 sentences.`;
+}
+
+// Option B dispatcher: turn the LLM's structured intent into a deterministic
+// SQL-backed table. The model chose the intent; every NUMBER here comes from
+// SQL, never the model. Returns markdown, or null if it can't be served exactly
+// (caller then falls through to the grounded prose LLM).
+function dispatchIntent(intent, question) {
+  if (!intent || !hasTransactions()) return null;
+  const t = intent.type;
+  const ym = /^\d{4}-\d{2}$/.test(intent.month || "") ? intent.month : null;
+  const when = ym ? `${cap1(Object.keys(MN_NUM).find((k) => MN_NUM[k] === ym.slice(5)) || "")} ${ym.slice(0, 4)}` : null;
+
+  switch (t) {
+    case "overview":
+      return overviewSummary("overview summary");
+    case "coverage":
+      return monthsAvailable("which months do you have data");
+    case "month_breakdown":
+      return allMonthsBreakdown("month wise");
+    case "year_breakdown":
+      return /^\d{4}$/.test(intent.year || "") ? yearBreakdown(`month wise ${intent.year}`) : null;
+
+    case "spend_total": {
+      const o = txOverview();
+      return factTable("Total spending", [["Total spent", money(o.debit)], ["Debit transactions", num(o.debitCount)]]);
+    }
+    case "income_total": {
+      const o = txOverview();
+      return factTable("Total income", [["Total received", money(o.credit)], ["Transactions", num(o.count)]]);
+    }
+    case "balance": {
+      const b = txCurrentBalance();
+      return b == null ? null : factTable("Closing balance", [["Balance", money(b)]]);
+    }
+    case "upi_count": {
+      const o = txOverview();
+      return factTable("UPI transactions", [["UPI payments", num(o.upi)], ["Total transactions", num(o.count)]]);
+    }
+    case "largest_expense": {
+      const r = txLargestDebit();
+      return r ? factTable("Largest single expense", [["Amount", money(r.amount)], ["Payee", r.payee], ["Date", r.date]]) : null;
+    }
+    case "largest_income": {
+      const r = txLargestCredit();
+      return r ? factTable("Largest single credit", [["Amount", money(r.amount)], ["From", r.payee], ["Date", r.date]]) : null;
+    }
+    case "smallest_expense": {
+      const r = txSmallestDebit();
+      return r ? factTable("Smallest expense", [["Amount", money(r.amount)], ["Payee", r.payee], ["Date", r.date]]) : null;
+    }
+    case "top_expenses": {
+      const n = Math.min(20, Math.max(1, intent.n || 5));
+      const rows = txTopDebits(n).map((r, i) => [i + 1, money(r.amount), r.payee, r.date]);
+      return `**Top ${n} largest expenses**\n\n${mdTable(["#", "Amount", "Payee", "Date"], rows)}`;
+    }
+    case "salary": {
+      const a = txKeyword(["salary"]);
+      return a.credit > 0 ? factTable("Salary credited", [["Total salary", money(a.credit)]]) : null;
+    }
+    case "interest": {
+      const a = txKeyword(["interest"]);
+      return a.credit > 0 ? factTable("Interest earned", [["Total interest", money(a.credit)]]) : null;
+    }
+    case "received_from_people": {
+      const p = txReceivedFromPeople();
+      return factTable("Received from others (excl. salary & interest)", [["Total received", money(p.credit)], ["Credits", num(p.count)]]);
+    }
+    case "top_payees": {
+      const rows = txTopPayees(8).map((r, i) => [i + 1, r.payee, money(r.spend), num(r.count)]);
+      return `**Top payees by spend**\n\n${mdTable(["#", "Payee", "Spent", "Txns"], rows)}`;
+    }
+    case "subscriptions": {
+      const subs = txSubscriptions();
+      if (!subs || !subs.length) return null;
+      const rows = subs.map((s) => [s.payee, money(s.total), num(s.count), s.last]);
+      return `**Recurring subscriptions**\n\n${mdTable(["Service", "Spent", "Txns", "Last"], rows)}`;
+    }
+    case "category": {
+      const cat = intent.category;
+      if (!cat) return null;
+      if (ym) { const c = txCategoryMonth(cat, ym); return c && c.count > 0 ? factTable(`${cat} — ${when}`, [["Spent", money(c.debit)], ["Transactions", num(c.count)]]) : null; }
+      const c = txCategorySpend(cat);
+      return c.count > 0 ? factTable(`Spending — ${cat}`, [["Spent", money(c.debit)], ["Transactions", num(c.count)]]) : null;
+    }
+    case "entity": {
+      const kw = (intent.entity || "").trim();
+      if (!kw) return null;
+      const credit = intent.direction === "credit";
+      if (ym) {
+        const a = txKeywordMonth([kw], ym);
+        return a && a.count > 0 ? factTable(`${kw} — ${when}`, [[credit ? "Received" : "Spent", money(credit ? a.credit : a.debit)], ["Transactions", num(a.count)]]) : null;
+      }
+      const a = txKeyword([kw]);
+      return a.count > 0 ? factTable(`${credit ? "Received from" : "Spent on"} ${kw}`, [[credit ? "Received" : "Spent", money(credit ? a.credit : a.debit)], ["Transactions", num(a.count)]]) : null;
+    }
+    default:
+      return null; // advice / unknown → grounded prose LLM
+  }
+}
+
 function deterministicAnswer(question, meta) {
   const precise = preciseAnswer(question);
   if (precise) return precise;
@@ -654,7 +858,7 @@ app.post("/api/chat", async (req, res) => {
   // questions go to the LLM.
   // Routing: year monthly-breakdown → period (single window) → other facts.
   // Vague trend/compare and open-ended questions fall through to the LLM.
-  const exact = yearBreakdown(message) ||
+  const exact = yearBreakdown(message) || allMonthsBreakdown(message) || monthsAvailable(message) || overviewSummary(message) ||
     (isPeriodQuestion(message) ? periodExactAnswer(message) : deterministicAnswer(message, meta));
   if (exact) {
     res.writeHead(200, {
@@ -664,6 +868,31 @@ app.post("/api/chat", async (req, res) => {
     });
     res.write(exact);
     return res.end();
+  }
+
+  // Option B — LLM as router. When the fast regex layer didn't catch the
+  // phrasing, the model classifies the question into a structured intent and
+  // SQL produces every number (the model never emits figures). Factual intents
+  // become deterministic tables; "advice"/"unknown" go to the grounded prose
+  // LLM below — that's where the model actually earns its keep.
+  let intentType = null;
+  if (isReady()) {
+    try {
+      const intent = await routeIntent(message);
+      intentType = intent?.type || null;
+      if (intent && intent.type !== "advice" && intent.type !== "unknown") {
+        const routed = dispatchIntent(intent, message);
+        if (routed) {
+          res.writeHead(200, {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "X-Answer": "router",
+          });
+          res.write(routed);
+          return res.end();
+        }
+      }
+    } catch { /* fall through to grounded prose */ }
   }
 
   // Period/trend + open-ended → LLM (LFM2 2.6B), grounded by the retrieved
@@ -678,7 +907,18 @@ app.post("/api/chat", async (req, res) => {
   });
 
   try {
-    const systemPrompt = await buildSystemPrompt(message);
+    let systemPrompt = await buildSystemPrompt(message);
+    // For advice/opinion questions, show the real figures in a table FIRST, then
+    // let the model reason qualitatively — it must NOT state its own numbers
+    // (a small model mis-copies and mislabels large figures).
+    if (intentType === "advice") {
+      const snap = spendingSnapshot();
+      const ctx = adviceContext();
+      if (snap && ctx) {
+        res.write(snap + "\n\n");
+        systemPrompt = ctx; // number-free grounding: nothing for the model to mis-copy
+      }
+    }
     await chat(systemPrompt, message, (chunk) => {
       // Sanitize stray currency glyphs the small model sometimes emits (₺/₿/$…) → ₹
       res.write(chunk.replace(/[$¥€£₿₾₺₻₼₽₦₩₪₫₥﷼]/g, "₹"));
