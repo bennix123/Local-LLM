@@ -172,6 +172,88 @@ export async function unload() {
  * by the caller; `userMessage` is the question. Streams tokens via onChunk.
  * Returns the full response text.
  */
+// ---- Intent router (Option B) ---------------------------------------------
+// The model NEVER produces numbers. It only classifies the question into a
+// structured intent; the caller runs SQL and formats the figures. Output is
+// grammar-constrained to this JSON schema, so a small model can't ramble.
+const INTENT_SCHEMA = {
+  type: "object",
+  properties: {
+    type: {
+      enum: [
+        "overview", "spend_total", "income_total", "month_breakdown",
+        "year_breakdown", "coverage", "entity", "category", "top_expenses",
+        "largest_expense", "largest_income", "smallest_expense", "balance",
+        "upi_count", "received_from_people", "subscriptions", "salary",
+        "interest", "top_payees", "advice", "unknown",
+      ],
+    },
+    entity: { type: "string" },
+    category: {
+      enum: [
+        "Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
+        "Entertainment", "Healthcare", "Investment & Insurance", "",
+      ],
+    },
+    month: { type: "string" }, // "YYYY-MM" or ""
+    year: { type: "string" },  // "YYYY" or ""
+    n: { type: "integer" },
+    direction: { enum: ["debit", "credit", ""] },
+  },
+  required: ["type"],
+};
+
+let intentGrammar = null;
+
+const ROUTER_SYSTEM = `You are an intent classifier for a bank-statement assistant. You DO NOT answer questions or produce any numbers. You output ONLY a JSON object describing what the user wants.
+
+Pick "type":
+- overview: overall summary / net position / how much data / total transactions
+- spend_total: total spending overall
+- income_total: total income/credits overall
+- month_breakdown: spending/income broken down per month (no specific year)
+- year_breakdown: per-month breakdown for ONE specific year (set "year")
+- coverage: which months/years of data exist
+- entity: spending/received for a named merchant/person (set "entity"; "month" if one month)
+- category: spending in a category (set "category"; "month" if one month)
+- top_expenses: the top N largest expenses (set "n")
+- largest_expense / largest_income: the single biggest debit / credit
+- smallest_expense: the single smallest debit
+- balance: current/closing balance
+- upi_count: number of UPI payments
+- received_from_people: money received from individuals (not salary/interest)
+- subscriptions: recurring subscriptions
+- salary / interest: salary credited / interest earned
+- top_payees: who they pay the most
+- advice: open-ended advice, tips, "how can I save", explanations, opinions
+- unknown: anything else / unclear
+
+Set "month" as YYYY-MM only if the user named a specific month+year. Set "year" as YYYY only for year_breakdown. Leave unused fields empty.`;
+
+export async function routeIntent(question) {
+  if (!isReady()) return null;
+  const run = queue.then(async () => {
+    if (!intentGrammar) {
+      intentGrammar = await llama.createGrammarForJsonSchema(INTENT_SCHEMA);
+    }
+    const session = new LlamaChatSession({ contextSequence, systemPrompt: ROUTER_SYSTEM });
+    try {
+      const res = await session.prompt(question, {
+        grammar: intentGrammar,
+        temperature: 0,
+        maxTokens: 120,
+      });
+      return intentGrammar.parse(res);
+    } catch {
+      return null;
+    } finally {
+      session.dispose();
+    }
+  });
+  queue = run.catch(() => {});
+  return run;
+}
+
 export function chat(systemPrompt, userMessage, onChunk) {
   // Chain onto the queue so concurrent requests don't corrupt the sequence.
   const run = queue.then(async () => {
