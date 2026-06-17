@@ -179,7 +179,7 @@ export function chat(systemPrompt, userMessage, onChunk) {
     const session = new LlamaChatSession({ contextSequence, systemPrompt });
     try {
       const response = await session.prompt(userMessage, {
-        temperature: 0.2, // low temp: we want faithful numbers, not creativity
+        temperature: 0.3, // light variety in phrasing without rambling; figures come from grounding
         maxTokens: 500,
         // Penalize repetition so weak models don't loop the same sentence.
         repeatPenalty: {

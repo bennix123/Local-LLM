@@ -1,88 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Bank Assistant · Offline LLM</title>
-    <link rel="stylesheet" href="/style.css" />
-  </head>
-  <body>
-    <header>
-      <h1>🏦 Local Bank Statement Assistant</h1>
-      <span id="offline-badge" class="badge hidden">● Offline · runs on your machine</span>
-    </header>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Penny · on-device finance</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="phone">
 
-    <!-- First-run: pick & download a model -->
-    <section id="setup" class="card hidden">
-      <h2>Step 1 · Download a local model</h2>
-      <p class="muted">
-        Pick a small model to download once. After it's on your machine, this
-        app works fully <strong>offline</strong> — your statements never leave your computer.
-      </p>
-      <div id="model-list"></div>
-      <button id="download-btn" disabled>Download selected model</button>
-      <div id="download-progress" class="hidden">
-        <div class="progress-bar"><div id="progress-fill"></div></div>
-        <p id="progress-text" class="muted"></p>
-      </div>
-    </section>
-
-    <!-- Now-offline notice -->
-    <div id="offline-notice" class="notice hidden">
-      ✅ <strong>Model ready.</strong> This app is now <strong>offline</strong> — no
-      internet is needed. Your bank data stays on this device.
+    <!-- ===== HOOK ===== -->
+    <div class="scr s1" id="scr-hook">
+      <div class="glow gtop"></div>
+      <div class="glow gbot"></div>
+      <div class="tag-mono">on-device · always offline</div>
+      <div class="s1-h">Talk to your <em>money.</em></div>
+      <div class="s1-p">Penny reads your bank statement entirely on this machine. Spending, patterns, instant answers — nothing leaves the device.</div>
+      <button class="btn lime" id="hook-btn">Get started</button>
     </div>
 
-    <!-- Main app -->
-    <main id="app" class="hidden">
-      <section class="card">
-        <h2>Step 2 · Upload your bank statement</h2>
-        <p class="muted">CSV, Excel (.xlsx/.xls), or a text-based PDF.</p>
-        <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.txt" />
+    <!-- ===== SETUP · MODEL ===== -->
+    <div class="scr s2 hidden" id="scr-setup">
+      <div class="scr-h">Pick a <em>local</em> model</div>
+      <div class="scr-p">Downloaded once, then it runs fully offline.</div>
+      <div class="scr-body" id="model-list"></div>
+      <div id="dl-progress" class="hidden">
+        <div class="progress"><i id="dl-fill"></i></div>
+        <div class="mono-note" id="dl-text"></div>
+      </div>
+      <div class="priv">model + data stay on this device</div>
+      <button class="btn lime" id="setup-btn" disabled>Download &amp; continue</button>
+    </div>
 
-        <!-- Processing status (shown while the document is being prepared) -->
-        <div id="processing" class="processing hidden">
-          <ol class="steps">
-            <li class="step" data-step="upload">
-              <span class="step-icon"></span>
-              <span class="step-label">Uploading document</span>
-            </li>
-            <li class="step" data-step="parse">
-              <span class="step-icon"></span>
-              <span class="step-label">Transcoding &amp; reading content</span>
-            </li>
-            <li class="step" data-step="index">
-              <span class="step-icon"></span>
-              <span class="step-label">Indexing into local database</span>
-            </li>
-            <li class="step" data-step="ready">
-              <span class="step-icon"></span>
-              <span class="step-label">Ready to chat</span>
-            </li>
-          </ol>
-        </div>
+    <!-- ===== UPLOAD ===== -->
+    <div class="scr s2 hidden" id="scr-upload">
+      <div class="scr-h">Add your <em>statement</em></div>
+      <div class="scr-p">CSV, Excel (.xlsx/.xls) or a text-based PDF.</div>
+      <div class="upzone" id="upzone">
+        <div class="upzone-ic">📄</div>
+        <div class="upzone-h">Tap to choose a file</div>
+        <div class="upzone-p">parsed locally · 0 bytes uploaded</div>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.pdf,.txt" hidden />
+      </div>
+      <ul class="steps hidden" id="up-steps">
+        <li class="step" data-step="upload"><span class="ic"></span><span>Reading file</span></li>
+        <li class="step" data-step="parse"><span class="ic"></span><span>Transcoding &amp; parsing</span></li>
+        <li class="step" data-step="index"><span class="ic"></span><span>Indexing &amp; summarising</span></li>
+        <li class="step" data-step="ready"><span class="ic"></span><span>Ready</span></li>
+      </ul>
+      <div class="priv">your statement never leaves this device</div>
+    </div>
 
-        <div id="doc-info" class="doc-info hidden"></div>
-        <button id="chat-cta" class="chat-cta hidden">💬 Chat with your document</button>
-      </section>
+    <!-- ===== APP ===== -->
+    <div class="app hidden" id="app">
+      <div class="tbar">
+        <div class="brand-logo">penny<em>.</em></div>
+        <div class="priv-pill">on-device</div>
+      </div>
+      <div class="view" id="view"></div>
+      <div class="bnav">
+        <div class="bnt on" data-v="today"><div class="bnt-icon">🏠</div><div class="bnt-l">Today</div></div>
+        <div class="bnt chat-tab" data-v="chat"><div class="bnt-icon">💬</div><div class="bnt-l">Chat</div></div>
+        <div class="bnt" data-v="patterns"><div class="bnt-icon">⚡</div><div class="bnt-l">Patterns</div></div>
+        <div class="bnt" data-v="bills"><div class="bnt-icon">🔔</div><div class="bnt-l">Bills</div></div>
+        <div class="bnt" data-v="data"><div class="bnt-icon">📃</div><div class="bnt-l">Data</div></div>
+      </div>
+    </div>
 
-      <section class="card" id="chat-section">
-        <h2>Step 3 · Ask anything about it</h2>
-        <div id="chat" class="chat"></div>
-        <form id="chat-form">
-          <input
-            id="chat-input"
-            type="text"
-            placeholder="e.g. How much did I spend in total? What's my biggest debit?"
-            autocomplete="off"
-            disabled
-          />
-          <button id="send-btn" disabled>Send</button>
-        </form>
-        <p class="muted" id="model-tag"></p>
-      </section>
-    </main>
-
-    <script src="/app.js"></script>
-  </body>
+  </div>
+  <script src="/app.js"></script>
+</body>
 </html>
