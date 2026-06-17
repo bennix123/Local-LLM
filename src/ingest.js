@@ -99,7 +99,7 @@ export function parseCsv(buffer) {
   return tabularToChunks(normalizeRecords(records));
 }
 
-export function parseXlsx(buffer) {
+export async function parseXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const firstSheetName = wb.SheetNames[0];
   const ws = wb.Sheets[firstSheetName];
@@ -107,6 +107,14 @@ export function parseXlsx(buffer) {
   const cleaned = records.filter((r) =>
     Object.values(r).some((v) => String(v ?? "").trim() !== "")
   );
+
+  // SBI xlsx post-processing — remap generic columns to proper fields
+  const { remapSBIXlsx } = await import("./parse-sbi-xlsx.js");
+  const remapped = remapSBIXlsx(cleaned);
+  if (remapped !== cleaned && remapped.length >= 5) {
+    return tabularToChunks(remapped);
+  }
+
   return tabularToChunks(normalizeRecords(cleaned));
 }
 
@@ -270,7 +278,7 @@ export async function parseFile(fileName, buffer) {
   let result;
   switch (ext) {
     case "csv": case "txt": result = parseCsv(buffer); break;
-    case "xlsx": case "xls": result = parseXlsx(buffer); break;
+    case "xlsx": case "xls": result = await parseXlsx(buffer); break;
     case "pdf": result = await parsePdf(buffer); break;
     default: throw new Error(`Unsupported file type ".${ext}". Upload CSV, XLSX, or PDF.`);
   }

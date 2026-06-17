@@ -992,7 +992,7 @@ async function routeAggregation(q) {
   // Detect entity name in question → route to keyword lookup, not overview
   const entityName = extractLookupKeyword(q);
   const hasEntity = entityName && entityName.length > 2;
-  if (hasEntity) return handleEntityLookup(entityName);
+  if (hasEntity) return handleEntityLookup(entityName, q);
 
   if (/least.*(spend|month)|(spend|month).*least/i.test(q)) return handleLeastSpendMonth();
   if (/most.*(spend|month)|(spend|month).*most/i.test(q)) return handleMostSpendMonth();

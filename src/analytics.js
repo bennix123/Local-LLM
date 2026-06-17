@@ -94,32 +94,31 @@ import { hybridSearch } from "../src/retrieval.js";
 
 export async function handleEntityLookup(keyword, question = "") {
   const results = await hybridSearch(question || keyword, keyword);
+  const s = results.sql;
 
-  // Format answer from SQL aggregates
-  let answer = "";
-  if (results.sql && results.sql.count > 0) {
-    answer += `Found ${results.sql.count} transactions for "${results.sql.entity}": `;
-    if (results.sql.debit > 0) answer += `spent ₹${results.sql.debit.toFixed(2)}`;
-    if (results.sql.debit > 0 && results.sql.credit > 0) answer += ", ";
-    if (results.sql.credit > 0) answer += `received ₹${results.sql.credit.toFixed(2)}`;
+  if (!s || s.count === 0) {
+    return { answer: "\"" + keyword + "\" not found in this statement.", data: null };
+  }
+
+  const q = (question || keyword).toLowerCase();
+  const askingSpend = /\b(spend|spent|pay|paid|debit|expense|cost)\b/i.test(q);
+  const askingEarn = /\b(earn|earned|receive|received|credit|income|got|made)\b/i.test(q);
+
+  let answer = s.count + " transactions for \"" + keyword + "\"";
+  if (askingEarn && !askingSpend) {
+    answer += " — received: ₹" + (s.credit || 0).toFixed(2) + ".";
+  } else if (askingSpend && !askingEarn) {
+    answer += " — spent: ₹" + (s.debit || 0).toFixed(2) + ".";
+  } else {
+    if (s.debit > 0) answer += " — spent ₹" + s.debit.toFixed(2);
+    if (s.debit > 0 && s.credit > 0) answer += ",";
+    if (s.credit > 0) answer += " received ₹" + s.credit.toFixed(2);
     answer += ".";
-  }
-
-  // Add top semantic matches
-  const semanticMatches = results.chunks?.filter(c => c.source === "semantic" || c.source === "both");
-  if (semanticMatches && semanticMatches.length > 0) {
-    answer += `\n\nTop matching transactions:`;
-    for (const c of semanticMatches.slice(0, 5)) {
-      answer += `\n  ${c.date} — ${c.description}: ${c.amount}`;
-    }
-  }
-
-  if (!answer) {
-    answer = `"${keyword}" not found in this statement.`;
   }
 
   return { answer, data: results };
 }
+
 
 export function handleReceivedFromPeople() {
   const rows = txReceivedFromPeople();
