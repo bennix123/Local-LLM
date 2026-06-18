@@ -76,7 +76,7 @@ import {
   handleLargestIncome, handleTopExpenses, handleCurrentBalance,
   handleEntityLookup, handleReceivedFromPeople,
   handleSubscriptions, handleMonthlySpend, handleRecentTransactions,
-  handleSmallestExpense, handleMonthSpend,
+  handleSmallestExpense, handleMonthSpend, handleFirstTransaction, handleLastTransaction, handleCreditCount, handleDebitCount, handleHighestBalance, handleLowestBalance, handleHighestCreditMonth, handleHighestDebitMonth, handleBusiestDay, handleMonthBreakdown, handleOverviewDetailed,
 } from "./src/analytics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -988,6 +988,24 @@ async function routeAggregation(q) {
       }
     }
   }
+
+  // First/last transaction
+  if (/\b(first|earliest)\b.*transaction/i.test(q)) return handleFirstTransaction();
+  if (/\b(last|latest|final)\b.*transaction/i.test(q)) return handleLastTransaction();
+  // Balance queries
+  if (/\b(highest|maximum)\b.*\bbalance\b/i.test(q)) return handleHighestBalance();
+  if (/\b(lowest|minimum)\b.*\bbalance\b/i.test(q)) return handleLowestBalance();
+  if (/\b(busiest|most transaction)\b/i.test(q)) return handleBusiestDay();
+  // Count queries
+  if (/\bhow many\b.*\bcredit/i.test(q)) return handleCreditCount();
+  if (/\bhow many\b.*\bdebit/i.test(q)) return handleDebitCount();
+  if (/\b(total number|how many)\b.*\btransaction/i.test(q)) return handleOverviewDetailed();
+  // Month comparisons
+  if (/\b(which month|highest|most).*(credit|income|earn)/i.test(q) && !/\b(debit|spend)\b/i.test(q)) return handleHighestCreditMonth();
+  if (/\b(which month|highest|most).*(debit|spend|expense)/i.test(q)) return handleHighestDebitMonth();
+  // Reference number lookup
+  const refMatch = ql.match(/\b(\d{10,13})\b/);
+  if (refMatch) return handleRefLookup(refMatch[1]);
 
   // Detect entity name in question → route to keyword lookup, not overview
   const entityName = extractLookupKeyword(q);

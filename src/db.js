@@ -409,3 +409,47 @@ export function hasDocument() {
   const row = db.prepare("SELECT COUNT(*) AS n FROM chunks;").get();
   return Number(row.n) > 0;
 }
+
+// ── Added for Q&A support ──────────────────────────────────────────
+export function txFirstTransaction() {
+  return db.prepare("SELECT * FROM transactions ORDER BY id ASC LIMIT 1;").get();
+}
+export function txLastTransaction() {
+  return db.prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT 1;").get();
+}
+export function txRefLookup(ref) {
+  return db.prepare("SELECT * FROM transactions WHERE description LIKE ?;").get(`%${ref}%`);
+}
+export function txCreditCount() {
+  const r = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE amount>0;").get();
+  return r ? r.count : 0;
+}
+export function txDebitCount() {
+  const r = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE amount<0;").get();
+  return r ? r.count : 0;
+}
+export function txHighestBalanceDate() {
+  return db.prepare("SELECT date, balance FROM transactions ORDER BY balance DESC LIMIT 1;").get();
+}
+export function txLowestBalanceDate() {
+  return db.prepare("SELECT date, balance FROM transactions WHERE balance>0 ORDER BY balance ASC LIMIT 1;").get();
+}
+export function txHighestCreditMonth() {
+  return db.prepare("SELECT ym, SUM(amount) AS credit FROM transactions WHERE amount>0 GROUP BY ym ORDER BY credit DESC LIMIT 1;").get();
+}
+export function txHighestDebitMonth() {
+  return db.prepare("SELECT ym, SUM(-amount) AS debit FROM transactions WHERE amount<0 GROUP BY ym ORDER BY debit DESC LIMIT 1;").get();
+}
+export function txBusiestDay() {
+  return db.prepare("SELECT date, COUNT(*) AS count FROM transactions GROUP BY date ORDER BY count DESC LIMIT 1;").get();
+}
+export function txMonthCreditsDebits(ym) {
+  return db.prepare("SELECT COALESCE(SUM(CASE WHEN amount>0 THEN amount END),0) AS credit, COALESCE(SUM(CASE WHEN amount<0 THEN -amount END),0) AS debit, COUNT(*) AS count FROM transactions WHERE ym=?;").get(ym);
+}
+export function txCountInMonth(ym) {
+  const r = db.prepare("SELECT COUNT(*) AS count FROM transactions WHERE ym=?;").get(ym);
+  return r ? r.count : 0;
+}
+export function txOverviewCounts() {
+  return db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN amount>0 THEN 1 END),0) AS credits, COALESCE(SUM(CASE WHEN amount<0 THEN 1 END),0) AS debits FROM transactions;").get();
+}

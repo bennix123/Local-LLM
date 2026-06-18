@@ -139,3 +139,83 @@ export function handleRecentTransactions(n = 10) {
   const list = rows.map(r => `${r.date}: ${S()}${Math.abs(r.amount).toFixed(2)} — ${r.description}`);
   return { answer: `Recent:\n${list.join("\n")}`, data: rows };
 }
+
+// ── Q&A support handlers ───────────────────────────────────────────
+import {
+  txFirstTransaction, txLastTransaction, txRefLookup,
+  txCreditCount, txDebitCount, txHighestBalanceDate, txLowestBalanceDate,
+  txHighestCreditMonth, txHighestDebitMonth, txBusiestDay,
+  txMonthCreditsDebits, txCountInMonth, txOverviewCounts,
+} from "../src/db.js";
+
+export function handleFirstTransaction() {
+  const r = txFirstTransaction();
+  if (!r) return { answer: "No transactions." };
+  return { answer: `${r.date}: ${r.description} — ₹${Math.abs(r.amount).toFixed(2)} (${r.amount >= 0 ? "credit" : "debit"})`, data: r };
+}
+export function handleLastTransaction() {
+  const r = txLastTransaction();
+  if (!r) return { answer: "No transactions." };
+  return { answer: `${r.date}: ${r.description} — ₹${Math.abs(r.amount).toFixed(2)} (${r.amount >= 0 ? "credit" : "debit"})`, data: r };
+}
+export function handleRefLookup(ref) {
+  const r = txRefLookup(ref);
+  if (!r) return { answer: `Reference "${ref}" not found.` };
+  return { answer: `${r.date}: ${r.description} — ₹${Math.abs(r.amount).toFixed(2)}`, data: r };
+}
+export function handleOverviewDetailed() {
+  const o = txOverview();
+  const cnt = txOverviewCounts();
+  const net = (o.credit || 0) - (o.debit || 0);
+  return { answer: `${o.count} transactions — ${cnt?.credits || 0} credits, ${cnt?.debits || 0} debits. Spent ₹${(o.debit||0).toFixed(2)}, Received ₹${(o.credit||0).toFixed(2)}, Net ₹${net.toFixed(2)}.`, data: { ...o, ...cnt } };
+}
+export function handleCreditCount() {
+  const n = txCreditCount();
+  return { answer: `${n} credit transactions.` };
+}
+export function handleDebitCount() {
+  const n = txDebitCount();
+  return { answer: `${n} debit transactions.` };
+}
+export function handleHighestBalance() {
+  const r = txHighestBalanceDate();
+  if (!r) return { answer: "No balance data." };
+  return { answer: `Highest balance: ₹${r.balance.toFixed(2)} on ${r.date}.` };
+}
+export function handleLowestBalance() {
+  const r = txLowestBalanceDate();
+  if (!r) return { answer: "No balance data." };
+  return { answer: `Lowest balance: ₹${r.balance.toFixed(2)} on ${r.date}.` };
+}
+export function handleHighestCreditMonth() {
+  const r = txHighestCreditMonth();
+  if (!r) return { answer: "No data." };
+  return { answer: `Highest credits: ${r.ym} — ₹${r.credit.toFixed(2)}.` };
+}
+export function handleHighestDebitMonth() {
+  const r = txHighestDebitMonth();
+  if (!r) return { answer: "No data." };
+  return { answer: `Highest debits: ${r.ym} — ₹${r.debit.toFixed(2)}.` };
+}
+export function handleBusiestDay() {
+  const r = txBusiestDay();
+  if (!r) return { answer: "No data." };
+  return { answer: `Busiest day: ${r.date} with ${r.count} transactions.` };
+}
+export function handleMonthBreakdown(ym) {
+  const r = txMonthCreditsDebits(ym);
+  const count = txCountInMonth(ym);
+  if (!r || !count) return { answer: `No data for ${ym}.` };
+  return { answer: `${ym}: ${count} txns — Credits ₹${r.credit.toFixed(2)}, Debits ₹${r.debit.toFixed(2)}.` };
+}
+export async function handleComparison(entity1, entity2) {
+  const r1 = await handleEntityLookup(entity1);
+  const r2 = await handleEntityLookup(entity2);
+  const d1 = r1.data?.sql?.debit || 0;
+  const d2 = r2.data?.sql?.debit || 0;
+  const c1 = r1.data?.sql?.credit || 0;
+  const c2 = r2.data?.sql?.credit || 0;
+  const higher = d1 > d2 ? entity1 : entity2;
+  const diff = Math.abs(d1 - d2);
+  return { answer: `${entity1}: ₹${d1.toFixed(2)}, ${entity2}: ₹${d2.toFixed(2)}. ${higher} was higher by ₹${diff.toFixed(2)}.` };
+}
