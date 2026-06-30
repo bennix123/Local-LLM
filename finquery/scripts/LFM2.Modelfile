@@ -1,0 +1,16 @@
+FROM D:\Local-LLM\models\hf_LiquidAI_LFM2-2.6B.Q4_K_M.gguf
+
+# LFM2 uses ChatML. Ollama did not import this from the GGUF, so we set it
+# explicitly. Without it the system message is dropped and generation never
+# stops (the model runs into raw pretraining text).
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|startoftext|>"
+PARAMETER temperature 0.3
