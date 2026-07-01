@@ -305,6 +305,13 @@ try:
 except Exception as _e:  # never block startup on insights
     print("[insights] startup pre-compute skipped:", _e, flush=True)
 
+# Display currency follows the loaded data (₹ for Indian statements, £ for Barclays, …).
+try:
+    ts.set_currency(ts.detect_currency(USER))
+    print(f"[currency] active = {ts.CURRENCY}", flush=True)
+except Exception as _e:
+    print("[currency] detect skipped:", _e, flush=True)
+
 app = FastAPI(title="Penny — SQL layer test")
 
 
@@ -376,20 +383,41 @@ async def dashboard():
 
 
 @app.get("/transactions")
-async def transactions(offset: int = 0, limit: int = 40, q: str = ""):
-    """Paged + searchable raw transactions for the Penny Data view."""
+async def transactions(offset: int = 0, limit: int = 50, q: str = "",
+                       start: str = "", end: str = "", minamt: float = 0.0,
+                       maxamt: float = 0.0, dir: str = ""):
+    """Paged + filtered raw transactions for the search-table view: keyword (q),
+    date range (start/end as YYYY-MM-DD), amount band (minamt/maxamt on the txn size),
+    and direction (dir = 'in' | 'out')."""
     con = ts.connect()
     where, params = "user_id=?", [USER]
     if q:
         where += " AND (LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ? OR LOWER(category) LIKE ?)"
         like = f"%{q.lower()}%"; params += [like, like, like]
+    if start:
+        where += " AND txn_date >= ?"; params.append(start)
+    if end:
+        where += " AND txn_date <= ?"; params.append(end)
+    amt = "(CASE WHEN debit>0 THEN debit ELSE credit END)"
+    if minamt:
+        where += f" AND {amt} >= ?"; params.append(minamt)
+    if maxamt:
+        where += f" AND {amt} <= ?"; params.append(maxamt)
+    if dir == "out":
+        where += " AND debit>0"
+    elif dir == "in":
+        where += " AND credit>0"
     total = con.execute(f"SELECT COUNT(*) FROM transactions WHERE {where}", params).fetchone()[0]
+    s = con.execute(f"SELECT COALESCE(SUM(debit),0),COALESCE(SUM(credit),0) FROM transactions WHERE {where}",
+                    params).fetchone()
     rows = [{"date": _fmt_date(r[0]), "payee": r[1], "category": r[2],
-             "amount": (r[4] - r[3])} for r in con.execute(
-        f"SELECT txn_date,merchant,category,debit,credit FROM transactions WHERE {where} "
-        f"ORDER BY seq DESC LIMIT ? OFFSET ?", params + [limit, offset])]
+             "out": ts.inr(r[3]) if r[3] else "", "in": ts.inr(r[4]) if r[4] else "",
+             "balance": ts.inr(r[5]) if r[5] is not None else "", "descr": r[6]} for r in con.execute(
+        f"SELECT txn_date,merchant,category,debit,credit,balance,descr FROM transactions WHERE {where} "
+        f"ORDER BY txn_date DESC, seq DESC LIMIT ? OFFSET ?", params + [limit, offset])]
     con.close()
-    return JSONResponse({"rows": rows, "total": total})
+    return JSONResponse({"rows": rows, "total": total,
+                         "out_total": ts.inr(s[0]), "in_total": ts.inr(s[1])})
 
 
 # ---- scikit-learn ML insights (cached by row-count so re-fits are cheap) -----
@@ -437,25 +465,73 @@ async def insights_endpoint():
 
 @app.post("/upload")
 async def upload(request: Request):
-    name = request.query_params.get("name", "statement.pdf")
+    """Accept a statement PDF **or a ZIP**. A ZIP is unpacked and scanned for bank-statement
+    PDFs (any non-statement files are ignored); the statement(s) found are parsed. A new
+    upload is a fresh analysis (prior data is replaced)."""
+    import time, zipfile, tempfile, shutil
+    name = request.query_params.get("name", "upload")
     data = await request.body()
-    path = os.path.join(UPLOAD_DIR, os.path.basename(name))
-    with open(path, "wb") as f:
-        f.write(data)
-    import time
     t0 = time.time()
-    rows = ts.ingest_pdf(path, name, USER)
+    is_zip = data[:2] == b"PK" or name.lower().endswith(".zip")
+
+    pdfs = []          # (path, label) candidates
+    workdir = None
+    try:
+        if is_zip:
+            workdir = tempfile.mkdtemp(prefix="penny_zip_")
+            zpath = os.path.join(workdir, "u.zip")
+            with open(zpath, "wb") as f:
+                f.write(data)
+            try:
+                with zipfile.ZipFile(zpath) as z:
+                    for info in z.infolist():
+                        fn = info.filename
+                        if info.is_dir() or fn.startswith("__MACOSX") or not fn.lower().endswith(".pdf"):
+                            continue
+                        out = os.path.join(workdir, f"{len(pdfs):02d}_{os.path.basename(fn)}")
+                        with z.open(info) as src, open(out, "wb") as dst:
+                            dst.write(src.read())
+                        pdfs.append((out, os.path.basename(fn)))
+            except zipfile.BadZipFile:
+                return JSONResponse({"error": "That file isn't a valid ZIP archive."}, status_code=400)
+            if not pdfs:
+                return JSONResponse({"error": "No PDF files were found inside the ZIP."}, status_code=422)
+        else:
+            out = os.path.join(UPLOAD_DIR, os.path.basename(name) or "statement.pdf")
+            with open(out, "wb") as f:
+                f.write(data)
+            pdfs.append((out, os.path.basename(name) or "statement.pdf"))
+
+        # keep only the PDFs that actually look like bank statements
+        statements = [(p, lbl) for p, lbl in pdfs if ts.is_statement_pdf(p)]
+        if not statements:
+            msg = (f"No bank statement found in the ZIP (scanned {len(pdfs)} PDF"
+                   f"{'s' if len(pdfs) != 1 else ''})." if is_zip
+                   else "That PDF doesn't look like a bank statement.")
+            return JSONResponse({"error": msg, "scanned": len(pdfs)}, status_code=422)
+
+        # fresh analysis: replace prior data, then ingest the statement(s) found
+        _c = ts.connect(); _c.execute("DELETE FROM transactions WHERE user_id=?", (USER,))
+        _c.commit(); _c.close()
+        total, parsed = 0, []
+        for p, lbl in statements:
+            n = ts.ingest_pdf(p, lbl, USER)
+            total += n; parsed.append({"file": lbl, "rows": n})
+    finally:
+        if workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
+
     dt = time.time() - t0
-    ov = ts.overview(USER, name)
-    # Insight Engine: pre-compute health/risk/pattern/behaviour/impact once on upload
-    # so synthesis questions are an instant table read, not a re-derivation. Never let
-    # an insights hiccup fail the upload itself.
+    ts.set_currency(ts.detect_currency(USER))      # display currency follows the data
+    ov = ts.overview(USER)
     try:
         ts.save_insights(USER, ts.compute_insights(USER))
     except Exception as e:
         print("[insights] compute on upload failed:", e, flush=True)
     return JSONResponse({
-        "filename": name, "rows": rows, "seconds": round(dt, 2),
+        "filename": (parsed[0]["file"] if len(parsed) == 1
+                     else f"{len(parsed)} statements from {name}"),
+        "parsed": parsed, "rows": total, "seconds": round(dt, 2), "currency": ts.CURRENCY,
         "spend": ts.inr(ov["debit"]), "income": ts.inr(ov["credit"]),
     })
 
@@ -932,7 +1008,8 @@ _CAT_SYN = {
 }
 _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expensive|dearest|sabse bada|sabse zyada)\b", re.I)
 _SMALL_RE = re.compile(r"\b(smal{1,2}e?st|low+e?st|cheap+e?st|minimum|least expensive|sabse chota|sabse kam|sabse sasta)\b", re.I)
-_ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b", re.I)
+_ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b|"
+                         r"\b(?:whole|entire) (?:statement|account)\b", re.I)
 _COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btransactions?\b|\btxns?\b|\bpurchases?\b", re.I)
 _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 _BAL_RE = re.compile(r"\b(balance|left in (?:the )?(?:bank|account)|bacha)\b", re.I)
@@ -955,6 +1032,187 @@ def _known_merchants():
     return _KM
 
 
+_KC = None
+
+
+def _known_categories():
+    """Distinct category names in the data (cached) — incl. 'Other' / 'Income', which the
+    synonym map doesn't cover."""
+    global _KC
+    if _KC is None:
+        con = ts.connect()
+        _KC = [r[0] for r in con.execute(
+            "SELECT DISTINCT category FROM transactions WHERE category<>''") if r[0]]
+        con.close()
+    return _KC
+
+
+# ---- fine-grained lookup intents ------------------------------------------------
+# Detected BEFORE the generic count/spend/balance ladder so "what category does X
+# belong to", "when does X appear", "how many days between X payments" and "lowest
+# balance" get their own intent instead of a merchant/count/closing-balance summary.
+# Each is a no-op unless it resolves to a real merchant (or, for balance, a min/max
+# modifier), so it can never hijack an ordinary question.
+_CATLOOKUP_RE = re.compile(
+    r"\bwhat(?:'s| is)?\s+(?:the\s+)?categor(?:y|ies)\b|\bwhich\s+categor(?:y|ies)\b|"
+    r"\bcategor(?:y|ies)\s+(?:of|does|do|for|is|are)\b|"
+    r"\bcategor(?:y|ies|ized|ised|ize|ise)\s+(?:as|under)\b|"
+    r"\bwhat\s+(?:type|kind)\s+of\s+(?:spend|expense|transaction|payment|purchase)\b", re.I)
+_DATELOOKUP_RE = re.compile(
+    r"\bon\s+what\s+date\b|\bwhat\s+date\b|\bwhich\s+date\b|\bwhat\s+day\b|"
+    r"\bwhen\s+(?:did|does|was|is|were)\b|\bdate(?:s)?\s+(?:does|do|of|for|did)\b", re.I)
+_INTERVAL_RE = re.compile(
+    r"\b(?:how many|number of|no\.?\s*of)?\s*days?\b[^?]*\b(?:between|separat\w*|apart|gap)\b|"
+    r"\b(?:between|separat\w*|gap between|interval between|time between|days between)\b[^?]*"
+    r"\b(?:payments?|transactions?|deposits?|credits?|charges?|visits?)\b|"
+    r"\bhow\s+(?:often|frequently)\b[^?]*\b(?:pay|paid|payment|charge|deposit|transact)\b|"
+    r"\baverage\s+(?:gap|interval)\b|\bpayment\s+frequency\b", re.I)
+_WHOSENT_RE = re.compile(
+    r"\bwho\s+(?:sent|paid|gave|deposited|credited|transferred|wired|remitted)\b|"
+    r"\bwho\s+(?:is|are|was|were)\s+(?:my\s+)?(?:the\s+)?(?:payer|sender|income source)|"
+    r"\bwhere\s+did\s+(?:the\s+|my\s+)?(?:£|\$|€|₹|\d).*\bcome\s+from\b", re.I)
+_BAL_DELTA_RE = re.compile(
+    r"\bbalance\b[^?]*\b(?:chang|delta|move|increas|decreas|grow|grew|differ|rise|risen|rose|fell|fall|drop)\w*\b|"
+    r"\b(?:chang|delta|increas|decreas|differ)\w*\b[^?]*\bbalance\b|"
+    r"\bbalance\b[^?]*\bfrom\b[^?]*\bto\b|\bbalance\b[^?]*\bbetween\b[^?]*\band\b", re.I)
+_BAL_BEFORE_RE = re.compile(
+    r"\bbalance\b[^?]*\bbefore\b|\bbefore\b[^?]*\bbalance\b|\bbalance\b[^?]*\b(?:prior|preceding)\b", re.I)
+_BAL_AFTER_RE = re.compile(
+    r"\bbalance\b[^?]*\bafter\b|\bafter\b[^?]*\bbalance\b|\bbalance\b[^?]*\bfollowing\b", re.I)
+_MONTHS_RE = re.compile(
+    r"\b(?:distinct|different|how many|list(?:\s+of)?|number of|separate)\s+(?:calendar\s+)?months?\b|"
+    r"\bcalendar\s+months?\b|\bmonths?\b\s+(?:are\s+)?(?:covered|present|available|in the (?:data|statement))\b", re.I)
+
+
+def _amount_in(low):
+    """A currency/number amount in the text, ignoring 4-digit years. None if absent."""
+    m = re.search(r"(?:£|\$|€|₹|rs\.?|inr|gbp|usd|eur|rupees?)\s*(\d[\d,]*(?:\.\d+)?)", low)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    m = re.search(r"\b(\d[\d,]*(?:\.\d+)?)\b", low)
+    if m and not re.fullmatch(r"(?:19|20)\d\d", m.group(1).replace(",", "")):
+        return float(m.group(1).replace(",", ""))
+    return None
+
+
+def _entity_after(low, markers):
+    """The merchant-ish name that follows one of `markers` ('before'/'after'/…)."""
+    for mk in markers:
+        m = re.search(rf"\b{mk}\s+(?:the\s+|my\s+|a\s+)?(.+?)"
+                      rf"(?:\s+(?:payment|transaction|txn|charge|deposit|on|in|for|dated|was|is)\b|[?.!,]|$)", low)
+        if m:
+            cand = m.group(1).strip(" '\"?.,")
+            if cand:
+                return cand
+    return ""
+
+
+def _norm_name(s):
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _resolve_merchant(phrase):
+    """Map free text to a stored merchant, punctuation/suffix tolerant: 'Shein' ->
+    'Shein.Com', 'Higgsfield Inc USA' -> 'Higgsfield Inc. USA'. Returns '' when nothing
+    plausibly matches, so the caller gives an honest 'no transactions', never a total."""
+    np = _norm_name(phrase)
+    if not np:
+        return ""
+    toks = np.split()
+    for m in _known_merchants():                       # containment either way
+        nm = _norm_name(m)
+        if nm and (np in nm or nm in np):
+            return m
+    for m in _known_merchants():                       # all phrase tokens in the name
+        if toks and set(toks).issubset(set(_norm_name(m).split())):
+            return m
+    for m in _known_merchants():                       # distinctive first token (>=4 chars)
+        mt = _norm_name(m).split()
+        if toks and mt and len(toks[0]) >= 4 and toks[0] == mt[0]:
+            return m
+    return ""
+
+
+def _lookup_entity(q):
+    """Pull the name a lookup question is about, from the sentence structure."""
+    low = q.lower()
+    for pat in (
+        r"categor(?:y|ies)\s+(?:does|do|of|for|is|are)\s+(.+?)\s+(?:belong|fall|come|classif|go|categor)",
+        r"categor(?:y|ies)\s+(?:does|do|of|for|is|are)\s+(.+?)[?.!]*$",
+        r"(?:on\s+what\s+date|what\s+date|which\s+date|what\s+day|when)\s+(?:does|do|did|is|was|were)\s+(.+?)\s+(?:appear|occur|happen|show|come|made?|pays?|paid|charge|fall|list)",
+        r"(?:date|day)s?\s+(?:does|do|of|for|did)\s+(.+?)\s+(?:appear|occur|happen|show|fall)",
+        r"\b(?:between|separat\w*|consecutive|gap between|interval between)\s+(.+?)\s+(?:payments?|transactions?|deposits?|credits?|charges?|visits?)",
+        r"how\s+(?:often|frequently)\b.*?\b(?:pay|paid|to)\s+(?:the\s+)?(.+?)[?.!]*$",
+    ):
+        m = re.search(pat, low)
+        if m:
+            cand = m.group(1).strip(" '\"?.,")
+            cand = re.sub(r"^(?:the|a|an|my|any|each|all|two|these|those|consecutive)\s+", "", cand)
+            if cand:
+                return cand
+    return ""
+
+
+def _special_intent(q):
+    """A self-contained fine-grained intent as a dict ('type' + any of merchant/amount/
+    date1/date2), or None. Merchant lookups fire only when a real merchant resolves and
+    balance min/max needs a low/high modifier — so ordinary questions stay dormant.
+    Merchant keywords are the user's PHRASE (matched token-wildcard by the SQL helpers,
+    spanning label variants like 'Piyush Mishra' vs 'Piyush Mishra & PA')."""
+    low = q.lower()
+    if _WHOSENT_RE.search(low):                                     # who sent/paid me [£X]
+        return {"type": "who_paid", "amount": _amount_in(low)}
+    if _BAL_DELTA_RE.search(low):                                   # balance change between two dates
+        ds = _find_periods(q)
+        if len(ds) >= 2:
+            return {"type": "balance_delta", "date1": ds[0], "date2": ds[1]}
+    mb, ma = _BAL_BEFORE_RE.search(low), _BAL_AFTER_RE.search(low)
+    if mb or ma:                                                    # balance before/after a txn
+        ent = _entity_after(low, ("before", "after", "preceding", "following", "prior to"))
+        m = _resolve_merchant(ent) or ent
+        if m and not re.fullmatch(r"[\d,.]+", m):                   # a name, not a number
+            return {"type": "balance_before" if mb else "balance_after", "merchant": m}
+    if _INTERVAL_RE.search(low):
+        ent = _lookup_entity(q)
+        if _resolve_merchant(ent):
+            return {"type": "merchant_interval", "merchant": ent}
+    if _CATLOOKUP_RE.search(low):
+        ent = _lookup_entity(q)
+        if _resolve_merchant(ent):
+            return {"type": "merchant_category", "merchant": ent}
+    if _DATELOOKUP_RE.search(low):
+        ent = _lookup_entity(q)
+        if _resolve_merchant(ent):
+            return {"type": "merchant_date", "merchant": ent}
+    if _MONTHS_RE.search(low):                                      # distinct calendar months
+        return {"type": "months"}
+    if _BAL_RE.search(low):
+        if _SMALL_RE.search(low) or re.search(r"\b(low|lowest|minimum|min)\b", low):
+            return {"type": "balance_min"}
+        if _BIG_RE.search(low) or re.search(r"\b(high|highest|maximum|max|peak)\b", low):
+            return {"type": "balance_max"}
+    return None
+
+
+# self-contained intents: resolved from THIS turn only (no stale thread scope carried in)
+_SPECIAL_INTENTS = frozenset({
+    "who_paid", "balance_before", "balance_after", "balance_delta", "months",
+    "merchant_category", "merchant_date", "merchant_interval", "balance_min", "balance_max"})
+
+
+def _special_factual(s):
+    """Build the intent dict for a self-contained special intent — period from THIS turn's
+    own text only (never inherits a prior turn's scope), plus any amount/date payloads."""
+    start, end = "", ""
+    if s.get("period_full"):
+        start, end = s["period_full"]
+    elif s.get("pmonth") and s.get("pday"):
+        start = f"MD-{s['pmonth']}-{s['pday']}"
+    return {"type": s["type"], "merchant": s.get("merchant", ""), "category": "",
+            "start": start, "end": end, "n": 0, "count_kind": "", "table": False,
+            "amount": s.get("amount"), "date1": s.get("date1"), "date2": s.get("date2")}
+
+
 def _extract_slots(q):
     low = q.lower()
     merch = ""
@@ -962,15 +1220,38 @@ def _extract_slots(q):
         if re.search(r"\b" + re.escape(m.lower()) + r"\b", low):
             merch = m
             break
+    if not merch:
+        # truncation-tolerant: a multi-word stored name (possibly cut off by the statement's
+        # narrow column, e.g. "Putney Cricket Clu") that appears as a normalised substring of
+        # the query ("...Putney Cricket Club"). Length + multi-word guarded so short single
+        # names can't false-match; longest-first so the fullest name wins.
+        nlow = re.sub(r"[^a-z0-9]+", " ", low)
+        for m in _known_merchants():
+            nm = _norm_name(m)
+            if " " in nm and len(nm) >= 8 and nm in nlow:
+                merch = m
+                break
     cat = ""
     if not merch:
         for kw, c in _CAT_SYN.items():
             if re.search(r"\b" + kw + r"\b", low):
                 cat = c
                 break
+    if not merch and not cat:
+        # canonical category names (incl. 'Other'/'Income'), case-insensitive exact word.
+        # The generic ones need a category context so "other" as filler can't false-match.
+        for c in _known_categories():
+            cl = c.lower()
+            if cl in ("other", "income"):
+                if re.search(rf"\b{re.escape(cl)}\b", low) and re.search(r"categor", low):
+                    cat = c
+                    break
+            elif re.search(rf"\b{re.escape(cl)}\b", low):
+                cat = c
+                break
     # honesty guard: an explicit "at/from <Name>" that is NOT a known merchant or
-    # category -> treat as that (unknown) merchant, so dispatch answers an honest
-    # "no transactions found for X" instead of silently returning the grand total.
+    # category -> treat as that merchant (resolved if it's a truncated real one), so dispatch
+    # answers about the right merchant, or an honest "no transactions found for X".
     if not merch and not cat:
         um = re.search(r"\b(?:at|from)\s+([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
                        r"(?:\s+(?:in|on|during|for|last|this|the|over|between|per|by)\b|[?.!,]|$)", low)
@@ -981,7 +1262,7 @@ def _extract_slots(q):
                     "the moment", "saving", "saving more", "savings", "spending", "paying",
                     "more", "now", "today", "anything", "something") \
                     and not cand.endswith((" more", " less")):
-                merch = cand
+                merch = _resolve_merchant(cand) or cand
     pf = _parse_period(q)
     pmonth = pday = ""
     prange = None
@@ -1002,6 +1283,13 @@ def _extract_slots(q):
             dd = re.search(r"\b(\d{1,2})(?:st|nd|rd|th)\b", low)
             if dd:
                 pday = f"{int(dd.group(1)):02d}"
+    # fine-grained lookup intents win over the generic ladder (period still applies)
+    sp = _special_intent(q)
+    if sp:
+        return {"type": sp["type"], "period_full": pf, "pmonth": pmonth, "pday": pday,
+                "prange": prange, "category": "", "merchant": sp.get("merchant", ""),
+                "n": 0, "count_kind": "", "amount": sp.get("amount"),
+                "date1": sp.get("date1"), "date2": sp.get("date2")}
     topm = _TOP_RE.search(q)
     has_exp = any(w in low for w in _EXP_CTXT)
     has_cr = any(w in low for w in ("deposit", "credit", "received", "income", "inflow"))
@@ -1053,6 +1341,8 @@ def _resolve_factual(q, ctx):
     "spend in August 2024" carries August. A FRESH thread has empty ctx, so the
     same bare question resolves all-time. The client decides what's one thread."""
     s = _extract_slots(q)
+    if s.get("type") in _SPECIAL_INTENTS:      # self-contained; no stale scope inherited
+        return _special_factual(s)
     cont = bool(_CONT_RE.search(q))
     refs = bool(_REFS_RE.search(q)) and not s["period_full"]
     low = q.lower()
@@ -1073,9 +1363,12 @@ def _resolve_factual(q, ctx):
         t = ctx.get("type")
     # a named merchant/category sets the metric to merchant/category — UNLESS the
     # question is an explicit count ("how many at Amazon" stays a count-of-Amazon).
-    if s["merchant"] and t not in ("count", "income", "largest_expense", "smallest_expense", "largest_income"):
+    _KEEP_TYPE = ("count", "income", "largest_expense", "smallest_expense", "largest_income",
+                  "merchant_category", "merchant_date", "merchant_interval",
+                  "balance_min", "balance_max")
+    if s["merchant"] and t not in _KEEP_TYPE:
         t = "merchant"
-    elif s["category"] and t not in ("count", "income", "largest_expense", "smallest_expense", "largest_income"):
+    elif s["category"] and t not in _KEEP_TYPE:
         t = "category"
     if not t:
         return None
@@ -1098,6 +1391,11 @@ def _resolve_factual(q, ctx):
         start, end = f"{cy}-{s['pmonth']}", ""
     elif s["pday"] and cym:
         start, end = f"{cym}-{s['pday']}", ""
+    elif t in ("largest_expense", "smallest_expense", "largest_income", "top_expenses"):
+        # non-metric "whole-picture" intents default ACCOUNT-WIDE when this turn names no
+        # date — so a stale period from a prior turn can't silently scope "the largest debit"
+        # to last month. (No-op on a fresh thread; the safer failure mode.)
+        start, end = "", ""
     else:
         # No period in THIS question -> inherit the thread's period (all-time if the
         # thread has none). This is the markerless context-carry, made safe by the
@@ -1195,18 +1493,23 @@ class ConversationState:
 
 
 def _period_phrase(start, end=""):
-    """Human period text for query rewriting: 'in 2024' / 'in May 2024' / 'on YYYY-MM-DD'
-    / 'between A and B' — re-parseable by `_parse_period`."""
+    """Human period text for query rewriting, re-parseable by the SAME parsers the engines
+    use: 'in 2024' / 'in May 2024' / 'on YYYY-MM-DD' / 'between A and B' round-trip through
+    `_parse_period`; a yearless `MD-MM-DD` marker renders as 'on <D> <Mon>', which
+    `_extract_slots` re-reads as that day across all years (fixes the old 'in MD-12-19')."""
     if not start:
         return ""
+    if start.startswith("MD-"):                      # yearless day: 'MD-12-19' -> 'on 19 Dec'
+        mm, dd = start[3:5], start[6:8]
+        return f"on {int(dd)} {ts.MONTHS.get(mm, mm)}"
     if end:
         return f"between {ts._plabel(start)} and {ts._plabel(end)}"
     n = len(start)
     if n == 7:
         return f"in {ts._mlabel(start)}"
-    if n == 10:
-        return f"on {start}"
-    return f"in {start}"
+    if n == 10:                                      # full date -> 'on 27 Mar 2026'
+        return f"on {int(start[8:10])} {ts.MONTHS.get(start[5:7], start[5:7])} {start[:4]}"
+    return f"in {start}"                              # year: 'in 2024'
 
 
 # follow-up signals
@@ -1218,13 +1521,19 @@ _FILTER_RE = re.compile(
     r"\b(weekend|weekends|weekday|weekdays|only (?:on )?(?:debit|credit)|(?:debit|credit) only|"
     r"just (?:debit|credit))\b", re.I)
 _CMP_WORD_RE = re.compile(r"\b(compare|comparison|versus|\bvs\b|against)\b", re.I)
+# "which merchant did I spend more" — an argmax-across-entities follow-up. It asks ACROSS
+# merchants/categories, so on a follow-up we inject the carried PERIOD but never pin it to a
+# single carried entity.
+_ARGMAX_ENT_RE = re.compile(
+    r"\bwhich\s+(?:merchant|payee|store|shop|vendor|person|category|place)\b|"
+    r"\bwhat\s+(?:merchant|store|category)\b", re.I)
 _RESET_RE = re.compile(
     r"\b(reset(?:\s+context)?|start over|starting over|new (?:chat|conversation|topic)|"
     r"forget (?:that|it|this|context|everything|all that)|never ?mind|"
     r"clear (?:the )?(?:context|chat|conversation)|fresh start|change (?:the )?topic)\b", re.I)
 _SCOPE_CLEAR_RE = re.compile(
-    r"\b(overall|in total|all[- ]time|everything|across (?:all|everything|the account)|"
-    r"entire account|whole account|all merchants|all categories|for all|account[- ]wide)\b", re.I)
+    r"\b(overall|in total|all[- ]time|everything|across (?:all|everything|the (?:account|statement))|"
+    r"(?:entire|whole) (?:account|statement)|all merchants|all categories|for all|account[- ]wide)\b", re.I)
 _NO_ENTITY_INJECT_RE = re.compile(
     r"\b(income|salary|salaries|earn\w*|\bcredit\b|deposit\w*|balance|net worth|inflow|received|"
     r"savings? rate|runway|health|risk|net position)\b", re.I)
@@ -1336,25 +1645,37 @@ def _resolve_conversation(q, state):
             return out
     # full comparison (>=2 entities) -> standalone, fall through to passthrough
 
-    # ---- entity/period injection for elliptical metric/filter follow-ups ----
+    # ---- entity/period injection for elliptical follow-ups ----
+    # A follow-up that carries scope from the thread comes in three shapes, all handled here:
+    #   • bare metric   ("average", "highest", "monthly")   -> _METRIC_RE / _FILTER_RE
+    #   • amount filter ("above 500", "under 2000")          -> _AMT_CMP_RE
+    #   • argmax entity ("which merchant did I spend more")  -> _ARGMAX_ENT_RE
     has_metric = bool(_METRIC_RE.search(low) or _FILTER_RE.search(low))
+    has_amt = bool(_AMT_CMP_RE.search(low))
+    has_argmax_ent = bool(_ARGMAX_ENT_RE.search(low))
     has_period_word = bool(re.search(r"\b(year|month|quarter|week|day|annual|monthly|ytd|half)\b", low))
-    is_followup = bool(has_metric or _CONT_RE.search(q) or (_REFS_RE.search(q) and not own_entity))
-    needs_entity = bool(carry_entity and not own_entity and not scope_clear and not income_ctx)
-    # inject a PERIOD phrase only for analytics-metric follow-ups; pure period/factual
-    # follow-ups ("february?", "the whole year") keep being carried by _resolve_factual.
-    needs_period = bool(carry_start and not own_period and not scope_clear
-                        and has_metric and not has_period_word)
+    is_followup = bool(has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
+                       or (_REFS_RE.search(q) and not own_entity))
+    # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
+    # ("which merchant …"), cleared the scope ("overall"), or is income-scoped.
+    needs_entity = bool(carry_entity and not own_entity and not scope_clear and not income_ctx
+                        and not has_argmax_ent)
+    # period: inject the carried period for metric/amount/argmax follow-ups; pure period/
+    # factual follow-ups ("february?", "the whole year") keep being carried by _resolve_factual.
+    needs_period = bool(carry_start and not own_period and not scope_clear and not has_period_word
+                        and (has_metric or has_amt or has_argmax_ent))
     if not is_followup or (not needs_entity and not needs_period):
         return out
 
+    # bare-metric follow-ups map to a canonical stem; amount/argmax keep their own words.
     stem = None
-    for rx, canon in _CANON:
-        if rx.match(low):
-            stem = canon; break
-    mtop = _CANON_TOPN.match(low)
-    if mtop:
-        stem = f"top {mtop.group(1)} expenses"
+    if not (has_amt or has_argmax_ent):
+        for rx, canon in _CANON:
+            if rx.match(low):
+                stem = canon; break
+        mtop = _CANON_TOPN.match(low)
+        if mtop:
+            stem = f"top {mtop.group(1)} expenses"
     resolved = stem if stem else q.strip().rstrip("?.! ")
 
     if needs_entity:
@@ -1490,6 +1811,13 @@ def _find_categories(low):
     for kw, c in _CAT_SYN.items():
         if re.search(r"\b" + kw + r"\b", low) and c not in out:
             out.append(c)
+    for c in _known_categories():                # canonical names incl. 'Other'/'Income'
+        cl = c.lower()
+        if c in out or not re.search(rf"\b{re.escape(cl)}\b", low):
+            continue
+        if cl in ("other", "income") and not re.search(r"categor", low):
+            continue                             # generic word without category context
+        out.append(c)
     return out
 
 
@@ -1890,9 +2218,11 @@ def analytics_answer(q):
             return (f"**{'Smallest' if least else 'Top'} spending category{sfx}:** "
                     f"{c} — {inr(a)} ({a/tot*100:.0f}%, {grp(n)} txns)")
 
-    # 6) TOP MERCHANT(S)
+    # 6) TOP MERCHANT(S) — incl. "which merchant did I spend (the most|more) [on <date>]"
     if re.search(r"\btop\s+\d*\s*merchant|biggest merchant|favou?rite merchant|"
-                 r"most[^?]*\bmerchant|merchant[^?]*\bmost\b|who do i spend the most", low):
+                 r"most[^?]*\bmerchant|merchant[^?]*\bmost\b|who do i spend the most|"
+                 r"(?:which|what)\s+merchant[^?]*\b(?:most|more|highest|biggest|largest)\b|"
+                 r"\b(?:most|more|highest|biggest|largest)\b[^?]*\bmerchant\b", low):
         if empty():
             return nodata()
         nm = re.search(r"top\s+(\d+)", low)
@@ -1941,12 +2271,24 @@ def analytics_answer(q):
         periods = _find_periods(q)
         if len(periods) >= 2:
             a, b = periods[0], periods[1]
-            sa = ts.overview(USER, None, a)["debit"]
-            sb = ts.overview(USER, None, b)["debit"]
+            # thread a named category/merchant symmetrically through BOTH periods, so
+            # "Entertainment: March vs May" compares Entertainment, not total spend.
+            if cats:
+                sa = next((x for c, x, _ in ts.by_category(USER, None, a) if c == cats[0]), 0.0)
+                sb = next((x for c, x, _ in ts.by_category(USER, None, b) if c == cats[0]), 0.0)
+                lbl = f"{cats[0]} "
+            elif merchs:
+                sa = ts.merchant_spend(USER, merchs[0], None, a)["debit"]
+                sb = ts.merchant_spend(USER, merchs[0], None, b)["debit"]
+                lbl = f"{merchs[0]} "
+            else:
+                sa = ts.overview(USER, None, a)["debit"]
+                sb = ts.overview(USER, None, b)["debit"]
+                lbl = ""
             diff = sa - sb
             rel = "more" if diff >= 0 else "less"
             pct = abs(diff) / (sb or 1) * 100
-            return (f"**{ts._plabel(a)}:** {inr(sa)}  vs  **{ts._plabel(b)}:** {inr(sb)}\n\n"
+            return (f"**{lbl}{ts._plabel(a)}:** {inr(sa)}  vs  **{lbl}{ts._plabel(b)}:** {inr(sb)}\n\n"
                     f"You spent **{inr(abs(diff))} {rel}** in {ts._plabel(a)} ({pct:.0f}% {rel}).")
         if len(cats) >= 2:
             if empty():
@@ -2423,6 +2765,9 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
   .chips{margin-top:6px} .chip{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:99px;
          padding:5px 11px;margin:4px 6px 0 0;font-size:12.5px;cursor:pointer} .chip:hover{background:#f6fce0}
   .muted{color:#9a8} em{color:#8a5a1f}
+  .hidden{display:none!important}
+  .drop.busy{opacity:.75;pointer-events:none;border-style:solid;animation:dropglow 1.1s ease-in-out infinite}
+  @keyframes dropglow{0%,100%{background:#fffdf7}50%{background:#fff1d6}}
   .thinking{display:flex;align-items:center;gap:8px}
   .typing{display:inline-flex;gap:5px;align-items:center}
   .typing i{width:7px;height:7px;border-radius:50%;background:var(--orange);display:inline-block;
@@ -2436,13 +2781,13 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 <div class="wrap">
   <div class="card">
     <label class="drop" id="drop">
-      <input type="file" id="file" accept="application/pdf">
-      <div><b>Click to upload a statement PDF</b></div>
-      <div class="muted" id="dropsub">e.g. data/statement_1lakh.pdf (1,00,000 txns)</div>
+      <input type="file" id="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed">
+      <div><b>Click to upload a statement — PDF or ZIP</b></div>
+      <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one — the chat unlocks once it's parsed.</div>
     </label>
     <div id="stats"></div>
   </div>
-  <div class="card">
+  <div class="card hidden" id="chatcard">
     <div class="row" style="margin:0 0 8px 0;align-items:center">
       <b style="font-size:13px">Chat</b>
       <span class="muted" id="threadnote" style="font-size:11px;flex:1">context carries within this thread · tap New chat to reset</span>
@@ -2455,6 +2800,30 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
     </div>
     <div class="chips" id="chips"></div>
   </div>
+  <div class="card hidden" id="txncard">
+    <div class="row" style="margin:0 0 8px 0;align-items:center">
+      <b style="font-size:13px">Transactions</b>
+      <span class="muted" id="txnnote" style="font-size:11px;flex:1">search &amp; filter the parsed statement</span>
+      <span class="muted" id="txnsummary" style="font-size:11.5px"></span>
+    </div>
+    <div class="row" style="flex-wrap:wrap;gap:8px;margin:0">
+      <input type="text" id="tq" placeholder="search payee / description / category" style="flex:2;min-width:170px;padding:9px 12px">
+      <select id="tdir" style="padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:13.5px">
+        <option value="">All</option><option value="out">Money out</option><option value="in">Money in</option>
+      </select>
+      <input type="date" id="tstart" title="from date" style="padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:12.5px">
+      <input type="date" id="tend" title="to date" style="padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:12.5px">
+      <input type="number" id="tmin" placeholder="min" style="width:80px;flex:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff">
+      <input type="number" id="tmax" placeholder="max" style="width:80px;flex:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff">
+      <button id="tgo">Search</button>
+    </div>
+    <div id="txntable" style="max-height:430px;overflow:auto;margin-top:8px"></div>
+    <div class="row" style="justify-content:center;gap:14px;margin-top:6px;align-items:center">
+      <button id="tprev" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">‹ Prev</button>
+      <span id="tpage" class="muted" style="font-size:12px"></span>
+      <button id="tnext" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Next ›</button>
+    </div>
+  </div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
@@ -2466,17 +2835,19 @@ const SUG=["what is my total spending?","give me an account summary","show me sp
 $("#chips").innerHTML=SUG.map(s=>`<span class="chip">${s}</span>`).join("");
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{$("#q").value=c.textContent;ask();});
 
-// detect data already loaded in the DB so the input works without re-uploading
+// GATE: the chat + transactions stay hidden until a statement has been parsed.
+const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); };
+const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList.add("hidden"); };
 (async()=>{ try{
   const s=await (await fetch("/status")).json();
   if(s.rows>0){
-    $("#stats").innerHTML=`<span class="stat"><b>${s.rows.toLocaleString('en-IN')}</b> txns loaded</span>
+    $("#stats").innerHTML=`<span class="stat"><b>${s.rows.toLocaleString()}</b> txns loaded</span>
       <span class="stat">spend <b>${s.spend}</b></span><span class="stat">income <b>${s.income}</b></span>`;
-    $("#dropsub").textContent="A statement is already loaded — ask away, or upload to replace it.";
+    $("#dropsub").textContent="A statement is loaded — ask away, or upload another (PDF/ZIP) to replace it.";
     $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
-    $("#q").focus();
-  }
-}catch(e){} })();
+    reveal(); loadTxns(true); $("#q").focus();
+  } else { gate(); }
+}catch(e){ gate(); } })();
 
 function mdToHtml(md){
   const lines=md.split("\n"); let html="",tbl=[];
@@ -2496,15 +2867,30 @@ function add(cls,html,tag){ const d=document.createElement("div"); d.className="
 
 $("#file").onchange=async e=>{
   const f=e.target.files[0]; if(!f)return;
-  $("#dropsub").textContent="Uploading & parsing "+f.name+" …"; $("#stats").innerHTML="";
-  const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
-  const j=await r.json();
-  $("#dropsub").textContent=f.name+" loaded";
-  $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString('en-IN')}</b> txns</span>
+  gate();                                        // keep the chat hidden while parsing
+  $("#drop").classList.add("busy");
+  $("#dropsub").innerHTML="⏳ Parsing <b>"+f.name+"</b> — finding &amp; reading transactions…";
+  $("#stats").innerHTML="";
+  let j;
+  try{
+    const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
+    j=await r.json();
+  }catch(err){ $("#drop").classList.remove("busy"); e.target.value="";
+    $("#dropsub").textContent="Upload failed — please try again."; return; }
+  $("#drop").classList.remove("busy"); e.target.value="";
+  if(j.error){                                   // no statement found -> stay locked
+    $("#dropsub").innerHTML="⚠️ "+j.error+' <span class="muted">— the chat stays locked until a statement is parsed.</span>';
+    gate(); return;
+  }
+  const more=(j.parsed&&j.parsed.length>1)?(" · "+j.parsed.length+" statements"):"";
+  $("#dropsub").textContent=j.filename+" loaded";
+  $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns${more}</span>
     <span class="stat">parsed in <b>${j.seconds}s</b></span>
     <span class="stat">spend <b>${j.spend}</b></span>
     <span class="stat">income <b>${j.income}</b></span>`;
-  $("#q").disabled=false; $("#send").disabled=false; $("#q").focus();
+  $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
+  $("#q").disabled=false; $("#send").disabled=false;
+  reveal(); loadTxns(true); $("#q").focus();      // unlock the chat now that it's parsed
 };
 const TAG={SQL:"SQL",chat:"chat",advice:"RAG"};
 function newBubble(path){
@@ -2573,6 +2959,45 @@ async function ask(){
   }
 }
 $("#send").onclick=ask; $("#q").addEventListener("keydown",e=>{if(e.key==="Enter")ask();});
+
+// ---- Transactions: filterable table over /transactions (numbers from SQL) -----
+let tOffset=0; const tLimit=50; let tTotal=0;
+function tparams(){
+  const p=new URLSearchParams(); p.set("offset",tOffset); p.set("limit",tLimit);
+  const q=$("#tq").value.trim(); if(q)p.set("q",q);
+  const dir=$("#tdir").value; if(dir)p.set("dir",dir);
+  if($("#tstart").value)p.set("start",$("#tstart").value);
+  if($("#tend").value)p.set("end",$("#tend").value);
+  if($("#tmin").value)p.set("minamt",$("#tmin").value);
+  if($("#tmax").value)p.set("maxamt",$("#tmax").value);
+  return p.toString();
+}
+async function loadTxns(reset){
+  if(reset)tOffset=0;
+  let d; try{ d=await (await fetch("/transactions?"+tparams())).json(); }catch(e){ return; }
+  tTotal=d.total;
+  let h='<table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Payee</th>'
+      +'<th style="text-align:left">Category</th><th>Out</th><th>In</th><th>Balance</th></tr></thead><tbody>';
+  for(const r of d.rows){
+    const desc=(r.descr||"").replace(/"/g,"&quot;");
+    h+=`<tr><td style="text-align:left">${r.date}</td>`
+      +`<td style="text-align:left" title="${desc}">${r.payee||""}</td>`
+      +`<td style="text-align:left">${r.category||""}</td>`
+      +`<td>${r.out||""}</td><td style="color:#1f7a1f">${r["in"]||""}</td><td>${r.balance||""}</td></tr>`;
+  }
+  h+="</tbody></table>";
+  $("#txntable").innerHTML = d.rows.length? h : '<div class="muted" style="padding:16px">No matching transactions.</div>';
+  $("#txnsummary").innerHTML = tTotal? `<b>${tTotal.toLocaleString()}</b> matched · out <b>${d.out_total}</b> · in <b>${d.in_total}</b>` : "";
+  $("#tpage").textContent = tTotal? `${tOffset+1}–${Math.min(tOffset+tLimit,tTotal)} of ${tTotal.toLocaleString()}` : "";
+  $("#tprev").disabled = tOffset<=0; $("#tnext").disabled = tOffset+tLimit>=tTotal;
+}
+$("#tgo").onclick=()=>loadTxns(true);
+$("#tq").addEventListener("keydown",e=>{if(e.key==="Enter")loadTxns(true);});
+$("#tdir").onchange=()=>loadTxns(true);
+["tstart","tend"].forEach(id=>$("#"+id).onchange=()=>loadTxns(true));
+$("#tprev").onclick=()=>{tOffset=Math.max(0,tOffset-tLimit);loadTxns();};
+$("#tnext").onclick=()=>{tOffset+=tLimit;loadTxns();};
+// (table is loaded by reveal(), once a statement is parsed)
 </script></body></html>"""
 
 # ---- docs: render a markdown HLD as a styled, self-contained HTML page ----------

@@ -39,6 +39,7 @@ Global config (env-overridable):
 | `merchant` | TEXT | canonical merchant |
 | `category` | TEXT | classified (8 categories) |
 | `debit`,`credit`,`balance` | REAL | signed money; `balance` running |
+| `currency` | TEXT | per-document (`INR`/`GBP`/…); drives display formatting |
 | `seq` | INT | original order (latest-balance) |
 
 ### 2.2 Scope builder — `_scope(user_id, doc_name, period) -> (where_sql, params)`
@@ -53,10 +54,35 @@ Single source of WHERE construction. `period` polymorphism:
 - `None` → no date predicate
 
 ### 2.3 Formatting helpers
-- `inr(n)` → `₹` + Indian digit grouping, 2 decimals (`₹12,19,322.34`)
-- `grp(n)` → Indian grouping for integers (`1,05,000`)
+- `inr(n)` → active-currency symbol + locale digit grouping, 2 decimals — `₹12,19,322.34`
+  (INR: lakh/crore) or `£1,219,322.34` (GBP/USD/EUR: western thousands)
+- `grp(n)` → same locale grouping for plain integers/counts (`1,05,000` vs `105,000`)
+- `set_currency(cur)` / `detect_currency(u,doc)` — write / read the module-global `CURRENCY`
+  (`_CUR_SYM`: INR→₹, GBP→£, USD→$, EUR→€); `_grouped` selects Indian vs western grouping. The
+  server calls `set_currency(detect_currency(USER))` at boot and after every upload.
 - `_table(headers, rows)` → GitHub-flavoured Markdown table
 - `_mlabel("2024-03") → "Mar 2024"`, `_plabel`/`_dlabel` for period/day labels
+
+---
+
+## 2.4 Statement ingestion (multi-format · ZIP · per-document currency)
+
+`ingest_pdf(path, doc_name, user)` auto-detects the layout and streams rows into SQLite:
+- **DR/CR row format** — `parse_pdf` + `ROW_RE` (one line = `DD-MM-YYYY … DR|CR amount balance`);
+  the synthetic/Indian and SBI-style statements (₹).
+- **Barclays columnar** — `parse_barclays` (selected by `is_barclays`): groups PyMuPDF *words* into
+  rows by y-position and buckets them into Date / Description / Money-out / Money-in / Balance
+  columns by x-threshold. `DD MMM` dates take their **year from the statement-period header**
+  (Dec→Jan rollover handled); **same-day rows inherit the date**; multi-line descriptions are
+  stitched; Start/End-balance rows bound the table; UK merchant/category extraction; currency `GBP`.
+- **`is_statement_pdf(path)`** = `is_barclays(head) or is_transaction_statement(head)` — picks
+  statement PDFs out of an uploaded **ZIP** (non-statement files ignored) and rejects non-statements.
+
+**Per-document currency.** Each row stores `currency`; the module global `CURRENCY`
+(`set_currency` / `detect_currency`) drives symbol + digit grouping in `inr()`/`grp()` — ₹ uses
+Indian lakh/crore grouping, £/$/€ use western thousands. The server sets it from the loaded/uploaded
+statement. Mixed-currency accounts use the dominant currency (a known limitation), so `/upload`
+**replaces** prior data by default — each analysis stays single-currency.
 
 ---
 
@@ -75,7 +101,11 @@ Single source of WHERE construction. `period` polymorphism:
 | `txn_count(u,kind,doc,period)` | `int` | `kind∈{debit,credit,upi}`; upi = `descr LIKE '%upi%'` |
 | `amount_filter(u,op,amt,doc,period,merchant,category)` | `{count,total,max}` | `op∈{over,under}` on `debit`; optional merchant/category scope |
 | `filtered_summary(u,merchant,category,period,doc,weekend,txn_type)` | `{count,debit,credit,total}` | scoped count+total; `weekend` (Sat/Sun), `txn_type∈{debit,credit}` — powers "only weekends" / "only debit" follow-ups |
-| `latest_balance(u,doc,period)` | `float\|None` | `ORDER BY seq DESC LIMIT 1` |
+| `latest_balance(u,doc,period)` | `float\|None` | `ORDER BY seq DESC LIMIT 1` (closing balance) |
+| `balance_extreme(u,kind,doc,period)` | `(date,balance)\|None` | min/max **running** balance — `ORDER BY balance ASC\|DESC LIMIT 1` |
+| `merchant_category(u,kw,doc,period)` | `[(cat,n)]` | which category(ies) a merchant sits in — `GROUP BY category` |
+| `merchant_dates(u,kw,doc,period)` | `[(date,debit,credit,bal)]` | the dates a merchant appears (excludes year-0000 rows) |
+| `payment_interval(u,kw,doc,period)` | `{count,avg_days,min_days,max_days,first,last}` | mean #days between a payee's consecutive dated transactions |
 | `coverage(u,doc)` | `(min_month,max_month,[years])` | available range |
 | `months_list(u,doc,period)` | `[month]` | distinct months |
 | `subscription_costs(u,doc,period)` | `[(m,months,total,count)]` | over `SUBSCRIPTION_MERCHANTS` |
@@ -174,6 +204,12 @@ Design rules encoded here:
 | `_PATTERN_RE` | intelligence→insights | "what patterns do you see", "what stands out" |
 | `_FUP_ATTR`/`_REFS_RE` | followup | "which/why/when…" referencing the previous answer |
 | `HELP_RE`/`CONVO_RE` | caps/greeting | regex fallback when the router is down |
+| `_CATLOOKUP_RE` | merchant_category (§5.2) | "what category does Shein belong to" |
+| `_DATELOOKUP_RE` | merchant_date (§5.2) | "on what date does X appear", "when did X pay me" |
+| `_INTERVAL_RE` | merchant_interval (§5.2) | "how many days between X payments", "how often do I pay X" |
+| `_BAL_RE`+`_SMALL_RE`/`_BIG_RE` | balance_min/max (§5.2) | "lowest/highest balance recorded" |
+| `_AMT_CMP_RE` | scope re-injection (§4a) | "above 500" as a follow-up keeps merchant+period |
+| `_ARGMAX_ENT_RE` | scope re-injection (§4a) | "which merchant did I spend more" — inject period, not entity |
 
 ---
 
@@ -194,6 +230,16 @@ this **once, before routing**, so every engine receives a fully-resolved standal
   - bare metric → canonical stem + scope: `"average"` → `average transaction at Zomato in 2024`
   - comparison: `"compare with swiggy"` → `compare Zomato vs Swiggy in 2024`
   - filter: `"only weekends"` → `… at Zomato in 2024 on weekends` (→ `filtered_summary`)
+  - amount filter: `"above 500"` → `above 500 at Zomato in 2024` — merchant+period re-injected
+    (`_AMT_CMP_RE`), so a threshold follow-up keeps its scope instead of going account-wide.
+  - argmax entity: `"which merchant did I spend more"` → `… on 27 Mar 2026` — the carried
+    **period** is injected but the merchant is **not** pinned (`_ARGMAX_ENT_RE`); the analytics
+    top-merchant branch then answers the date-scoped argmax.
+  - **re-parseable rendering:** `_period_phrase` emits forms the engines actually re-parse — a
+    full date as `on 27 Mar 2026` (not ISO `2026-03-27`, which `_parse_period` would read as the
+    bare year `2026`), and a yearless `MD-MM-DD` as `on 19 Dec` (which `_extract_slots` re-reads
+    as that day across all years). This closes the old state↔string divergence where a carried
+    date silently widened or dropped.
   - **conservative:** a fresh thread (no carried scope) is always a passthrough, so single-turn
     suites (golden, 1000-factual) are unaffected; only multi-turn behaviour changes.
   - period uses the same combine-with-carried-year logic as `_resolve_factual` (so
@@ -203,6 +249,20 @@ this **once, before routing**, so every engine receives a fully-resolved standal
   `_SCOPE_CLEAR_RE` ("overall", "everything") drops the entity for one query.
 - **Logging:** `_log_conv` emits a structured `[conv] {original, resolved, signals, before, after}`
   line whenever a rewrite happens (route + response are in `chats.json` via `_append_log`).
+
+**Per-field transition policy.** Every turn produces a deterministic state transition; each field
+has one explicit rule (centralised in `_resolve_conversation`, not scattered):
+
+| Field | Policy |
+|---|---|
+| `merchant` | **replace** if this turn names one · **clear** on `_SCOPE_CLEAR_RE` ("overall") or income-context (`_NO_ENTITY_INJECT_RE`) · else **inherit** · **never pinned** on an "which merchant" argmax turn |
+| `category` | **replace** if named · **clear** on scope-clear / income / an own-merchant turn · else **inherit** |
+| `start`/`end` (period) | **replace** if this turn has one (a bare month/day **combines** with the carried year) · **clear** on scope-clear · else **inherit**; re-injected via `_period_phrase` in a re-parseable form |
+| `metric` | **replace** — per-turn (average/highest/breakdown…); never accumulated |
+| amount threshold | **per-turn** query modifier — applies to its own turn (re-injecting merchant+period); a later metric turn drops it |
+| `txn_type` (debit/credit) | **merge** |
+| `comparison` | **replace** — the two entities last compared |
+| fresh thread | **passthrough** — no carried scope ⇒ no rewrite (single-turn suites unaffected) |
 
 Integration: `query()` builds `state`, calls `_resolve_conversation`, persists the scope, then
 routes **every** gate (gML/gINT/advice/analytics/factual/router) on the resolved `rq` while
@@ -243,6 +303,29 @@ amount-filter → multi-entity → compare/difference. Notable:
   consistency (CV), income trend (H1 vs H2), income sources, spending profile, habits,
   subscriptions trend/list (triggers also on "recurring"), online-shopping freq.
 - Returns Markdown or `None` (not an analytics question → cascade continues).
+
+### 5.2 Fine-grained lookup intents — `_special_intent(q)`
+Checked **inside `_extract_slots`, before the generic count/spend/balance ladder**, so a
+named-merchant/balance question isn't collapsed into a summary/count/closing-balance:
+
+| Intent | Trigger (regex) | Dispatches to |
+|---|---|---|
+| `merchant_category` | `_CATLOOKUP_RE` — "what category does X belong to" | `merchant_category` |
+| `merchant_date` | `_DATELOOKUP_RE` — "on what date does X appear", "when did X …" | `merchant_dates` |
+| `merchant_interval` | `_INTERVAL_RE` — "how many days between X payments", "how often do I pay X" | `payment_interval` |
+| `balance_min` / `balance_max` | `_BAL_RE` + a low/high modifier (`_SMALL_RE`/`_BIG_RE`) | `balance_extreme` |
+
+- **No-op safety.** The three merchant lookups return an intent **only when the extracted phrase
+  resolves to a real merchant** (`_resolve_merchant`), so a non-merchant phrase leaves them
+  dormant and the generic ladder still runs. `balance_min/max` fire only with an explicit
+  min/max word (plain "balance" stays the closing-balance intent).
+- **Robust matching.** `_lookup_entity` pulls the name from sentence structure; `_resolve_merchant`
+  matches punctuation/suffix-tolerantly ("Shein"→`Shein.Com`, "Higgsfield Inc USA"→`Higgsfield
+  Inc. USA`). The SQL helpers match via **token-wildcard** (`_merch_where`: `%tok1%tok2%`), so a
+  phrase spans label variants (`Piyush Mishra` **and** `Piyush Mishra & PA`) — kept separate from
+  `merchant_spend`'s exact match, which the aggregate paths rely on.
+- These types are added to `_resolve_factual`'s `_KEEP_TYPE` so a present merchant doesn't
+  rewrite them back to a plain `merchant` summary.
 
 ---
 
@@ -373,9 +456,10 @@ covering the latency of LLM-backed answers.
 | Endpoint | Method | Response |
 |---|---|---|
 | `/query` | POST | ndjson stream (§9) |
-| `/upload` | POST | parse statement PDF → SQLite |
+| `/upload` | POST | parse a statement **PDF or ZIP** → SQLite (ZIP scanned for statement PDFs; non-statements ignored); **replaces** prior data; returns `{rows,parsed[],spend,income,currency}` or `{error}` (422 if no statement) |
+| `/transactions` | GET | filtered/paged table. Filters: `q` (payee/descr/category `LIKE`), `start`/`end` (`YYYY-MM-DD`), `minamt`/`maxamt` (on `max(debit,credit)`), `dir`∈{in,out}, `offset`/`limit` (default 50). Returns `{rows:[{date,payee,category,out,in,balance,descr}], total, out_total, in_total}` — amounts pre-formatted in the active currency; ordered `txn_date DESC, seq DESC` |
 | `/chats` | GET | JSON of `chats.json` |
-| `/dashboard`, `/transactions` | GET | JSON for the React UI |
+| `/dashboard` | GET | JSON for the React UI |
 | `/ml/anomalies\|forecast\|recurring\|categorize` | GET | JSON (`_ml`-cached) |
 | `/insights` | GET | JSON: pre-computed `insights[]` + live `health` + `risk` |
 | `/hld`, `/lld`, `/roadmap` | GET | rendered HTML (this doc family) |
@@ -397,6 +481,33 @@ code, lists, blockquotes, hr, inline bold/italic/code/links) wrapped in `_DOC_SH
 
 ---
 
+## 11A. Single-page UI — parse-gate, upload, transactions table
+
+The self-contained test UI (`PAGE` in `test_server.py`) is a three-card page (upload · chat ·
+transactions) with two client-side behaviours added this revision:
+
+**Parse-gate.** `gate()` / `reveal()` toggle the `.hidden` class on `#chatcard` and `#txncard`.
+On load the page calls `/status`: `rows>0` → `reveal()` + `loadTxns()` (a statement is already in
+the DB); otherwise both cards stay hidden. Chat is therefore never usable against an empty DB —
+the only affordance before a parse is the uploader.
+
+**Upload (PDF or ZIP).** `#file` accepts `.pdf`/`.zip`. On change the drop-zone enters a busy
+state (`.drop.busy` pulsing glow) and the page stays **gated** while `/upload` runs, then:
+- `{error}` (no statement found / bad ZIP) → the drop-zone shows the message and the page **stays
+  locked**;
+- success → shows `rows` (· N statements when a ZIP yielded several), `seconds`, `spend`, `income`,
+  then `reveal()`s both cards and calls `loadTxns(true)`. A new upload replaces prior data
+  (single-currency, §2.4).
+
+**Transactions table.** `loadTxns(reset)` pulls `/transactions` (§11) with the filter controls —
+keyword (`#tq`), direction (`#tdir` = all/out/in), date range (`#tstart`/`#tend`), amount band
+(`#tmin`/`#tmax`) — and renders Date / Payee / Category / Out / In / Balance rows (amounts already
+formatted in the active currency by SQL; payee cell carries the raw `descr` as a tooltip). A
+summary line shows `total` matched + `out_total` / `in_total`; Prev/Next page 50 rows at a time
+(`offset`/`limit`). Every figure is server-side SQL — the client only lays out strings.
+
+---
+
 ## 12. Error handling & degraded modes
 
 | Condition | Behaviour |
@@ -407,6 +518,16 @@ code, lists, blockquotes, hr, inline bold/italic/code/links) wrapped in `_DOC_SH
 | Unknown merchant | honest "No transactions found for X" (never a grand total) |
 | `<50` rows (anomaly) / `<3` months (forecast) | model returns empty/None → graceful message |
 
+**Known data-quality limitations (Barclays parser).**
+- **Truncated/suffixed merchant names** (`Putney Cricket Clu`, `Virgin Media Pymts`) — the
+  fine-grained lookups (§5.2) match token-wildcard so they still resolve from "Virgin Media";
+  but the **exact-match** paths (`merchant_spend`, `compare`) can miss the second entity. Fix
+  belongs in `parse_barclays` (widen the description column).
+- **Year `0000`** — a sub-statement whose period header doesn't match `parse_barclays`'s regex
+  stamps rows `0000-MM-DD` (unrecoverable from that statement's own text). `merchant_dates` and
+  `payment_interval` exclude these rows so answers never show a broken date; `coverage()` can
+  still show `0000`. Fix belongs in `parse_barclays` (year inference / header fallback).
+
 ---
 
 ## 13. Verification harnesses
@@ -416,6 +537,7 @@ code, lists, blockquotes, hr, inline bold/italic/code/links) wrapped in `_DOC_SH
 | `scripts/test_qa_1000.py` | 1,000 SQL-verified factual Q&A → 1000/1000 |
 | `scripts/golden_suite.py` | 41 questions × 10 categories → 41/41 (per-category + per-priority) |
 | `scripts/test_vague_1000.py` | parrot/routing at scale (0 parrots across 664 vague) |
+| `scripts/test_conversation.py` | multi-turn context + fine-grained intents (F1–F8): metric-change, overall-reset, category/date lookup, payment interval, min/max balance, scope survival across amount→average→highest. Runs on the Barclays test statement |
 
 Verdict kinds: deterministic (amount/percent/count vs SQL truth) · advice (route=advice +
 fully grounded + on-topic) · probe (capability + on-topic, accepts route ML/SQL/advice).

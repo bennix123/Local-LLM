@@ -83,7 +83,7 @@ Target deployment envelope: a 4 GB-class device (phone), single user, read-only.
 | Insight store | `insights` table (SQLite) | pre-computed insight rows; written on upload + startup |
 | ML insights | `backend/src/services/ml_insights.py` · scikit-learn | anomalies, forecast, recurring detection, auto-categorise |
 | Storage | SQLite (`data/live_txn.db`) | transactions table; date split into year/month/day |
-| Frontend | React/Vite (Penny UI) | chat + dashboards (consumes `/query`, `/dashboard`, `/ml/*`) |
+| Frontend | React/Vite (Penny UI) + single-page test UI | chat, dashboards, and a searchable/filterable transactions table; the chat + table are **gated** until a statement is parsed (consumes `/query`, `/upload`, `/transactions`, `/dashboard`, `/ml/*`) |
 
 ---
 
@@ -100,6 +100,7 @@ both exact and index-friendly.
 | `txn_date`, `year`, `month`, `day` | date decomposition for fast period filters |
 | `descr`, `merchant`, `category` | raw text; canonical merchant; classified category |
 | `debit`, `credit`, `balance` | signed money columns; `balance` is running balance |
+| `currency` | per-document (₹ INR / £ GBP / …); drives display formatting |
 | `seq` | original ordering (used for "latest balance") |
 
 **Scoping.** Every aggregation goes through `_scope(user_id, doc_name, period)`, which
@@ -109,6 +110,15 @@ builds the `WHERE` clause. `period` accepts `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, or 
 **Note on merchant matching.** Descriptions store multi-word merchants underscored
 (`NEFT/Axis_Bank_Car_Loan/REF...`). Lookups therefore match the canonical `merchant`
 column **or** a `descr LIKE`, so "Axis Bank Car Loan" resolves correctly.
+
+**Statement formats, ZIP intake & currency.** `ingest_pdf` auto-detects the layout — a **DR/CR
+row format** (`parse_pdf` / `ROW_RE`, ₹) or **Barclays columnar** (`parse_barclays`, position/x-column
+based, £, `DD MMM` dates with the year inferred from the period header). `/upload` accepts a **PDF or a
+ZIP** — a ZIP is unpacked and scanned for statement PDFs (`is_statement_pdf`); non-statements are
+ignored. Display **currency follows the statement** (₹ lakh/crore vs £ thousands); a new upload
+**replaces** prior data so the account stays single-currency. The UI **gates the chat** — the chat
+and a searchable/filterable transaction table stay hidden until a statement is successfully parsed,
+then both unlock (LLD §2.4, §11A).
 
 ---
 
@@ -135,6 +145,15 @@ most deterministic handler that can answer, does. Routing order:
 2.   LLM ROUTER   (llm_route → structured intent)                   → see below
 3.   FALLBACK     (HELP_RE / CONVO_RE / ts.answer)  else nudge
 ```
+
+> **Fine-grained deterministic intents.** Step 1 first runs a `_special_intent` check that
+> recognises specific questions the generic ladder used to flatten — *merchant category
+> lookup* ("what category does Shein belong to"), *merchant date lookup* ("when does X
+> appear"), *payment interval* ("how many days between X payments"), and *min/max running
+> balance* ("lowest balance") — each mapping to exactly one SQL handler. They stay dormant
+> unless a real merchant resolves (or a min/max modifier is present), so ordinary questions are
+> untouched. Multi-turn scope (merchant/period) survives metric, amount-threshold, and
+> "which-merchant" follow-ups (LLD §4a, §5.2).
 
 **Step 2 — LLM router outcomes.** The model returns a structured intent `{type,
 category, merchant, n, start, end, table}`. `type` is dispatched:
@@ -329,10 +348,17 @@ computed independently from SQL.
 | Factual battery — `scripts/test_qa_1000.py` (1,000 verified Q&A) | **1,000 / 1,000 (100%)**, all routed to SQL, 0 wrong numbers |
 | Advisory grounding — 17 advisory questions | **17/17 grounded** (0 numbers outside the fact sheet) |
 | Vague / parrot battery — `scripts/test_vague_1000.py` | **0 parrots across 664 vague questions**; non-finance "should I…" correctly nudged |
+| Conversational battery — `scripts/test_conversation.py` | multi-turn context + fine-grained intents (metric-change, overall-reset, category/date lookup, payment interval, min/max balance, scope survival across amount→average→highest) |
 
 "Parrot" = a random/off-topic question echoing a previous answer; the routing fixes
 (finance-anchored advice gate, finance-relevance gate on the router, nudge-instead-of-
 advice on unmatched input) drove this to zero.
+
+**Zero-regression discipline.** Hot-path changes (new intents, the transition engine) are
+validated by a **differential**: the modified server's answers to all 1,000 factual questions are
+compared byte-for-byte against a captured baseline on identical data — any change is flagged. The
+fine-grained-intent + conversation work landed at **0 / 1,000 changed** (the transition engine is a
+no-op on the single-turn suites; new intents stay dormant unless a real merchant/modifier resolves).
 
 ---
 
@@ -344,7 +370,7 @@ advice on unmatched input) drove this to zero.
 | Storage | SQLite (local) + hybrid search index (BM25 + vector RRF) |
 | LLM | Llama 3.1 8B via Ollama (local, offline) |
 | ML | scikit-learn (+ numpy, scipy) |
-| PDF parse | PyMuPDF (`ROW_RE` row extraction; no Camelot/cloud) |
+| PDF parse | PyMuPDF — DR/CR row regex (`ROW_RE`) + Barclays column-position parser; ZIP intake (stdlib `zipfile`); no Camelot/cloud |
 | Frontend | React / Vite (Penny UI) |
 
 Nothing on the query path requires the network.
@@ -377,6 +403,11 @@ Nothing on the query path requires the network.
 Risk Engine · Behavioural analytics · Transaction Impact · Category-Trend (3/6/12-mo) ·
 recurring-detection wired into chat.
 
+**Done — conversation & fine-grained intents** (LLD §4a, §5.2): centralized per-field transition
+rules · fine-grained intents (merchant category / date lookup, payment interval, min/max running
+balance) · multi-turn scope survival through metric / amount-threshold / "which-merchant"
+follow-ups · re-parseable period rendering (full date + yearless day) — all at 0/1000 regression.
+
 **Next:**
 1. **Correlation Engine** — event→effect sequence analytics ("what follows a salary credit");
    the only roadmap item that is genuinely new modelling, deferred to last.
@@ -384,7 +415,9 @@ recurring-detection wired into chat.
    strains (today it scores 41/41 + 1000/1000 with 0 mis-routes).
 3. **Phase 3** — full What-if simulator (a deterministic "cut X by Y%" already exists),
    Budget Optimizer, Goal Planner.
-4. Bank-specific statement parsers (HDFC, SBI, ICICI) beyond the current layout.
+4. Bank-specific statement parsers (HDFC, SBI, ICICI) beyond the current layout; **harden
+   `parse_barclays`** — widen the truncated description column and add year inference when the
+   statement-period header doesn't parse (removes the `0000` dates; see LLD §12).
 5. Extend number-validation to the follow-up path (`followup_response`).
 6. On-device packaging for the phone target.
 

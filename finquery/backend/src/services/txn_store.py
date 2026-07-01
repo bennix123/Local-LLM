@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sqlite3
+from datetime import datetime
 
 import pymupdf
 
@@ -49,34 +50,45 @@ ROW_RE = re.compile(
 
 
 # ------------------------------------------------------------------ formatting
+# Active display currency — set from the loaded statement (₹ for Indian statements,
+# £ for Barclays, etc.). Symbol + digit grouping both follow it.
+CURRENCY = "INR"
+_CUR_SYM = {"INR": "₹", "GBP": "£", "USD": "$", "EUR": "€"}
+
+
+def set_currency(cur):
+    global CURRENCY
+    CURRENCY = (cur or "INR").upper()
+
+
+def _group_indian(intpart):
+    if len(intpart) <= 3:
+        return intpart
+    head, tail = intpart[:-3], intpart[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:]); head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    return ",".join(groups) + "," + tail
+
+
+def _grouped(intpart):
+    """Digit grouping for the active currency: ₹ -> Indian (lakh/crore), else western."""
+    return _group_indian(intpart) if CURRENCY == "INR" else f"{int(intpart):,}"
+
+
 def inr(n):
-    """Indian comma grouping with 2 decimals."""
+    """Money formatter for the ACTIVE currency (symbol + locale grouping, 2 decimals)."""
     neg = n < 0
     n = abs(round(float(n), 2))
     intpart, dec = f"{n:.2f}".split(".")
-    if len(intpart) > 3:
-        head, tail = intpart[:-3], intpart[-3:]
-        groups = []
-        while len(head) > 2:
-            groups.insert(0, head[-2:]); head = head[:-2]
-        if head:
-            groups.insert(0, head)
-        intpart = ",".join(groups) + "," + tail
-    return ("-" if neg else "") + f"₹{intpart}.{dec}"
+    return ("-" if neg else "") + _CUR_SYM.get(CURRENCY, "") + f"{_grouped(intpart)}.{dec}"
 
 
 def grp(n):
-    """Indian comma grouping for plain integers (counts)."""
-    s = str(int(n));
-    if len(s) <= 3:
-        return s
-    head, tail = s[:-3], s[-3:]
-    out = []
-    while len(head) > 2:
-        out.insert(0, head[-2:]); head = head[:-2]
-    if head:
-        out.insert(0, head)
-    return ",".join(out) + "," + tail
+    """Locale comma grouping for plain integers (counts)."""
+    return _grouped(str(int(n)))
 
 
 def _money(s):
@@ -108,6 +120,7 @@ def init_db():
             debit     REAL,
             credit    REAL,
             balance   REAL,
+            currency  TEXT DEFAULT 'INR',
             seq       INTEGER  -- row order within the document
         )""")
     # Migrate DBs created before the split year/month_no/day columns existed.
@@ -115,6 +128,8 @@ def init_db():
     for col in ("year", "month_no", "day"):
         if col not in cols:
             con.execute(f"ALTER TABLE transactions ADD COLUMN {col} INTEGER")
+    if "currency" not in cols:
+        con.execute("ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT 'INR'")
     # Backfill the split parts from txn_date for any rows that lack them.
     con.execute("""UPDATE transactions
                       SET year     = CAST(substr(txn_date,1,4) AS INTEGER),
@@ -183,28 +198,179 @@ def parse_pdf(pdf_path):
                 "descr": descr, "merchant": merchant, "category": category,
                 "debit": amt if drcr == "DR" else 0.0,
                 "credit": amt if drcr == "CR" else 0.0,
-                "balance": _money(balance), "seq": seq,
+                "balance": _money(balance), "currency": "INR", "seq": seq,
             }
     doc.close()
 
 
+# ---------------------------------------------------------------- Barclays parser
+_BARCLAYS_MON = {m: i + 1 for i, m in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])}
+_BARCLAYS_AMT = re.compile(r"^-?[\d,]+\.\d{2}$")
+# UK merchant token -> category (light; falls back to Income for credits, else Other).
+UK_MERCHANT_CAT = {
+    "o2": "Utilities", "vodafone": "Utilities", "virgin media": "Utilities",
+    "british gas": "Utilities", "thames water": "Utilities", "council tax": "Utilities",
+    "octopus energy": "Utilities", "sky": "Utilities",
+    "google": "Entertainment", "youtube": "Entertainment", "netflix": "Entertainment",
+    "spotify": "Entertainment", "disney": "Entertainment", "cricket": "Entertainment",
+    "puregym": "Entertainment", "gym": "Entertainment", "cinema": "Entertainment",
+    "tesco": "Groceries", "sainsbury": "Groceries", "asda": "Groceries", "aldi": "Groceries",
+    "lidl": "Groceries", "morrisons": "Groceries", "waitrose": "Groceries", "co-op": "Groceries",
+    "amazon": "Shopping", "argos": "Shopping", "ebay": "Shopping", "ikea": "Shopping",
+    "uber": "Transport", "tfl": "Transport", "trainline": "Transport", "national rail": "Transport",
+    "deliveroo": "Food & Dining", "just eat": "Food & Dining", "mcdonald": "Food & Dining",
+    "greggs": "Food & Dining", "costa": "Food & Dining", "starbucks": "Food & Dining", "pret": "Food & Dining",
+}
+
+
+def _barclays_merchant(descr, is_credit):
+    """Pull the counterparty + a category from a Barclays narrative line."""
+    m = re.search(r"(?:Card Payment to|Payment to|Direct Debit to|Standing Order to|Bill Payment to|"
+                  r"Transfer to|Faster Payment to|Received From|Paid In(?: from)?|From|to)\s+(.+)",
+                  descr, re.I)
+    name = m.group(1) if m else descr
+    name = re.split(r"\s+(?:On\s+\d|Ref:|Ref\b|on\s+\d)", name, 1)[0]
+    name = re.sub(r"\s{2,}", " ", name).strip(" -:")
+    low = name.lower()
+    cat = next((c for kw, c in UK_MERCHANT_CAT.items() if kw in low), None)
+    if cat is None:
+        cat = "Income" if is_credit else "Other"
+    return (name[:60] or ("Income" if is_credit else "Other")), cat
+
+
+def is_barclays(text):
+    low = (text or "").lower()
+    return "barclays" in low and ("money out" in low or "sort code" in low
+                                  or "current account statement" in low)
+
+
+def parse_barclays(pdf_path):
+    """Parse a Barclays current-account statement by COLUMN position (PyMuPDF word x/y).
+    Dates are 'DD MMM' with the year inferred from the statement-period header; same-day
+    rows inherit the date; multi-line descriptions are stitched; Start/End balance bound
+    the table. Yields the standard row dict (currency='GBP')."""
+    doc = pymupdf.open(pdf_path)
+    full = "".join(p.get_text("text") for p in doc)
+    pm = re.search(r"(\d{1,2})\s+([A-Z][a-z]{2})\s*[-–]\s*(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})", full)
+    if pm:
+        sm, em, ey = _BARCLAYS_MON[pm.group(2)], _BARCLAYS_MON[pm.group(4)], int(pm.group(5))
+        sy = ey if sm <= em else ey - 1
+    else:
+        sm = em = ey = sy = 0
+
+    def year_for(mon):
+        if not ey:
+            return 0
+        return ey if sy == ey else (sy if mon >= sm else ey)
+
+    cur_date = None; cur = None; started = False; done = False; pending = []
+    for page in doc:
+        lines = {}
+        for x0, y0, x1, y1, w, *_ in page.get_text("words"):
+            lines.setdefault(round(y0 / 3.0), []).append((x0, w))
+        for k in sorted(lines):
+            row = sorted(lines[k])
+            dcol = [w for x, w in row if x < 90]
+            desc = [w for x, w in row if 90 <= x < 268]
+            ocol = [w for x, w in row if 268 <= x < 312]
+            icol = [w for x, w in row if 312 <= x < 372]
+            bcol = [w for x, w in row if x >= 372]
+            day = next((w for w in dcol if re.fullmatch(r"\d{1,2}", w)), None)
+            mon = next((w for w in dcol if w in _BARCLAYS_MON), None)
+            if day and mon:
+                cur_date = (int(day), _BARCLAYS_MON[mon])
+            dtext = " ".join(desc).strip()
+            out = next((_money(w) for w in ocol if _BARCLAYS_AMT.match(w)), None)
+            inn = next((_money(w) for w in icol if _BARCLAYS_AMT.match(w)), None)
+            bal = next((_money(w) for w in bcol if _BARCLAYS_AMT.match(w)), None)
+            if re.search(r"start balance", dtext, re.I):
+                started = True; continue
+            if re.search(r"end balance", dtext, re.I):
+                if cur: pending.append(cur); cur = None
+                done = True; break
+            if not started or done:
+                continue
+            if out is not None or inn is not None:
+                if cur: pending.append(cur)
+                cur = {"date": cur_date, "desc": dtext, "out": out, "in": inn, "bal": bal}
+            elif dtext and cur:
+                cur["desc"] = (cur["desc"] + " " + dtext).strip()
+        if done:
+            break
+    if cur:
+        pending.append(cur)
+    doc.close()
+
+    seq = 0
+    for c in pending:
+        if c["date"] is None:
+            continue
+        dd, mm = c["date"]; yr = year_for(mm)
+        iso = f"{yr:04d}-{mm:02d}-{dd:02d}"
+        out = c["out"] or 0.0; inn = c["in"] or 0.0
+        merchant, category = _barclays_merchant(c["desc"], inn > 0)
+        seq += 1
+        yield {"txn_date": iso, "month": iso[:7], "year": yr, "month_no": mm, "day": dd,
+               "descr": c["desc"][:200], "merchant": merchant, "category": category,
+               "debit": out, "credit": inn, "balance": c["bal"], "currency": "GBP", "seq": seq}
+
+
+def detect_currency(user_id, doc_name=None):
+    """The dominant stored currency for this user/doc (defaults INR)."""
+    w, p = _scope(user_id, doc_name)
+    con = connect()
+    try:
+        r = con.execute(f"SELECT currency, COUNT(*) c FROM transactions WHERE {w} "
+                        f"AND currency IS NOT NULL GROUP BY currency ORDER BY c DESC LIMIT 1", p).fetchone()
+    except Exception:
+        r = None
+    con.close()
+    return r[0] if r else "INR"
+
+
+def is_statement_pdf(path):
+    """True if the PDF at `path` looks like a parseable bank statement (any supported
+    format: Barclays columnar, or the DR/CR row layout). Used to pick statements out of
+    a ZIP and to reject non-statement PDFs."""
+    try:
+        d = pymupdf.open(path)
+        head = "".join(d[i].get_text("text") for i in range(min(3, len(d))))
+        d.close()
+    except Exception:
+        return False
+    return is_barclays(head) or is_transaction_statement(head)
+
+
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
-    """Parse a statement PDF into SQLite. Returns count of rows ingested."""
+    """Parse a statement PDF into SQLite (auto-detecting Barclays vs the row format).
+    Returns count of rows ingested and sets the active display currency to the data."""
     init_db()
+    head = ""
+    try:
+        d = pymupdf.open(pdf_path)
+        head = "".join(d[i].get_text("text") for i in range(min(3, len(d))))
+        d.close()
+    except Exception:
+        pass
+    parser = parse_barclays if is_barclays(head) else parse_pdf
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
-    rows, buf, n = con, [], 0
+    buf, n = [], 0
     sql = ("INSERT INTO transactions"
-           "(user_id,doc_name,txn_date,month,year,month_no,day,descr,merchant,category,debit,credit,balance,seq)"
-           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-    for t in parse_pdf(pdf_path):
+           "(user_id,doc_name,txn_date,month,year,month_no,day,descr,merchant,category,"
+           "debit,credit,balance,currency,seq)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    for t in parser(pdf_path):
         buf.append((user_id, doc_name, t["txn_date"], t["month"], t["year"], t["month_no"], t["day"],
-                    t["descr"], t["merchant"], t["category"], t["debit"], t["credit"], t["balance"], t["seq"]))
+                    t["descr"], t["merchant"], t["category"], t["debit"], t["credit"], t["balance"],
+                    t.get("currency", "INR"), t["seq"]))
         if len(buf) >= batch:
             con.executemany(sql, buf); n += len(buf); buf = []
     if buf:
         con.executemany(sql, buf); n += len(buf)
     con.commit(); con.close()
+    set_currency(detect_currency(user_id))      # display currency follows the loaded data
     return n
 
 
@@ -477,6 +643,164 @@ def extreme(user_id, kind, doc_name=None, period=None, merchant=None):
                     p + mp).fetchone()
     con.close()
     return r
+
+
+# ---- fine-grained lookups (merchant category / dates / balance extreme / interval) ----
+# All deterministic, every figure from SQL. Merchant matching mirrors merchant_spend:
+# the canonical `merchant` column (exact) OR a `descr LIKE` (handles multi-word/underscored
+# and split labels like "Piyush Mishra" vs "Piyush Mishra & PA").
+
+def _merch_where(keyword):
+    """Punctuation-insensitive, variant-spanning match for the lookup helpers: the keyword
+    is tokenised and joined with wildcards, so "piyush mishra" catches both 'Piyush Mishra'
+    and 'Piyush Mishra & PA', and "higgsfield inc usa" catches 'Higgsfield Inc. USA'. (Kept
+    separate from merchant_spend's exact match, which the factual/aggregate paths rely on.)"""
+    toks = [t for t in re.split(r"[^a-z0-9]+", keyword.lower()) if t]
+    pat = "%" + "%".join(toks) + "%" if toks else f"%{keyword.lower()}%"
+    return "(LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ?)", [pat, pat]
+
+
+def merchant_category(user_id, keyword, doc_name=None, period=None):
+    """Which category(ies) a merchant's transactions are classified under. [(category, n)]."""
+    w, p = _scope(user_id, doc_name, period)
+    mw, mp = _merch_where(keyword)
+    con = connect()
+    rows = con.execute(f"""SELECT category, COUNT(*) FROM transactions
+                           WHERE {w} AND {mw} GROUP BY category ORDER BY 2 DESC""",
+                       p + mp).fetchall()
+    con.close()
+    return rows
+
+
+def merchant_dates(user_id, keyword, doc_name=None, period=None, limit=500):
+    """The dates a merchant appears on (chronological). [(txn_date, debit, credit, balance)].
+    Placeholder year-0000 rows (a known Barclays-parser gap) are excluded so the answer
+    never shows a broken '0000' date."""
+    w, p = _scope(user_id, doc_name, period)
+    mw, mp = _merch_where(keyword)
+    con = connect()
+    rows = con.execute(f"""SELECT txn_date, debit, credit, balance FROM transactions
+                           WHERE {w} AND {mw} AND txn_date NOT LIKE '0000%'
+                           ORDER BY txn_date, seq LIMIT ?""",
+                       p + mp + [limit]).fetchall()
+    con.close()
+    return rows
+
+
+def balance_extreme(user_id, kind, doc_name=None, period=None):
+    """Minimum or maximum RUNNING balance recorded (kind='min'|'max'). (txn_date, balance) | None.
+    Distinct from latest_balance (the closing balance)."""
+    w, p = _scope(user_id, doc_name, period)
+    order = "ASC" if kind == "min" else "DESC"
+    con = connect()
+    r = con.execute(f"""SELECT txn_date, balance FROM transactions
+                        WHERE {w} AND balance IS NOT NULL
+                        ORDER BY balance {order}, seq LIMIT 1""", p).fetchone()
+    con.close()
+    return r
+
+
+def payment_interval(user_id, keyword, doc_name=None, period=None):
+    """Average number of days between a merchant/person's consecutive transactions.
+    Placeholder year-0000 rows (a known Barclays-parser gap) are excluded so a bad
+    date can't dominate the average. Returns a dict of stats."""
+    w, p = _scope(user_id, doc_name, period)
+    mw, mp = _merch_where(keyword)
+    con = connect()
+    rows = con.execute(f"""SELECT DISTINCT txn_date FROM transactions
+                           WHERE {w} AND {mw} AND txn_date NOT LIKE '0000%'
+                           ORDER BY txn_date""", p + mp).fetchall()
+    con.close()
+    dates = []
+    for r in rows:
+        try:
+            dates.append(datetime.strptime(r[0], "%Y-%m-%d"))
+        except (ValueError, TypeError):
+            continue
+    if len(dates) < 2:
+        return {"count": len(dates), "avg_days": None, "min_days": None, "max_days": None,
+                "first": rows[0][0] if rows else None, "last": rows[-1][0] if rows else None}
+    gaps = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+    return {"count": len(dates), "avg_days": sum(gaps) / len(gaps),
+            "min_days": min(gaps), "max_days": max(gaps),
+            "first": dates[0].strftime("%Y-%m-%d"), "last": dates[-1].strftime("%Y-%m-%d")}
+
+
+def who_paid(user_id, amount=None, doc_name=None, period=None, tol=0.02):
+    """Who sent money in (income). With `amount`, the sender(s) of a credit of ~that size,
+    each with its date: [(merchant, txn_date, credit)]. Without, income grouped by source:
+    [(merchant, Σcredit, n)]. Year-0000 rows excluded from the dated (amount) view."""
+    w, p = _scope(user_id, doc_name, period)
+    con = connect()
+    if amount is not None:
+        lo, hi = amount * (1 - tol) - 0.01, amount * (1 + tol) + 0.01
+        rows = con.execute(f"""SELECT merchant, txn_date, credit FROM transactions
+                               WHERE {w} AND credit>0 AND credit BETWEEN ? AND ?
+                               AND txn_date NOT LIKE '0000%'
+                               ORDER BY ABS(credit-?), txn_date""", p + [lo, hi, amount]).fetchall()
+    else:
+        rows = con.execute(f"""SELECT merchant, SUM(credit), COUNT(*) FROM transactions
+                               WHERE {w} AND credit>0 GROUP BY merchant ORDER BY 2 DESC""", p).fetchall()
+    con.close()
+    return rows
+
+
+def balance_at(user_id, date, doc_name=None):
+    """Running balance as of `date` — the last non-null balance on/before it (year-0000 excluded)."""
+    w, p = _scope(user_id, doc_name)
+    con = connect()
+    r = con.execute(f"""SELECT balance FROM transactions WHERE {w} AND txn_date<=?
+                        AND txn_date NOT LIKE '0000%' AND balance IS NOT NULL
+                        ORDER BY txn_date DESC, seq DESC LIMIT 1""", p + [date]).fetchone()
+    con.close()
+    return r[0] if r else None
+
+
+def _target_txn(user_id, keyword, doc_name=None, period=None):
+    """The (seq, balance, txn_date, debit, credit) of a merchant's transaction — the latest
+    within scope. Year-0000 rows excluded. None if not found."""
+    w, p = _scope(user_id, doc_name, period)
+    mw, mp = _merch_where(keyword)
+    con = connect()
+    r = con.execute(f"""SELECT seq, balance, txn_date, debit, credit FROM transactions
+                        WHERE {w} AND {mw} AND txn_date NOT LIKE '0000%'
+                        ORDER BY txn_date DESC, seq DESC LIMIT 1""", p + mp).fetchone()
+    con.close()
+    return r
+
+
+def balance_after(user_id, keyword, doc_name=None, period=None):
+    """Running balance immediately AFTER a merchant's transaction (its own balance column)."""
+    r = _target_txn(user_id, keyword, doc_name, period)
+    if not r:
+        return None
+    return {"balance": r[1], "date": r[2]}
+
+
+def balance_before(user_id, keyword, doc_name=None, period=None):
+    """Running balance immediately BEFORE a merchant's transaction. Reconstructed from the
+    txn's own after-balance (after + debit − credit); falls back to the prior row's balance."""
+    r = _target_txn(user_id, keyword, doc_name, period)
+    if not r:
+        return None
+    seq, bal, date, debit, credit = r
+    if bal is not None:
+        return {"balance": bal + (debit or 0.0) - (credit or 0.0), "date": date}
+    w, p = _scope(user_id, doc_name)
+    con = connect()
+    prev = con.execute(f"""SELECT balance FROM transactions WHERE {w} AND seq<?
+                           AND txn_date NOT LIKE '0000%' AND balance IS NOT NULL
+                           ORDER BY seq DESC LIMIT 1""", p + [seq]).fetchone()
+    con.close()
+    return {"balance": prev[0], "date": date} if prev else None
+
+
+def balance_delta(user_id, date1, date2, doc_name=None):
+    """Change in running balance between two dates: {start, end, delta} or None."""
+    b1, b2 = balance_at(user_id, date1, doc_name), balance_at(user_id, date2, doc_name)
+    if b1 is None or b2 is None:
+        return None
+    return {"start": b1, "end": b2, "delta": b2 - b1}
 
 
 # ------------------------------------------------------------------ md tables
@@ -1231,7 +1555,8 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t == "spend":
         o = overview(user_id, doc_name, period)
-        return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(o['count'])} transactions"
+        dc = txn_count(user_id, "debit", doc_name, period)   # debit rows only, not income
+        return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(dc)} transactions"
 
     if t == "income":
         o = overview(user_id, doc_name, period)
@@ -1274,7 +1599,91 @@ def dispatch_intent(intent, user_id, doc_name=None):
                 return f"**No transactions found for '{m}'{sfx}.**"
             side = "received" if r["credit"] > r["debit"] else "spent"
             amt = r["credit"] if side == "received" else r["debit"]
-            return f"**{_mname(m)}{sfx}:** {side} {inr(amt)} across {grp(r['count'])} transactions"
+            n = (r["count"] - r["dcount"]) if side == "received" else r["dcount"]  # direction-matched count
+            return f"**{_mname(m)}{sfx}:** {side} {inr(amt)} across {grp(n or r['count'])} transactions"
+
+    if t == "merchant_category":
+        m = (intent.get("merchant") or "").strip()
+        rows = merchant_category(user_id, m, doc_name, period)
+        if not rows:
+            return f"**No transactions found for '{m}'{sfx}.**"
+        if len(rows) == 1:
+            return (f"**{_mname(m)}** is categorised under **{rows[0][0]}**{sfx} "
+                    f"({grp(rows[0][1])} transaction{'s' if rows[0][1] != 1 else ''}).")
+        body = ", ".join(f"{c} ({grp(n)})" for c, n in rows)
+        return f"**{_mname(m)}{sfx}** appears under {len(rows)} categories: {body}."
+
+    if t == "merchant_date":
+        m = (intent.get("merchant") or "").strip()
+        rows = merchant_dates(user_id, m, doc_name, period)
+        if not rows:
+            return f"**No transactions found for '{m}'{sfx}.**"
+        if len(rows) == 1:
+            d, deb, cr, _bal = rows[0]
+            return f"**{_mname(m)}{sfx}** appears once — on **{_dlabel(d)}** ({inr(deb or cr)})."
+        shown = ", ".join(_dlabel(r[0]) for r in rows[:12])
+        more = f" (+{grp(len(rows) - 12)} more)" if len(rows) > 12 else ""
+        return f"**{_mname(m)}{sfx}** appears on {grp(len(rows))} dates: {shown}{more}."
+
+    if t in ("balance_min", "balance_max"):
+        kind = "min" if t == "balance_min" else "max"
+        r = balance_extreme(user_id, kind, doc_name, period)
+        if r:
+            label = "Lowest" if kind == "min" else "Highest"
+            return f"**{label} recorded balance{sfx}:** {inr(r[1])} (on {_dlabel(r[0])})"
+
+    if t == "merchant_interval":
+        m = (intent.get("merchant") or "").strip()
+        g = payment_interval(user_id, m, doc_name, period)
+        if not g or g["count"] == 0:
+            return f"**No transactions found for '{m}'{sfx}.**"
+        if g["count"] < 2 or g["avg_days"] is None:
+            return (f"**Only one dated {_mname(m)} transaction{sfx}** — need at least two to "
+                    f"measure the interval between payments.")
+        return (f"**{_mname(m)} payments{sfx}:** about **{g['avg_days']:.0f} days** between "
+                f"consecutive payments on average (range {g['min_days']}–{g['max_days']} days, "
+                f"across {grp(g['count'])} dated payments from {_dlabel(g['first'])} to "
+                f"{_dlabel(g['last'])}).")
+
+    if t == "who_paid":
+        amt = intent.get("amount")
+        rows = who_paid(user_id, amt, doc_name, period)
+        if not rows:
+            w = f" of {inr(amt)}" if amt is not None else ""
+            return f"**No income{w} found{sfx}.**"
+        if amt is not None:                                # sender(s) of a ~specific amount
+            if len(rows) == 1:
+                m, d, c = rows[0]
+                return f"**{inr(c)} received from {_mname(m)}** on {_dlabel(d)}{sfx}."
+            body = ", ".join(f"{_mname(m)} ({inr(c)} on {_dlabel(d)})" for m, d, c in rows[:8])
+            return f"**Income around {inr(amt)}{sfx}:** {body}."
+        body = [(_mname(m), inr(c), grp(n)) for m, c, n in rows]
+        return f"**Who paid you{sfx}**\n\n" + _table(["Source", "Received", "Txns"], body)
+
+    if t in ("balance_before", "balance_after"):
+        m = (intent.get("merchant") or "").strip()
+        r = (balance_before if t == "balance_before" else balance_after)(user_id, m, doc_name, period)
+        if not r or r["balance"] is None:
+            return f"**No dated transaction found for '{m}'{sfx}.**"
+        word = "before" if t == "balance_before" else "after"
+        return f"**Balance {word} {_mname(m)}{sfx}:** {inr(r['balance'])} (on {_dlabel(r['date'])})"
+
+    if t == "balance_delta":
+        d1, d2 = intent.get("date1"), intent.get("date2")
+        r = balance_delta(user_id, d1, d2, doc_name)
+        if not r:
+            return "**Couldn't read the balance on those dates.**"
+        direction = "increased" if r["delta"] > 0 else "decreased" if r["delta"] < 0 else "was unchanged"
+        by = "" if r["delta"] == 0 else f" by {inr(abs(r['delta']))}"
+        return (f"**Balance {direction}{by}** between {_dlabel(d1)} and {_dlabel(d2)} "
+                f"(from {inr(r['start'])} to {inr(r['end'])}).")
+
+    if t == "months":
+        ms = months_list(user_id, doc_name, period)
+        if not ms:
+            return "**No months found.**"
+        return (f"**{grp(len(ms))} distinct month{'s' if len(ms) != 1 else ''}{sfx}:** "
+                + ", ".join(_mlabel(x) for x in ms))
 
     if t == "top_expenses":
         n = intent.get("n") or 5
