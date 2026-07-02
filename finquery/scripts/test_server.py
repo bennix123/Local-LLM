@@ -1006,6 +1006,14 @@ _CAT_SYN = {
     "investment": "Investment & Insurance", "investments": "Investment & Insurance",
     "insurance": "Investment & Insurance",
 }
+# Typo-tolerant prefixes (distinctive, >=5 chars) — a FALLBACK when the exact synonym/
+# canonical match fails, so "entertainement" / "grocerys" still resolve. Matched as
+# \b<stem>\w* so only the leading letters need to be right.
+_CAT_STEMS = [
+    ("entertain", "Entertainment"), ("grocer", "Groceries"), ("utilit", "Utilities"),
+    ("transp", "Transport"), ("healthc", "Healthcare"), ("investm", "Investment & Insurance"),
+    ("insuran", "Investment & Insurance"), ("shopp", "Shopping"), ("restaur", "Food & Dining"),
+]
 _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expensive|dearest|sabse bada|sabse zyada)\b", re.I)
 _SMALL_RE = re.compile(r"\b(smal{1,2}e?st|low+e?st|cheap+e?st|minimum|least expensive|sabse chota|sabse kam|sabse sasta)\b", re.I)
 _ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b|"
@@ -1138,6 +1146,7 @@ def _lookup_entity(q):
     low = q.lower()
     for pat in (
         r"categor(?:y|ies)\s+(?:does|do|of|for|is|are)\s+(.+?)\s+(?:belong|fall|come|classif|go|categor)",
+        r"categor(?:y|ies)\s+(?:does\s+)?(.+?)\s+(?:lie|lies|fall|falls|belong|belongs|sit|sits|come[s]?\s+under|classif)",
         r"categor(?:y|ies)\s+(?:does|do|of|for|is|are)\s+(.+?)[?.!]*$",
         r"(?:on\s+what\s+date|what\s+date|which\s+date|what\s+day|when)\s+(?:does|do|did|is|was|were)\s+(.+?)\s+(?:appear|occur|happen|show|come|made?|pays?|paid|charge|fall|list)",
         r"(?:date|day)s?\s+(?:does|do|of|for|did)\s+(.+?)\s+(?:appear|occur|happen|show|fall)",
@@ -1247,6 +1256,11 @@ def _extract_slots(q):
                     cat = c
                     break
             elif re.search(rf"\b{re.escape(cl)}\b", low):
+                cat = c
+                break
+    if not merch and not cat:                        # typo-tolerant category fallback
+        for stem, c in _CAT_STEMS:
+            if re.search(rf"\b{stem}\w*", low):
                 cat = c
                 break
     # honesty guard: an explicit "at/from <Name>" that is NOT a known merchant or
@@ -1654,20 +1668,7 @@ def _resolve_conversation(q, state):
     has_amt = bool(_AMT_CMP_RE.search(low))
     has_argmax_ent = bool(_ARGMAX_ENT_RE.search(low))
     has_period_word = bool(re.search(r"\b(year|month|quarter|week|day|annual|monthly|ytd|half)\b", low))
-    is_followup = bool(has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
-                       or (_REFS_RE.search(q) and not own_entity))
-    # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
-    # ("which merchant …"), cleared the scope ("overall"), or is income-scoped.
-    needs_entity = bool(carry_entity and not own_entity and not scope_clear and not income_ctx
-                        and not has_argmax_ent)
-    # period: inject the carried period for metric/amount/argmax follow-ups; pure period/
-    # factual follow-ups ("february?", "the whole year") keep being carried by _resolve_factual.
-    needs_period = bool(carry_start and not own_period and not scope_clear and not has_period_word
-                        and (has_metric or has_amt or has_argmax_ent))
-    if not is_followup or (not needs_entity and not needs_period):
-        return out
-
-    # bare-metric follow-ups map to a canonical stem; amount/argmax keep their own words.
+    # bare-metric follow-ups map to a canonical stem ("average", "the biggest?", "top 3")
     stem = None
     if not (has_amt or has_argmax_ent):
         for rx, canon in _CANON:
@@ -1676,6 +1677,25 @@ def _resolve_conversation(q, state):
         mtop = _CANON_TOPN.match(low)
         if mtop:
             stem = f"top {mtop.group(1)} expenses"
+    # Only ELLIPTICAL follow-ups inherit the carried scope: a bare-metric stem, a bare amount
+    # filter, a "which-merchant" argmax, or a continuation/back-reference. A COMPLETE question
+    # ("what is my biggest expense?") is a fresh account-wide query and is NEVER pinned to the
+    # previous turn's merchant — that leak was the reported bug.
+    elliptical = bool(stem or has_amt or has_argmax_ent or _CONT_RE.search(q)
+                      or (_REFS_RE.search(q) and not own_entity))
+    is_followup = bool(has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
+                       or (_REFS_RE.search(q) and not own_entity))
+    # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
+    # ("which merchant …"), cleared the scope ("overall"), or is income-scoped.
+    needs_entity = bool(carry_entity and not own_entity and not scope_clear and not income_ctx
+                        and not has_argmax_ent and elliptical)
+    # period: inject the carried period for elliptical metric/amount/argmax follow-ups; pure
+    # period/factual follow-ups ("february?", "the whole year") stay with _resolve_factual.
+    needs_period = bool(carry_start and not own_period and not scope_clear and not has_period_word
+                        and (has_metric or has_amt or has_argmax_ent) and elliptical)
+    if not is_followup or (not needs_entity and not needs_period):
+        return out
+
     resolved = stem if stem else q.strip().rstrip("?.! ")
 
     if needs_entity:
@@ -1818,6 +1838,11 @@ def _find_categories(low):
         if cl in ("other", "income") and not re.search(r"categor", low):
             continue                             # generic word without category context
         out.append(c)
+    if not out:                                  # typo-tolerant fallback
+        for stem, c in _CAT_STEMS:
+            if re.search(rf"\b{stem}\w*", low):
+                out.append(c)
+                break
     return out
 
 

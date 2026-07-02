@@ -159,6 +159,29 @@ SCENARIOS = [
          CHK(lambda r, a: (has(a, "479.46") and has(a, "23") and lacks(a, "across 28"),
                            "23 debit rows, not 28 (excludes income)"))),
     ]),
+
+    # ---- Multi-turn scope isolation: a specialized/complete follow-up must NOT inherit the
+    # previous turn's merchant (reported live-session leaks) ----
+    ("R11 · misspelled category does not leak prior merchant", "r11", [
+        ("How much did I spend at Putney Cricket Club?",
+         CHK(lambda r, a: (has(a, "62"), "merchant scoped"))),
+        ("How much did I spend on entertainement?",   # typo; prior turn was Putney
+         CHK(lambda r, a: (has(a, "entertainment") and lacks(a, "putney"),
+                           "typo resolves to Entertainment, no Putney leak"))),
+    ]),
+    ("R12 · 'under which category X lies' is a category lookup", "r12", [
+        ("What is Shein.com?",
+         CHK(lambda r, a: (has(a, "shein"), "merchant identified"))),
+        ("Under which category does Shein.com lie?",
+         CHK(lambda r, a: (has(a, "categor") and has(a, "other"), "category lookup, not spend"))),
+    ]),
+    ("R13 · standalone metric question does not inherit prior merchant", "r13", [
+        ("What is Shein.com?",
+         CHK(lambda r, a: (has(a, "shein"), "merchant scoped"))),
+        ("What is my biggest expense?",               # complete question -> account-wide
+         CHK(lambda r, a: (has(a, "76.48") and has(a, "higgsfield") and lacks(a, "shein"),
+                           "account-wide extreme, not scoped to Shein"))),
+    ]),
     # NOTE: "Category → Trend → Compare" and "Merchant → Compare → Advice" are exercised by
     # golden_suite.py on the ₹ dataset (clean merchant names + Ollama). They are omitted here
     # because the Barclays test statement stores truncated/suffixed names (e.g. 'Virgin Media
