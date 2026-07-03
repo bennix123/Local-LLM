@@ -1585,9 +1585,14 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "category":
         cat = intent.get("category") or ""
         rows = by_category(user_id, doc_name, period)
-        for c, total, cnt in rows:
-            if cat and c == cat:
-                return f"**{c}{sfx}:** {inr(total)} across {grp(cnt)} transactions"
+        if cat:
+            for c, total, cnt in rows:
+                if c == cat:
+                    return f"**{c}{sfx}:** {inr(total)} across {grp(cnt)} transactions"
+            # a SPECIFIC category was asked for but has no spend in this period -> an honest
+            # zero, not the whole breakdown (which reads as that category's spend). by_category
+            # only returns categories with debit>0, so an absent one means zero.
+            return f"**{cat}{sfx}:** {inr(0)} across 0 transactions"
         body = [(c, inr(t2), grp(n)) for c, t2, n in rows]
         return f"**Spending by category{sfx}**\n\n" + _table(["Category", "Spent", "Txns"], body)
 

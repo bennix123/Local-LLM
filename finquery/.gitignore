@@ -216,3 +216,7 @@ rag.ipynb
 data/uploads/
 data/chats.json
 data/
+# Plaid Sandbox secrets/state (.env is ignored above; data/ covers the token, listed
+# explicitly so it's never accidentally force-added)
+.env
+data/plaid_token.json

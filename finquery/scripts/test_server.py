@@ -160,6 +160,7 @@ Examples:
 "month over month" / "month on month" (monthly trend) -> {"type":"breakdown","category":"","merchant":"","n":0,"start":"","end":"","table":true}"""
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))  # repo root, for plaid_integration
 from src.services import txn_store as ts  # noqa: E402
 from src.services import ml_insights as ml  # noqa: E402
 
@@ -313,6 +314,23 @@ except Exception as _e:
     print("[currency] detect skipped:", _e, flush=True)
 
 app = FastAPI(title="Penny — SQL layer test")
+
+# --- Plaid Sandbox integration -------------------------------------------------
+# Link a test bank and sync synthetic transactions into the SAME live_txn.db the
+# PDF pipeline writes to; a sync REPLACES prior data and then runs the exact
+# post-ingest refresh /upload runs. Wrapped so a missing plaid-python (or a stray
+# non-sandbox env) never blocks Penny's own startup.
+try:
+    from plaid_integration.plaid_routes import router as _plaid_router
+    from plaid_integration import plaid_routes as _plaid_routes
+    app.include_router(_plaid_router)
+    # _ML_CACHE is keyed on row count (defined below); a replace changes that count so
+    # the cache self-invalidates, but clear it explicitly too. Lambda defers the lookup
+    # until call time, after _ML_CACHE is defined.
+    _plaid_routes.on_data_replaced = lambda: _ML_CACHE.clear()
+    print("[plaid] sandbox routes mounted at /plaid/sandbox", flush=True)
+except Exception as _e:
+    print("[plaid] integration not mounted:", _e, flush=True)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -628,6 +646,21 @@ def _anchor_month():
     return cov[1] if cov else None
 
 
+def _year_for_month(mm):
+    """Concrete year for a bare month 'MM' (question gave no year and no year is carried):
+    the latest year that actually has data in that month, else the statement's anchor
+    (latest) year — so even a no-data month ('August') scopes to a real year and honestly
+    returns zero instead of silently falling back to the all-time total."""
+    cov = ts.coverage(USER)
+    if not cov:
+        return ""
+    con = ts.connect()
+    r = con.execute("SELECT substr(month,1,4) y FROM transactions WHERE user_id=? "
+                    "AND substr(month,6,2)=? ORDER BY y DESC LIMIT 1", (USER, mm)).fetchone()
+    con.close()
+    return r[0] if r else cov[1][:4]
+
+
 def _shift_month(ym, delta):
     y, m = int(ym[:4]), int(ym[5:7])
     i = (y * 12 + (m - 1)) + delta
@@ -671,6 +704,29 @@ def _strip_cmp_amounts(q):
     return _AMT_CMP_RE.sub(" ", q)
 
 
+def _bare_month_period(q):
+    """A bare month name (no year) in a clear period context -> the statement's year for that
+    month, e.g. 'in May' / 'May spending' -> ('2026-05', ''). Conservative: skips a bare
+    month-to-month RANGE and a day-adjacent month ('15 August' is a day, handled as MD-),
+    and only treats the modal-ambiguous 'may' as a month inside an explicit period context.
+    This makes bare months resolve on EVERY path (factual, analytics, LLM guards), not just
+    the factual slot extractor."""
+    low = q.lower()
+    if re.search(rf"\b(?:{_MON_RE})\b\s*(?:to|till|until|through|thru|[-–—]|and)\s*\b(?:{_MON_RE})\b", low):
+        return None                                   # a range -> handled as a range elsewhere
+    m = re.search(rf"\b(?:in|for|during|of|within|month of)\s+({_MON_RE})\b", low) \
+        or re.search(rf"\b({_MON_RE})\s+(?:month\b|spend\w*|spent|expenses?|expenditure|"
+                     rf"income|earn\w*|total|txns?|transactions?)", low)
+    if not m:
+        return None
+    tok = m.group(1)
+    if re.search(rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+{re.escape(tok)}\b|\b{re.escape(tok)}\s+\d{{1,2}}\b", low):
+        return None                                   # a specific day -> MD-/date parsing owns it
+    mm = _mon_num(tok)
+    y = _year_for_month(mm)
+    return (f"{y}-{mm}", "") if y else None
+
+
 def _parse_period(q):
     """Deterministic period from the question text: (start, end) or None.
     Handles explicit dates, word-years, and relative dates (this/last month/year)."""
@@ -688,6 +744,9 @@ def _parse_period(q):
         one = _norm_one(m.group(0))
         if one:
             return one, ""
+    bm = _bare_month_period(q)                         # bare month name, no year
+    if bm:
+        return bm
     return None
 
 
@@ -695,6 +754,11 @@ _FACTUAL = ("spend", "summary", "income", "count", "category", "merchant", "bala
 
 
 _TABLE_RE = re.compile(r"\b(table|breakdown|month[- ]?wise|each month|monthly|by month|per month)\b", re.I)
+
+
+_SAVINGS_RE = re.compile(
+    r"\b(net position|net worth|net savings?|total savings?|overall savings?|my savings"
+    r"|how much (?:did|have|money did) i save(?:d)?|how much i save(?:d)?)\b", re.I)
 
 
 def _apply_guards(intent, q):
@@ -705,6 +769,12 @@ def _apply_guards(intent, q):
     if det:
         intent["start"], intent["end"] = det
     low = q.lower()
+    # savings / net-position phrasings are the account summary (the Net row), never a spend
+    # total — the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
+    # intelligence gate's job and are handled before this point, so they never reach here.
+    if _SAVINGS_RE.search(low):
+        intent["type"] = "summary"
+        return intent
     # single biggest/smallest expense — the keyword decides direction (the LLM flips
     # "smallest in 2024" to largest). Skip when it's a top-N list.
     if "expense" in low and "top" not in low:
@@ -1252,7 +1322,12 @@ def _extract_slots(q):
         for c in _known_categories():
             cl = c.lower()
             if cl in ("other", "income"):
-                if re.search(rf"\b{re.escape(cl)}\b", low) and re.search(r"categor", low):
+                # 'other'/'income' double as filler words, so require a real category context:
+                # the word 'category', or 'on <cat>', or '<cat> spending/expenses'.
+                if re.search(rf"\b{re.escape(cl)}\b", low) and (
+                        re.search(r"categor", low)
+                        or re.search(rf"\bon\s+{re.escape(cl)}\b", low)
+                        or re.search(rf"\b{re.escape(cl)}\s+(?:spend\w*|expenses?|expenditure|txns?|transactions?)\b", low)):
                     cat = c
                     break
             elif re.search(rf"\b{re.escape(cl)}\b", low):
@@ -1375,6 +1450,12 @@ def _resolve_factual(q, ctx):
     t = s["type"]
     if not t and ctx:
         t = ctx.get("type")
+    # a lone period with NO metric anywhere ("what about June?", "and 2024?") defaults to
+    # spend — the app's most common question — instead of falling to the LLM, which guesses
+    # (e.g. "highest month"). Only fires when neither this turn nor the thread has a metric,
+    # so metric-carrying follow-ups are untouched.
+    if not t and (s["period_full"] or s["pmonth"] or s["pday"] or s["prange"]):
+        t = "spend"
     # a named merchant/category sets the metric to merchant/category — UNLESS the
     # question is an explicit count ("how many at Amazon" stays a count-of-Amazon).
     _KEEP_TYPE = ("count", "income", "largest_expense", "smallest_expense", "largest_income",
@@ -1398,11 +1479,17 @@ def _resolve_factual(q, ctx):
         start, end = "", ""               # explicit "all time" / "overall" reset
     elif s["prange"] and cy:
         start, end = f"{cy}-{s['prange'][0]}", f"{cy}-{s['prange'][1]}"
+    elif s["prange"]:                     # bare "July to December" (no year) -> the data's year(s)
+        y0, y1 = _year_for_month(s["prange"][0]), _year_for_month(s["prange"][1])
+        start, end = (f"{y0}-{s['prange'][0]}", f"{y1}-{s['prange'][1]}") if (y0 and y1) else ("", "")
     elif s["pmonth"] and s["pday"]:       # explicit day-and-month -> a full calendar date
         start, end = (f"{cy}-{s['pmonth']}-{s['pday']}" if cy
                       else f"MD-{s['pmonth']}-{s['pday']}"), ""   # no year -> that day, all years
     elif s["pmonth"] and cy:
         start, end = f"{cy}-{s['pmonth']}", ""
+    elif s["pmonth"]:                     # bare month ("in May", "August") with no carried year
+        y = _year_for_month(s["pmonth"])  # -> the statement's year, so it scopes (not all-time)
+        start, end = (f"{y}-{s['pmonth']}", "") if y else ("", "")
     elif s["pday"] and cym:
         start, end = f"{cym}-{s['pday']}", ""
     elif t in ("largest_expense", "smallest_expense", "largest_income", "top_expenses"):
@@ -2209,8 +2296,12 @@ def analytics_answer(q):
         return f"**Average monthly spend{sfx}:** {inr(o['debit']/nmon)}  (over {nmon} months)"
 
     # 4) WHICH MONTH (argmax / argmin)
-    if re.search(r"\b(which|what)\b.*\bmonth\b", low) or \
-       (re.search(r"\bmonth\b", low) and re.search(r"\b(most|least|highest|lowest|max|min|biggest|smallest)\b", low)):
+    _mon_superl = re.search(r"\b(most|least|highest|lowest|max|min|biggest|smallest|fewest|peak)\b", low)
+    # "what about June month" / "June's total" NAMES a month with no superlative -> it's a
+    # scope-to-that-month request, not "which month is the extreme"; let the factual path take it.
+    if (re.search(r"\b(which|what)\b.*\bmonth\b", low)
+            or (re.search(r"\bmonth\b", low) and _mon_superl)) \
+       and not (re.search(rf"\b({_MON_RE})\b", low) and not _mon_superl):
         if empty():
             return nodata()
         bm = ts.by_month(USER, None, period)
@@ -2811,6 +2902,10 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
       <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one — the chat unlocks once it's parsed.</div>
     </label>
     <div id="stats"></div>
+    <div class="row" style="margin-top:12px;align-items:center;gap:10px">
+      <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">🏦 Sync from Plaid (Sandbox)</button>
+      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank — replaces the loaded statement.</span>
+    </div>
   </div>
   <div class="card hidden" id="chatcard">
     <div class="row" style="margin:0 0 8px 0;align-items:center">
@@ -2916,6 +3011,40 @@ $("#file").onchange=async e=>{
   $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
   $("#q").disabled=false; $("#send").disabled=false;
   reveal(); loadTxns(true); $("#q").focus();      // unlock the chat now that it's parsed
+};
+
+// Plaid Sandbox: link a test bank + pull its transactions into the same ledger.
+// A sync REPLACES the loaded statement (same as a fresh upload), then the gate reveals
+// the chat + transactions cards. Every figure shown comes from /sync's SQL response.
+$("#plaidbtn").onclick=async()=>{
+  const btn=$("#plaidbtn"), note=$("#plaidnote");
+  const setnote=t=>{ note.innerHTML=t; };
+  btn.disabled=true; gate(); $("#drop").classList.add("busy"); $("#stats").innerHTML="";
+  try{
+    setnote("⏳ Linking a Plaid Sandbox bank…");
+    let r=await fetch("/plaid/sandbox/link",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    let j=await r.json().catch(()=>({}));
+    if(!r.ok && r.status!==409) throw new Error(j.error||("link failed ("+r.status+")"));  // 409 = already linked, fine
+    setnote("🔄 Syncing from Plaid… a fresh sandbox item can take up to ~2 minutes to generate data.");
+    r=await fetch("/plaid/sandbox/sync",{method:"POST"});
+    j=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error||("sync failed ("+r.status+")"));
+    if(!j.rows) throw new Error("Plaid returned no transactions yet — tap Sync again in a few seconds.");
+    $("#drop").classList.remove("busy"); btn.disabled=false;
+    $("#dropsub").textContent="Plaid Sandbox data loaded — ask away, or upload a statement to replace it.";
+    setnote("✅ Synced <b>"+j.synced.toLocaleString()+"</b> transactions from Plaid Sandbox.");
+    $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns (Plaid Sandbox)</span>
+      <span class="stat">spend <b>${j.spend}</b></span>
+      <span class="stat">income <b>${j.income}</b></span>`+
+      (j.balance?`<span class="stat">balance <b>${j.balance}</b></span>`:"");
+    $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
+    $("#q").disabled=false; $("#send").disabled=false;
+    reveal(); loadTxns(true); $("#q").focus();
+  }catch(err){
+    $("#drop").classList.remove("busy"); btn.disabled=false;
+    setnote("⚠️ "+err.message);
+    try{ const s=await (await fetch("/status")).json(); if(s.rows>0) reveal(); }catch(_){}
+  }
 };
 const TAG={SQL:"SQL",chat:"chat",advice:"RAG"};
 function newBubble(path){
