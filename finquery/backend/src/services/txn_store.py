@@ -1623,6 +1623,10 @@ def dispatch_intent(intent, user_id, doc_name=None):
         rows = merchant_dates(user_id, m, doc_name, period)
         if not rows:
             return f"**No transactions found for '{m}'{sfx}.**"
+        dd = (intent.get("date_dir") or "")
+        if dd in ("last", "first") and len(rows) > 1:   # "when did I LAST shop at Aldi?"
+            d, deb, cr, _bal = rows[-1] if dd == "last" else rows[0]
+            return f"**{_mname(m)}{sfx}** {dd} appears on **{_dlabel(d)}** ({inr(deb or cr)})."
         if len(rows) == 1:
             d, deb, cr, _bal = rows[0]
             return f"**{_mname(m)}{sfx}** appears once — on **{_dlabel(d)}** ({inr(deb or cr)})."
@@ -1709,6 +1713,8 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t == "subscriptions":
         rec = subscription_costs(user_id, doc_name, period)
+        if not rec and period:      # recurring bills span months — a one-month scope
+            rec = subscription_costs(user_id, doc_name, None)   # can't show a cadence
         if rec:
             body = [(m, grp(mo), inr(tot), inr(tot / mo)) for m, mo, tot, _c in rec]
             return ("**Recurring bills & subscriptions**\n\n"

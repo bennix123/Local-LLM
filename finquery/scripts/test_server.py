@@ -325,9 +325,11 @@ try:
     from plaid_integration import plaid_routes as _plaid_routes
     app.include_router(_plaid_router)
     # _ML_CACHE is keyed on row count (defined below); a replace changes that count so
-    # the cache self-invalidates, but clear it explicitly too. Lambda defers the lookup
-    # until call time, after _ML_CACHE is defined.
-    _plaid_routes.on_data_replaced = lambda: _ML_CACHE.clear()
+    # the cache self-invalidates, but clear it explicitly too — and drop the cached
+    # merchant/category vocabulary (_KM/_KC), which is keyed on nothing and would
+    # otherwise keep routing questions against the REPLACED statement's names.
+    # Lambda defers the lookups until call time, after both are defined.
+    _plaid_routes.on_data_replaced = lambda: (_ML_CACHE.clear(), _reset_vocab())
     print("[plaid] sandbox routes mounted at /plaid/sandbox", flush=True)
 except Exception as _e:
     print("[plaid] integration not mounted:", _e, flush=True)
@@ -541,6 +543,7 @@ async def upload(request: Request):
 
     dt = time.time() - t0
     ts.set_currency(ts.detect_currency(USER))      # display currency follows the data
+    _reset_vocab()                                 # merchant/category vocab follows it too
     ov = ts.overview(USER)
     try:
         ts.save_insights(USER, ts.compute_insights(USER))
@@ -727,9 +730,12 @@ def _bare_month_period(q):
     return (f"{y}-{mm}", "") if y else None
 
 
-def _parse_period(q):
+def _parse_period(q, bare_month=True):
     """Deterministic period from the question text: (start, end) or None.
-    Handles explicit dates, word-years, and relative dates (this/last month/year)."""
+    Handles explicit dates, word-years, and relative dates (this/last month/year).
+    bare_month=False skips the bare-month-name resolution — the slot extractor wants
+    the raw month so a thread's carried YEAR can scope it ('in 2024' → 'and in May?'
+    must be May 2024, not the statement's latest May)."""
     q = _strip_cmp_amounts(_sub_word_years(q))
     rel = _relative_period(q)
     if rel:
@@ -744,9 +750,10 @@ def _parse_period(q):
         one = _norm_one(m.group(0))
         if one:
             return one, ""
-    bm = _bare_month_period(q)                         # bare month name, no year
-    if bm:
-        return bm
+    if bare_month:
+        bm = _bare_month_period(q)                     # bare month name, no year
+        if bm:
+            return bm
     return None
 
 
@@ -1084,6 +1091,19 @@ _CAT_STEMS = [
     ("transp", "Transport"), ("healthc", "Healthcare"), ("investm", "Investment & Insurance"),
     ("insuran", "Investment & Insurance"), ("shopp", "Shopping"), ("restaur", "Food & Dining"),
 ]
+# Words that can follow "at/from/on/to/with" without naming a merchant — pronouns,
+# periods, filler. Matched on the FIRST token of the captured phrase, so the honesty
+# guard can't invent merchants out of "on weekends" / "to my savings" / "on that".
+_GUARD_STOP = frozenset((
+    "the", "a", "an", "all", "my", "me", "it", "them", "that", "this", "these", "those",
+    "each", "every", "any", "some", "one", "home", "work", "least", "most", "more", "less",
+    "now", "today", "yesterday", "tomorrow", "moment", "last", "next", "past", "previous",
+    "recent", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
+    "month", "months", "year", "years", "quarter", "monday", "tuesday", "wednesday",
+    "thursday", "friday", "saturday", "sunday", "saving", "savings", "spending", "paying",
+    "shopping", "buying", "anything", "something", "everything", "nothing", "stuff",
+    "things", "average", "total", "credit", "debit", "card", "account", "bank", "cash",
+    "what", "which", "how", "when", "where"))
 _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expensive|dearest|sabse bada|sabse zyada)\b", re.I)
 _SMALL_RE = re.compile(r"\b(smal{1,2}e?st|low+e?st|cheap+e?st|minimum|least expensive|sabse chota|sabse kam|sabse sasta)\b", re.I)
 _ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b|"
@@ -1123,6 +1143,14 @@ def _known_categories():
             "SELECT DISTINCT category FROM transactions WHERE category<>''") if r[0]]
         con.close()
     return _KC
+
+
+def _reset_vocab():
+    """The ledger was REPLACED (fresh /upload or a Plaid sync) — drop the cached
+    merchant/category vocabulary so the router classifies against the NEW data, not
+    the previous statement's names (stale names = wrong routing on every question)."""
+    global _KM, _KC
+    _KM, _KC = None, None
 
 
 # ---- fine-grained lookup intents ------------------------------------------------
@@ -1260,9 +1288,25 @@ def _special_intent(q):
         if _resolve_merchant(ent):
             return {"type": "merchant_category", "merchant": ent}
     if _DATELOOKUP_RE.search(low):
+        dd = ("last" if re.search(r"\b(last|latest|most recent(?:ly)?|recently)\b", low)
+              else "first" if re.search(r"\b(first|earliest)\b", low) else "")
         ent = _lookup_entity(q)
         if _resolve_merchant(ent):
-            return {"type": "merchant_date", "merchant": ent}
+            return {"type": "merchant_date", "merchant": ent, "date_dir": dd}
+        # the sentence patterns missed it ("what date did my Sky bill go out?", "when did
+        # I last shop at Aldi?") -> take the at/from/on entity, else any stored merchant
+        # named in the question. Skipped when a superlative is present — those are
+        # largest/smallest lookups ("when did I spend the most at Tesco"), not date lists.
+        if not (_BIG_RE.search(q) or _SMALL_RE.search(q) or re.search(r"\b(most|least)\b", low)):
+            ent = _entity_after(low, ("at", "from", "on"))
+            m = _resolve_merchant(ent)
+            if not m:
+                for km in _known_merchants():
+                    if re.search(r"\b" + re.escape(km.lower()) + r"\b", low):
+                        m = km
+                        break
+            if m:
+                return {"type": "merchant_date", "merchant": m, "date_dir": dd}
     if _MONTHS_RE.search(low):                                      # distinct calendar months
         return {"type": "months"}
     if _BAL_RE.search(low):
@@ -1287,9 +1331,13 @@ def _special_factual(s):
         start, end = s["period_full"]
     elif s.get("pmonth") and s.get("pday"):
         start = f"MD-{s['pmonth']}-{s['pday']}"
+    elif s.get("pmonth"):                       # bare month -> the statement's year
+        y = _year_for_month(s["pmonth"])
+        start = f"{y}-{s['pmonth']}" if y else ""
     return {"type": s["type"], "merchant": s.get("merchant", ""), "category": "",
             "start": start, "end": end, "n": 0, "count_kind": "", "table": False,
-            "amount": s.get("amount"), "date1": s.get("date1"), "date2": s.get("date2")}
+            "amount": s.get("amount"), "date1": s.get("date1"), "date2": s.get("date2"),
+            "date_dir": s.get("date_dir", "")}
 
 
 def _extract_slots(q):
@@ -1338,21 +1386,28 @@ def _extract_slots(q):
             if re.search(rf"\b{stem}\w*", low):
                 cat = c
                 break
-    # honesty guard: an explicit "at/from <Name>" that is NOT a known merchant or
-    # category -> treat as that merchant (resolved if it's a truncated real one), so dispatch
-    # answers about the right merchant, or an honest "no transactions found for X".
+    # bank/service fees aren't a category or a stored merchant name — search them as a
+    # merchant keyword (merchant_spend also matches descr), so the answer is the real fee
+    # total or an honest "no transactions found", never the account-wide spend.
     if not merch and not cat:
-        um = re.search(r"\b(?:at|from)\s+([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
+        fm = re.search(r"\b(bank|account|service|overdraft|late|card)[- ](fees?|charges?)\b", low)
+        if fm:
+            merch = f"{fm.group(1)} {fm.group(2)}".rstrip("s")
+    # honesty guard: an explicit "at/from/on <Name>" that is NOT a known merchant or
+    # category -> treat as that merchant (resolved if it's a truncated real one), so dispatch
+    # answers about the right merchant, or an honest "no transactions found for X" — never
+    # the account-wide total ("how much did I spend on <unknown>" must not read as ALL spend).
+    if not merch and not cat:
+        um = re.search(r"\b(?:at|from|on|to|with)\s+([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
                        r"(?:\s+(?:in|on|during|for|last|this|the|over|between|per|by)\b|[?.!,]|$)", low)
         if um:
             cand = um.group(1).strip()
-            if cand and cand not in _CAT_SYN and cand not in (
-                    "the", "a", "an", "all", "home", "work", "least", "most", "that", "it",
-                    "the moment", "saving", "saving more", "savings", "spending", "paying",
-                    "more", "now", "today", "anything", "something") \
+            first = cand.split()[0] if cand else ""
+            if cand and cand not in _CAT_SYN and first not in _GUARD_STOP \
+                    and not re.match(rf"(?:{_MON_RE})\b", cand) \
                     and not cand.endswith((" more", " less")):
                 merch = _resolve_merchant(cand) or cand
-    pf = _parse_period(q)
+    pf = _parse_period(q, bare_month=False)   # raw month kept below so a carried year applies
     pmonth = pday = ""
     prange = None
     if not pf:
@@ -1378,7 +1433,8 @@ def _extract_slots(q):
         return {"type": sp["type"], "period_full": pf, "pmonth": pmonth, "pday": pday,
                 "prange": prange, "category": "", "merchant": sp.get("merchant", ""),
                 "n": 0, "count_kind": "", "amount": sp.get("amount"),
-                "date1": sp.get("date1"), "date2": sp.get("date2")}
+                "date1": sp.get("date1"), "date2": sp.get("date2"),
+                "date_dir": sp.get("date_dir", "")}
     topm = _TOP_RE.search(q)
     has_exp = any(w in low for w in _EXP_CTXT)
     has_cr = any(w in low for w in ("deposit", "credit", "received", "income", "inflow"))
@@ -1401,6 +1457,8 @@ def _extract_slots(q):
         t = "merchant"
     elif cat:
         t = "category"
+    elif re.search(r"\bcategor(?:y|ies)\b|\bspending\s+breakdown\b", low):
+        t = "category"                    # no specific category named -> the full table
     elif _SPEND_RE.search(q):
         t = "spend"
     elif _BIG_RE.search(q):           # bare "and the biggest?" continuation
@@ -1502,6 +1560,15 @@ def _resolve_factual(q, ctx):
         # thread has none). This is the markerless context-carry, made safe by the
         # thread model: a fresh thread has no period to carry.
         start, end = ctx.get("start", ""), ctx.get("end", "")
+        # ...but a carried single-DAY scope ("...on 1 July") never applies to a turn that
+        # NAMES its own entity ("how much was my Bupa payment?") — a day lookup is a
+        # one-off, and silently day-scoping a standalone merchant/category question reads
+        # as "no transactions". (ctx can't be compared here: the conversation layer has
+        # already written THIS turn's entity into it.) Elliptical follow-ups
+        # (continuations / back-references) still keep the day.
+        if (s["merchant"] or s["category"]) and not (cont or refs) and not end \
+                and (start.startswith("MD-") or len(start) == 10):
+            start = ""
 
     cat, mer = s["category"], s["merchant"]
     if t == "category" and not cat and ctx:
@@ -2299,8 +2366,12 @@ def analytics_answer(q):
     _mon_superl = re.search(r"\b(most|least|highest|lowest|max|min|biggest|smallest|fewest|peak)\b", low)
     # "what about June month" / "June's total" NAMES a month with no superlative -> it's a
     # scope-to-that-month request, not "which month is the extreme"; let the factual path take it.
+    # A deictic "this/last month" is likewise a SCOPE ("what bank fees have I been charged
+    # this month?"), never a which-month argmax.
+    _mon_deictic = re.search(r"\b(this|last|past|current|previous)\s+month\b", low)
     if (re.search(r"\b(which|what)\b.*\bmonth\b", low)
             or (re.search(r"\bmonth\b", low) and _mon_superl)) \
+       and not _mon_deictic \
        and not (re.search(rf"\b({_MON_RE})\b", low) and not _mon_superl):
         if empty():
             return nodata()
@@ -2366,7 +2437,11 @@ def analytics_answer(q):
 
     # 8) MULTI-ENTITY (two+ merchants/categories combined)
     combine = re.search(r"\b(together|combined|total of|both|sum of|plus|altogether)\b", low)
-    if len(merchs) >= 2 and (combine or not re.search(r"\bor\b|more|less|vs\b|versus|compare|than", low)):
+    # implicit combine (two names, no compare word) must not swallow a date-lookup —
+    # "when did I last shop at Aldi?" names Aldi AND the stored merchant "Shop", but it's
+    # a merchant_date question, not "Aldi + Shop". An explicit "together/both" still combines.
+    if len(merchs) >= 2 and (combine or not (re.search(r"\bor\b|more|less|vs\b|versus|compare|than", low)
+                                             or _DATELOOKUP_RE.search(low))):
         if empty():
             return nodata()
         parts = [(m, ts.merchant_spend(USER, m, None, period)["debit"]) for m in merchs[:4]]
@@ -2504,7 +2579,8 @@ _RISK_RE = re.compile(
     r"what should i worry|should i (?:be )?worr|am i overspending|am i at risk|red flags?|warning signs?|"
     r"what.{0,20}worry about|financial(?:ly)? (?:at )?risk|in danger|money (?:risks?|danger)", re.I)
 _RECUR_RE = re.compile(
-    r"subscription|recurring|recurr\w*|standing instruction|auto[- ]?debit|"
+    r"subscription|recurring|recurr\w*|standing (?:instruction|order)s?|"
+    r"direct[- ]debits?|auto[- ]?debit|"
     r"repeat(?:ed|ing)? (?:payment|charge|bill)|regular (?:payment|bill|charge)s?|"
     r"what (?:do i pay|am i paying).{0,25}(?:every|each) month|monthly (?:bill|commitment)s?", re.I)
 _BEHAVE_RE = re.compile(
