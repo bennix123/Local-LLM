@@ -15,7 +15,7 @@ import sys
 import threading
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -664,6 +664,31 @@ def _year_for_month(mm):
     return r[0] if r else cov[1][:4]
 
 
+def _anchor_day():
+    """The statement's latest transaction DATE (YYYY-MM-DD) — the anchor for
+    'today'/'yesterday'/'this week' on historical data. None when no data."""
+    con = ts.connect()
+    r = con.execute("SELECT MAX(txn_date) FROM transactions WHERE user_id=?", (USER,)).fetchone()
+    con.close()
+    return r[0] if r and r[0] else None
+
+
+def _shift_day(d, delta):
+    return (datetime.strptime(d, "%Y-%m-%d") + timedelta(days=delta)).strftime("%Y-%m-%d")
+
+
+def _week_range(d, offset):
+    """(start, end) full dates of the ISO week containing anchor day `d`, shifted by
+    `offset` weeks; 'this week' (offset 0) is capped at the anchor day (no future)."""
+    dt = datetime.strptime(d, "%Y-%m-%d")
+    monday = dt - timedelta(days=dt.weekday()) + timedelta(weeks=offset)
+    start = monday.strftime("%Y-%m-%d")
+    end = (monday + timedelta(days=6)).strftime("%Y-%m-%d")
+    if offset == 0 and end > d:
+        end = d
+    return start, end
+
+
 def _shift_month(ym, delta):
     y, m = int(ym[:4]), int(ym[5:7])
     i = (y * 12 + (m - 1)) + delta
@@ -686,6 +711,28 @@ def _relative_period(q):
         return ay, ""
     if re.search(r"\b(last|previous|prev) year\b", low):
         return f"{int(ay)-1}", ""
+    # day/week deictics — anchored on the statement's latest transaction date, not the
+    # wall clock (the data is historical); only hits the DB when the words appear.
+    if re.search(r"\btoday\b|\byesterday\b|\b(?:this|current|last|previous|past)\s+week\b", low):
+        d = _anchor_day()
+        if d:
+            if re.search(r"\btoday\b", low):
+                return d, ""
+            if re.search(r"\byesterday\b", low):
+                return _shift_day(d, -1), ""
+            if re.search(r"\b(?:this|current)\s+week\b", low):
+                return _week_range(d, 0)
+            return _week_range(d, -1)                       # last/previous/past week
+    # quarters — "Q2", "second quarter", optionally with a year, else the anchor year
+    qm = re.search(r"\bq([1-4])\b", low) \
+        or re.search(r"\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter\b", low)
+    if qm:
+        g = qm.group(1)
+        qn = int(g) if g.isdigit() else {"first": 1, "1st": 1, "second": 2, "2nd": 2,
+                                         "third": 3, "3rd": 3, "fourth": 4, "4th": 4}[g]
+        ym_ = re.search(r"\b(20\d{2})\b", low)
+        y = ym_.group(1) if ym_ else ay
+        return f"{y}-{3 * qn - 2:02d}", f"{y}-{3 * qn:02d}"
     m = re.search(r"\b(?:last|past|previous|recent)\s+(\d{1,2}|couple of|few|two|three|four|five|"
                   r"six|seven|eight|nine|ten|eleven|twelve)\s+months?\b", low)
     if m:
@@ -1055,7 +1102,7 @@ def _advice_fallback(q):
 def grounded_advice(q, thread="default"):
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
     is verified against those facts before going out, else a deterministic fallback."""
-    facts = ts.advice_facts(USER)
+    facts = ts.advice_facts(USER) + _concept_facts()   # + debt/fee/gambling obligations
     reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, q)
     if reply:
         reply = re.sub(r"^(?:answer|penny)\s*[:\-]\s*", "", reply, flags=re.I).strip()
@@ -1078,9 +1125,13 @@ CTX = {}        # {"type","start","end","category","merchant","n"}
 _CAT_SYN = {
     "groceries": "Groceries", "grocery": "Groceries",
     "food": "Food & Dining", "dining": "Food & Dining", "restaurant": "Food & Dining",
+    "restaurants": "Food & Dining", "eating out": "Food & Dining", "eat out": "Food & Dining",
+    "dining out": "Food & Dining", "dine out": "Food & Dining", "takeaway": "Food & Dining",
+    "takeaways": "Food & Dining", "take-away": "Food & Dining", "fast food": "Food & Dining",
     "transport": "Transport", "travel": "Transport", "commute": "Transport",
+    "petrol": "Transport", "fuel": "Transport",
     "shopping": "Shopping",
-    "utilities": "Utilities", "utility": "Utilities",
+    "utilities": "Utilities", "utility": "Utilities", "bills": "Utilities",
     "entertainment": "Entertainment",
     "healthcare": "Healthcare", "health": "Healthcare", "medical": "Healthcare",
     "investment": "Investment & Insurance", "investments": "Investment & Insurance",
@@ -1229,6 +1280,9 @@ def _resolve_merchant(phrase):
     if not np:
         return ""
     toks = np.split()
+    for m in _known_merchants():                       # exact (normalised) name wins alone
+        if _norm_name(m) == np:
+            return m
     for m in _known_merchants():                       # containment either way
         nm = _norm_name(m)
         if nm and (np in nm or nm in np):
@@ -1241,6 +1295,20 @@ def _resolve_merchant(phrase):
         if toks and mt and len(toks[0]) >= 4 and toks[0] == mt[0]:
             return m
     return ""
+
+
+def _merchant_candidates(phrase):
+    """Distinct stored merchants the phrase could mean, for ambiguity detection: an exact
+    (normalised) match is unambiguous; otherwise all merchants CONTAINING the phrase
+    ("apple" -> Apple Store, Apple Pay). Resolution itself stays with _resolve_merchant —
+    this list only decides whether to ASK instead of guessing."""
+    np_ = _norm_name(phrase)
+    if not np_:
+        return []
+    exact = [m for m in _known_merchants() if _norm_name(m) == np_]
+    if exact:
+        return exact[:1]
+    return [m for m in _known_merchants() if np_ in _norm_name(m)][:4]
 
 
 def _lookup_entity(q):
@@ -1411,6 +1479,13 @@ def _extract_slots(q):
             if cand and cand not in _CAT_SYN and first not in _GUARD_STOP \
                     and not re.match(rf"(?:{_MON_RE})\b", cand) \
                     and not cand.endswith((" more", " less")):
+                cands = _merchant_candidates(cand)
+                if len(cands) >= 2:
+                    # the phrase genuinely matches several stored merchants ("apple" ->
+                    # Apple Store, Apple Pay) — ask instead of silently picking one.
+                    return {"type": "clarify", "options": cands, "phrase": cand,
+                            "period_full": None, "pmonth": "", "pday": "", "prange": None,
+                            "category": "", "merchant": "", "n": 0, "count_kind": ""}
                 merch = _resolve_merchant(cand) or cand
     pf = _parse_period(q, bare_month=False)   # raw month kept below so a carried year applies
     pmonth = pday = ""
@@ -1493,6 +1568,8 @@ def _resolve_factual(q, ctx):
     "spend in August 2024" carries August. A FRESH thread has empty ctx, so the
     same bare question resolves all-time. The client decides what's one thread."""
     s = _extract_slots(q)
+    if s.get("type") == "clarify":             # ambiguous merchant — ask, don't guess
+        return {"type": "clarify", "options": s["options"], "phrase": s["phrase"]}
     if s.get("type") in _SPECIAL_INTENTS:      # self-contained; no stale scope inherited
         return _special_factual(s)
     cont = bool(_CONT_RE.search(q))
@@ -1584,8 +1661,13 @@ def _resolve_factual(q, ctx):
     # but the count itself) stays scoped to that merchant/category.
     own_period = bool(s["period_full"] or s["pmonth"] or s["pday"] or s["prange"] or whole_year)
     # topic stickiness: a bare metric (spend/count) inside a merchant/category thread
-    # inherits that scope — on a continuation, a back-reference, or a markerless turn.
-    if t in ("spend", "count") and not mer and not cat and ctx and (cont or refs or not own_period):
+    # inherits that scope — on an explicit continuation ("and how much?") or a
+    # back-reference ("how much was that?"). A markerless COMPLETE question ("how much
+    # did I spend?") is account-wide: the entity set turns ago must not scope it (the
+    # same standalone-question rule the R13 suite case pins for metric questions).
+    # The PERIOD still carries on markerless turns (else-branch above) — that part of
+    # the thread model is suite-tested and unchanged.
+    if t in ("spend", "count") and not mer and not cat and ctx and (cont or refs):
         if ctx.get("merchant"):
             mer = ctx["merchant"]
             if t == "spend":
@@ -1905,6 +1987,11 @@ _ADVICE_RE = re.compile(
     r"financial advice|help me save|improve my (?:finance|spending|budget|habit)|"
     r"where can i (?:save|cut)|tips to save|how (?:can|do) i save", re.I)
 
+# "Why …" is a REASONING question, never a lookup — "why was I charged overdraft fees?"
+# must get a grounded explanation, not the fee total re-stated as a number.
+_WHY_RE = re.compile(
+    r"^\s*why\b|\bwhy (?:was|were|did|do|does|am|is|are|have|has) (?:i|my|there|it|the)\b", re.I)
+
 # FINANCE-ANCHORED advisory / judgment / diagnostic phrasing -> grounded LLM reasoning
 # over the SQL fact sheet. Deliberately NOT matching (a) precise metric questions ("what
 # is my savings rate", "how much did I spend on X"), which stay deterministic, nor (b)
@@ -2070,6 +2157,14 @@ _CONCEPTS = [
      re.compile(r"loan|lend|mortgage|\bemis?\b|klarna|\bfinance\b|financing", re.I)),
     ("bank fees", re.compile(r"\b(bank\s+fees?|fees?|service\s+charges?|overdrafts?|penalt\w*)\b", re.I),
      re.compile(r"\bfees?\b|\bcharges?\b|overdraft|penalt", re.I)),
+    ("flights", re.compile(r"\b(flights?|airfares?|air travel|plane tickets?|airlines?|flying)\b", re.I),
+     re.compile(r"ryanair|easyjet|jet2|wizz|\btui\b|british airways|virgin atlantic|aer lingus|"
+                r"loganair|vueling|\bklm\b|lufthansa|emirates|qatar airways|etihad|"
+                r"airlines?\b|airways\b|air france", re.I)),
+    ("coffee", re.compile(r"\b(coffees?|lattes?|cappuccinos?|espressos?)\b", re.I),
+     re.compile(r"costa|starbucks|caff[eè] nero|\bnero\b|coffee", re.I)),
+    ("taxis & rides", re.compile(r"\b(taxis?|cabs?|rideshares?|ride[- ]hail\w*|minicabs?)\b", re.I),
+     re.compile(r"\buber\b(?!\s?eats)|\bbolt\b|addison lee|free ?now|\btaxis?\b|minicab|\bcabs?\b", re.I)),
 ]
 
 
@@ -2078,10 +2173,17 @@ def concept_answer(q):
     that match the concept. Markdown, or None if no concept is named. Period comes from
     THIS question only (a concept question is self-contained — no thread scope carried)."""
     low = q.lower()
+    if _WHY_RE.search(low):
+        return None            # "why …" is a reasoning question — the advice path owns it
     hit = next(((label, mrx) for label, trig, mrx in _CONCEPTS if trig.search(low)), None)
     if hit is None:
         return None
     label, mrx = hit
+    # a NAMED stored merchant outranks a concept — "how much on Uber?" is a merchant
+    # question even though "uber" also triggers the taxis concept.
+    for m in _known_merchants():
+        if re.search(r"\b" + re.escape(m.lower()) + r"\b", low):
+            return None
     pf = _parse_period(q)
     period, plabel = (ts._norm_period(pf[0], pf[1]) if pf else (None, None))
     sfx = f" in {plabel}" if plabel else ""
@@ -2125,6 +2227,29 @@ def concept_answer(q):
         return head + f"  ({parts[0][0]})"
     return head + "\n\n" + ts._table(
         ["Merchant", "Spent", "Txns"], [(m, inr(a), grp(c)) for m, a, c in parts])
+
+
+def _concept_facts():
+    """Deterministic obligations/habits lines for the advice fact sheet — the debt-shaped
+    concept aggregates (loans / fees / gambling) over the whole ledger, so "what debt
+    should I pay off first?" / "why was I charged overdraft fees?" reason over REAL
+    obligations. '' when nothing matches; every number from SQL."""
+    lines = []
+    for label, _trig, mrx in _CONCEPTS:
+        if label not in ("loan repayments", "bank fees", "gambling"):
+            continue
+        parts = []
+        for m in _known_merchants():
+            if mrx.search(m):
+                r = ts.merchant_spend(USER, m, None, None)
+                if r["dcount"]:
+                    parts.append((m, r["debit"], r["dcount"]))
+        if parts:
+            parts.sort(key=lambda x: -x[1])
+            tot = sum(a for _, a, _ in parts)
+            det = ", ".join(f"{m} {ts.inr(a)}" for m, a, _ in parts[:5])
+            lines.append(f"- {label.capitalize()} (whole statement): {ts.inr(tot)} — {det}")
+    return ("\nOBLIGATIONS & HABITS (from the ledger):\n" + "\n".join(lines) + "\n") if lines else ""
 
 
 def analytics_answer(q):
@@ -2450,6 +2575,22 @@ def analytics_answer(q):
                 return nodata()
             return f"**Average transaction{sfx}:** {inr(o['debit']/dc)}  (over {grp(dc)} expenses)"
         return f"**Average monthly spend{sfx}:** {inr(o['debit']/nmon)}  (over {nmon} months)"
+
+    # 3b) NAMED-CATEGORY TREND — "did my utility bills increase?" wants the month-by-month
+    #     movement of THAT category, not its flat total. Every figure from by_category SQL.
+    if cats and re.search(r"\b(increas\w*|decreas\w*|go(?:ne|ing)?\s+up|went\s+up|"
+                          r"ris(?:e|en|ing)|drop\w*|fall\w*|grow\w*|creep\w*)\b", low):
+        ms = ts.months_list(USER, None, period)
+        series = [(m, next((a for c2, a, _n in ts.by_category(USER, None, m) if c2 == cats[0]), 0.0))
+                  for m in ms]
+        if len(series) >= 2:
+            first, last = series[0][1], series[-1][1]
+            word = ("increased" if last > first else
+                    "decreased" if last < first else "stayed flat")
+            body = [(ts._mlabel(m), inr(a)) for m, a in series]
+            return (f"**{cats[0]} {word}** — {inr(first)} in {ts._mlabel(series[0][0])} → "
+                    f"{inr(last)} in {ts._mlabel(series[-1][0])}.\n\n"
+                    + ts._table(["Month", cats[0]], body))
 
     # 4) WHICH MONTH (argmax / argmin)
     _mon_superl = re.search(r"\b(most|least|highest|lowest|max|min|biggest|smallest|fewest|peak)\b", low)
@@ -2938,9 +3079,9 @@ async def query(request: Request):
         return stream_text("SQL", intans)
 
     # 0b) advice / judgment / open-ended reasoning ("roast my spending", "should I cut
-    #     back", "how dependent am I on one income source", "what trends do you see")
-    #     -> a real LLM answer reasoned over the SQL fact sheet (numbers verified).
-    if _ADVICE_RE.search(rq) or _REASON_RE.search(rq):
+    #     back", "how dependent am I on one income source", "why was I charged overdraft
+    #     fees") -> a real LLM answer reasoned over the SQL fact sheet (numbers verified).
+    if _ADVICE_RE.search(rq) or _REASON_RE.search(rq) or _WHY_RE.search(rq):
         remember(history, q, "(financial advice given)")
         return grounded_advice(rq, tid)
 
@@ -2962,6 +3103,14 @@ async def query(request: Request):
 
     # 1) DETERMINISTIC factual resolution (standalone + thread context carry).
     det = _resolve_factual(rq, ctx)
+    if det and det.get("type") == "clarify":
+        # low-confidence entity: several stored merchants match — ask which (Step-11-style
+        # clarification). Nothing is saved to ctx; the follow-up names the merchant.
+        opts = det.get("options") or []
+        msg = (f"I found {len(opts)} merchants matching **{det.get('phrase', '')}**: "
+               + ", ".join(f"**{o}**" for o in opts) + ". Which one did you mean?")
+        _append_log(tid, q, msg, "chat")
+        return stream_text("chat", msg)
     if det and det.get("type"):
         ans = ts.dispatch_intent(det, USER)
         if ans is not None:

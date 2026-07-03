@@ -69,8 +69,11 @@ Target deployment envelope: a 4 GB-class device (phone), single user, read-only.
                      └──────────────────────────────────────────────┘
 ```
 
-> The routing strip above is condensed; the live cascade also runs an **ML gate** and an
-> **Intelligence-engine gate** ahead of the advice gate (full order in §5; engines in §10A).
+> The routing strip above is condensed; the live cascade also runs an **ML gate**, an
+> **Intelligence-engine gate** ahead of the advice gate, and a **concept-grounding gate**
+> (gambling/loans/fees → real ledger merchants) ahead of analytics (full order in §5;
+> engines in §10A; concept layer in LLD §4b). Data enters via `/upload` (PDF/ZIP) **or** the
+> Plaid Sandbox sync — both replace the ledger and run the same post-ingest refresh.
 
 **Component summary**
 
@@ -83,7 +86,8 @@ Target deployment envelope: a 4 GB-class device (phone), single user, read-only.
 | Insight store | `insights` table (SQLite) | pre-computed insight rows; written on upload + startup |
 | ML insights | `backend/src/services/ml_insights.py` · scikit-learn | anomalies, forecast, recurring detection, auto-categorise |
 | Storage | SQLite (`data/live_txn.db`) | transactions table; date split into year/month/day |
-| Frontend | React/Vite (Penny UI) + single-page test UI | chat, dashboards, and a searchable/filterable transactions table; the chat + table are **gated** until a statement is parsed (consumes `/query`, `/upload`, `/transactions`, `/dashboard`, `/ml/*`) |
+| Bank feed (demo) | `plaid_integration/` · plaid-python (**Sandbox-only**, hardcoded + env-guarded) | link a sandbox bank + full `/transactions/sync` pull mapped onto the same `transactions` schema; a sync **replaces** the ledger like `/upload` and triggers the same post-ingest refresh (currency, insights, ML + vocab caches) |
+| Frontend | React/Vite (Penny UI) + single-page test UI | chat, dashboards, a searchable/filterable transactions table, and a "Sync from Plaid (Sandbox)" button; the chat + table are **gated** until a statement is parsed or synced (consumes `/query`, `/upload`, `/plaid/sandbox/*`, `/transactions`, `/dashboard`, `/ml/*`) |
 
 ---
 
@@ -140,6 +144,9 @@ most deterministic handler that can answer, does. Routing order:
 0a-INT. INTELLIGENCE gate (health/risk/recurring/impact/cat-trend/ → SQL (intelligence_answer) — deterministic  ◀ NEW
         behaviour/patterns regexes)                                  scores, every figure from SQL (§10A)
 0b.  ADVICE gate  (_ADVICE_RE | _REASON_RE, finance-anchored)       → grounded_advice  ◀ LLM
+0c-CONCEPT. CONCEPT grounding (_CONCEPTS → concept_answer)          → SQL  ◀ NEW (LLD §4b)
+        "gambling" / "loans" / "bank fees" grounded to REAL ledger merchants — count,
+        total(+table), % of income, ≈/month — or an honest "couldn't find any".
 0c.  ANALYTICS    (compare / avg / % / argmax / filter / multi)     → SQL  (analytics_answer)
 1.   FACTUAL      (_resolve_factual → ts.dispatch_intent)           → SQL
 2.   LLM ROUTER   (llm_route → structured intent)                   → see below
@@ -154,6 +161,30 @@ most deterministic handler that can answer, does. Routing order:
 > unless a real merchant resolves (or a min/max modifier is present), so ordinary questions are
 > untouched. Multi-turn scope (merchant/period) survives metric, amount-threshold, and
 > "which-merchant" follow-ups (LLD §4a, §5.2).
+
+> **Concept grounding (0c-CONCEPT).** Semantic concepts — "gambling", "loan repayments",
+> "bank fees" — name no stored merchant or category, so a keyword router's instinct is to drop
+> the token and answer the *widened* query ("how many gambling transactions in June" → the
+> count of ALL June transactions). The concept layer encodes the opposite rule: **ground the
+> concept to ledger merchants you can prove, or say you can't.** Each `_CONCEPTS` entry maps a
+> trigger to a merchant-name test evaluated against the live merchant list; answers are SQL
+> aggregates over only the matched merchants (on real data: gambling → UniBet/Bet365/
+> Pokerstars; loans → YouLend/Kensington Mortgage/Loans 2 Go/HSBC/Klarna, with % of income),
+> and an unmatched concept gets an honest "couldn't find any" — never a fallback total
+> (LLD §4b).
+
+> **Honesty rules (hardened after client testing).** An explicit name that resolves to no
+> stored merchant ("did I pay Thames Water?") answers *"No transactions found for 'X'"* — never
+> the account-wide total. A zero-result name is never saved as thread scope, a carried
+> single-day period never applies to a turn naming its own entity, an amount filter with
+> its own period is a complete question (no scope injection), and a markerless bare metric
+> ("how much did I spend?") never adopts an entity set turns ago. Amount parsing accepts
+> ₹/£/$/€; "last three months", quarters, today/yesterday/this-week (anchored to the
+> statement's latest date) and bare-month compares ("May or June?") resolve
+> deterministically — **no date in the question means the whole statement**. When a name is
+> genuinely ambiguous ("Apple" → Apple Store, Apple Pay), Penny asks which one instead of
+> guessing; "why …" questions route to grounded reasoning (with a deterministic
+> obligations fact block: loans, fees, gambling), never to a bare total (LLD §4a, §4b, §5).
 
 **Step 2 — LLM router outcomes.** The model returns a structured intent `{type,
 category, merchant, n, start, end, table}`. `type` is dispatched:
@@ -183,8 +214,12 @@ This is the heart of the design. Two distinct LLM paths exist, and **neither can
 unverified number in front of the user**:
 
 ### 6.1 Factual / analytics path
-The model (router) only *classifies*; `ts.dispatch_intent` / `analytics_answer` run the
-SQL and format the result. The number literally cannot originate in the model.
+The model (router) only *classifies*; `ts.dispatch_intent` / `analytics_answer` /
+`concept_answer` run the SQL and format the result. The number literally cannot originate
+in the model. The guarantee extends to *scope*, not just arithmetic: a term that can't be
+grounded (an unknown merchant, a concept with no matching ledger merchants) produces an
+honest "no transactions found / couldn't find any" — never a correct-looking number for a
+silently widened question.
 
 ### 6.2 Advisory path (`grounded_advice`)
 Advisory questions ("how much can I safely invest?", "how dependent am I on one income
@@ -349,6 +384,7 @@ computed independently from SQL.
 | Advisory grounding — 17 advisory questions | **17/17 grounded** (0 numbers outside the fact sheet) |
 | Vague / parrot battery — `scripts/test_vague_1000.py` | **0 parrots across 664 vague questions**; non-finance "should I…" correctly nudged |
 | Conversational battery — `scripts/test_conversation.py` | multi-turn context + fine-grained intents (metric-change, overall-reset, category/date lookup, payment interval, min/max balance, scope survival across amount→average→highest) |
+| Offline routing battery — `scripts/test_offline_routing.py` | **53/53** — replays both client test sessions plus the production-spec additions (concept grounding incl. flights/coffee/taxis, category aliases, today/yesterday/week/quarter dates, ambiguous-merchant clarification, why-question routing, markerless-stickiness, £ amount filters, scope-leak guards) against a fixture ledger with no server/Ollama/installs; sessions also verified live against the running server (Plaid data) |
 
 "Parrot" = a random/off-topic question echoing a previous answer; the routing fixes
 (finance-anchored advice gate, finance-relevance gate on the router, nudge-instead-of-
@@ -371,9 +407,11 @@ no-op on the single-turn suites; new intents stay dormant unless a real merchant
 | LLM | Llama 3.1 8B via Ollama (local, offline) |
 | ML | scikit-learn (+ numpy, scipy) |
 | PDF parse | PyMuPDF — DR/CR row regex (`ROW_RE`) + Barclays column-position parser; ZIP intake (stdlib `zipfile`); no Camelot/cloud |
+| Bank feed (demo) | plaid-python — **Sandbox-only** (hardcoded host + `PLAID_ENV` guard); credentials in a gitignored `.env`; certifi CA bundle on macOS (`start-penny-mac.sh`) |
 | Frontend | React / Vite (Penny UI) |
 
-Nothing on the query path requires the network.
+Nothing on the **query path** requires the network — Plaid is an *ingest* source (like
+`/upload`), used only when the user explicitly links and syncs the sandbox bank.
 
 ---
 
