@@ -686,9 +686,12 @@ def _relative_period(q):
         return ay, ""
     if re.search(r"\b(last|previous|prev) year\b", low):
         return f"{int(ay)-1}", ""
-    m = re.search(r"\b(?:last|past|previous|recent)\s+(\d{1,2})\s+months?\b", low)
+    m = re.search(r"\b(?:last|past|previous|recent)\s+(\d{1,2}|couple of|few|two|three|four|five|"
+                  r"six|seven|eight|nine|ten|eleven|twelve)\s+months?\b", low)
     if m:
-        n = int(m.group(1))
+        n = {"couple of": 2, "two": 2, "few": 3, "three": 3, "four": 4, "five": 5, "six": 6,
+             "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+             "twelve": 12}.get(m.group(1)) or int(m.group(1))
         return _shift_month(a, -(n - 1)), a
     if re.search(r"\b(last|past|previous) quarter\b", low):
         return _shift_month(a, -2), a
@@ -698,7 +701,7 @@ def _relative_period(q):
 _AMT_CMP_RE = re.compile(
     r"\b(?:over|above|under|below|more than|less than|greater than|bigger than|smaller than|"
     r"exceed\w*|cheaper than|higher than|lower than|at\s?least|atleast|min(?:imum)?|max(?:imum)?)"
-    r"\s+(?:₹|rs\.?|inr|rupees?|rupess)?\s*\d[\d,]*(?:\.\d+)?", re.I)
+    r"\s+(?:₹|£|\$|€|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*\d[\d,]*(?:\.\d+)?", re.I)
 
 
 def _strip_cmp_amounts(q):
@@ -1096,6 +1099,7 @@ _CAT_STEMS = [
 # guard can't invent merchants out of "on weekends" / "to my savings" / "on that".
 _GUARD_STOP = frozenset((
     "the", "a", "an", "all", "my", "me", "it", "them", "that", "this", "these", "those",
+    "in", "of", "off", "out", "back", "up", "for", "by", "per",
     "each", "every", "any", "some", "one", "home", "work", "least", "most", "more", "less",
     "now", "today", "yesterday", "tomorrow", "moment", "last", "next", "past", "previous",
     "recent", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
@@ -1398,7 +1402,8 @@ def _extract_slots(q):
     # answers about the right merchant, or an honest "no transactions found for X" — never
     # the account-wide total ("how much did I spend on <unknown>" must not read as ALL spend).
     if not merch and not cat:
-        um = re.search(r"\b(?:at|from|on|to|with)\s+([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
+        um = re.search(r"\b(?:at|from|on|to|with|pay(?:ing)?|paid)\s+"
+                       r"([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
                        r"(?:\s+(?:in|on|during|for|last|this|the|over|between|per|by)\b|[?.!,]|$)", low)
         if um:
             cand = um.group(1).strip()
@@ -1834,9 +1839,11 @@ def _resolve_conversation(q, state):
     # Only ELLIPTICAL follow-ups inherit the carried scope: a bare-metric stem, a bare amount
     # filter, a "which-merchant" argmax, or a continuation/back-reference. A COMPLETE question
     # ("what is my biggest expense?") is a fresh account-wide query and is NEVER pinned to the
-    # previous turn's merchant — that leak was the reported bug.
-    elliptical = bool(stem or has_amt or has_argmax_ent or _CONT_RE.search(q)
-                      or (_REFS_RE.search(q) and not own_entity))
+    # previous turn's merchant — that leak was the reported bug. An amount filter that names
+    # its OWN period ("show me all transactions over £100 in June") is likewise complete,
+    # not a bare "and over £500?" follow-up.
+    elliptical = bool(stem or (has_amt and not own_period) or has_argmax_ent
+                      or _CONT_RE.search(q) or (_REFS_RE.search(q) and not own_entity))
     is_followup = bool(has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
                        or (_REFS_RE.search(q) and not own_entity))
     # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
@@ -2015,6 +2022,16 @@ def _find_periods(q):
         one = _norm_one(m.group(0))
         if one and one not in out:
             out.append(one)
+    if len(out) < 2:
+        # bare month names resolve to the statement's year, so "did I spend more in
+        # May or June?" yields TWO periods and reaches the compare gate (it used to
+        # yield none and silently answer May's total only).
+        for tok in re.findall(rf"\b({_MON_RE})\b", q.lower()):
+            mm = _mon_num(tok)
+            y = _year_for_month(mm)
+            one = f"{y}-{mm}" if y else None
+            if one and one not in out:
+                out.append(one)
     return out
 
 
@@ -2030,12 +2047,84 @@ def _parse_amount(low):
     m = re.search(
         r"(?:over|above|under|below|more than|less than|greater than|bigger than|smaller than|"
         r"exceed\w*|cheaper than|higher than|lower than|at\s?least|atleast|min(?:imum)?|max(?:imum)?)"
-        r"\s+(?:₹|rs\.?|inr|rupees?|rupess)?\s*(\d[\d,]*(?:\.\d+)?)"
+        r"\s+(?:₹|£|\$|€|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*(\d[\d,]*(?:\.\d+)?)"
         r"(?!\s*(?:months?|days?|years?|yrs?|weeks?|wks?|hours?|%|percent|transactions?|txns?|times|orders?))",
         low)
     if m:
         return float(m.group(1).replace(",", ""))
     return None
+
+
+# ---- concept layer: semantic spend concepts grounded to REAL ledger merchants ----------
+# "Gambling", "loans", "bank fees" name no stored merchant or category, so the keyword
+# router used to DROP the token and answer the whole account — a confidently wrong number
+# ("how many gambling transactions in June" -> the count of ALL June transactions).
+# Each concept maps to a merchant-name test; the answer is computed ONLY from merchants
+# that actually exist in the ledger, or is an honest "couldn't find any". The lexicon
+# never invents a figure — every number still comes from SQL over matched merchants.
+_CONCEPTS = [
+    ("gambling", re.compile(r"\b(gambl\w*|bett?ing|casinos?|bookmakers?|bookies?|wagers?)\b", re.I),
+     re.compile(r"\bbet\w*\b|unibet|casino|poker|bingo|lotter|ladbrokes|betfair|paddy\s*power|"
+                r"william\s*hill|betway|\b888\b|sky\s*bet|skybet|\bcoral\b|bwin|betfred", re.I)),
+    ("loan repayments", re.compile(r"\b(loans?|repay\w*|mortgages?|emis?|borrow\w*|debts?)\b", re.I),
+     re.compile(r"loan|lend|mortgage|\bemis?\b|klarna|\bfinance\b|financing", re.I)),
+    ("bank fees", re.compile(r"\b(bank\s+fees?|fees?|service\s+charges?|overdrafts?|penalt\w*)\b", re.I),
+     re.compile(r"\bfees?\b|\bcharges?\b|overdraft|penalt", re.I)),
+]
+
+
+def concept_answer(q):
+    """Answer a semantic-concept spend question (see _CONCEPTS) from the ledger merchants
+    that match the concept. Markdown, or None if no concept is named. Period comes from
+    THIS question only (a concept question is self-contained — no thread scope carried)."""
+    low = q.lower()
+    hit = next(((label, mrx) for label, trig, mrx in _CONCEPTS if trig.search(low)), None)
+    if hit is None:
+        return None
+    label, mrx = hit
+    pf = _parse_period(q)
+    period, plabel = (ts._norm_period(pf[0], pf[1]) if pf else (None, None))
+    sfx = f" in {plabel}" if plabel else ""
+    inr, grp = ts.inr, ts.grp
+
+    parts = []
+    for m in _known_merchants():
+        if mrx.search(m):
+            r = ts.merchant_spend(USER, m, None, period)
+            if r["dcount"]:
+                parts.append((m, r["debit"], r["dcount"]))
+    if not parts:
+        cov = ts.coverage(USER)
+        span = f" Your data covers {ts._mlabel(cov[0])}–{ts._mlabel(cov[1])}." if cov else ""
+        return (f"**I couldn't find any {label}-related transactions{sfx}.** "
+                f"I checked every merchant in your statement against the concept.{span}")
+    parts.sort(key=lambda x: -x[1])
+    total = sum(a for _, a, _ in parts)
+    n = sum(c for _, _, c in parts)
+
+    # "% of my income goes on <concept>" -> concept spend vs income, same scope
+    if (re.search(r"\bpercent\w*\b|%|\bproportion\b|\bshare\b|\bfraction\b", low)
+            and re.search(r"\bincome\b|\bsalary\b|\bearn\w*\b", low)):
+        inc = ts.overview(USER, None, period)["credit"]
+        if not inc:
+            return f"**No income recorded{sfx}** — can't compute a percentage."
+        return (f"**{label.capitalize()} take {total / inc * 100.0:.1f}% of your income{sfx}** — "
+                f"{inr(total)} against {inr(inc)} income  ("
+                + ", ".join(f"{m} {inr(a)}" for m, a, _ in parts[:5]) + ").")
+
+    # "how many gambling transactions ..." -> a count, per matched merchant
+    if re.search(r"\b(how many|number of|no\.?\s*of|count)\b", low):
+        return (f"**{label.capitalize()} transactions{sfx}: {grp(n)}**  ("
+                + ", ".join(f"{m} {grp(c)}" for m, _, c in parts) + ")")
+
+    head = f"**{label.capitalize()}{sfx}:** {inr(total)} across {grp(n)} transactions"
+    nmon = len(ts.months_list(USER, None, period))
+    if nmon > 1:                     # "what loans am I repaying each month?"
+        head += f" — about {inr(total / nmon)}/month"
+    if len(parts) == 1:
+        return head + f"  ({parts[0][0]})"
+    return head + "\n\n" + ts._table(
+        ["Merchant", "Spent", "Txns"], [(m, inr(a), grp(c)) for m, a, c in parts])
 
 
 def analytics_answer(q):
@@ -2367,8 +2456,9 @@ def analytics_answer(q):
     # "what about June month" / "June's total" NAMES a month with no superlative -> it's a
     # scope-to-that-month request, not "which month is the extreme"; let the factual path take it.
     # A deictic "this/last month" is likewise a SCOPE ("what bank fees have I been charged
-    # this month?"), never a which-month argmax.
-    _mon_deictic = re.search(r"\b(this|last|past|current|previous)\s+month\b", low)
+    # this month?"), and "each/every/per month" is a cadence ("what loans am I repaying
+    # each month?") — neither is ever a which-month argmax.
+    _mon_deictic = re.search(r"\b(this|last|past|current|previous|each|every|per)\s+month\b", low)
     if (re.search(r"\b(which|what)\b.*\bmonth\b", low)
             or (re.search(r"\bmonth\b", low) and _mon_superl)) \
        and not _mon_deictic \
@@ -2854,6 +2944,14 @@ async def query(request: Request):
         remember(history, q, "(financial advice given)")
         return grounded_advice(rq, tid)
 
+    # 0c-CONCEPT) semantic spend concepts (gambling / loans / bank fees) grounded to
+    #     real ledger merchants — deterministic, honest "not found" when nothing matches.
+    ca = concept_answer(rq)
+    if ca is not None:
+        remember(history, q, ca)
+        _append_log(tid, q, ca, "SQL")
+        return stream_text("SQL", ca)
+
     # 0c) ANALYTICS (compare / average / % / argmax / amount filter / multi-entity /
     #     exclusion) — deterministic, numbers from SQL.
     aa = analytics_answer(rq)
@@ -2867,6 +2965,10 @@ async def query(request: Request):
     if det and det.get("type"):
         ans = ts.dispatch_intent(det, USER)
         if ans is not None:
+            if ans.lstrip("* ").lower().startswith("no transactions found"):
+                # a name with ZERO transactions is not a usable thread scope — carrying
+                # it pins later questions to a merchant that provably has no data.
+                det = {**det, "merchant": "", "category": ""}
             _save_ctx(ctx, det)
             remember(history, q, ans)
             _append_log(tid, q, ans, "SQL")
@@ -2898,6 +3000,8 @@ async def query(request: Request):
         # text my ex") -> don't lecture about money; fall through to a clean nudge below.
         ans = ts.dispatch_intent(intent, USER)            # SQL produces every number
         if ans is not None:
+            if ans.lstrip("* ").lower().startswith("no transactions found"):
+                intent = {**intent, "merchant": "", "category": ""}  # zero-result ≠ scope
             _save_ctx(ctx, intent)
             remember(history, q, ans)
             _append_log(tid, q, ans, "SQL")
