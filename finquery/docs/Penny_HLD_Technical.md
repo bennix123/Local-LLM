@@ -80,6 +80,7 @@ Target deployment envelope: a 4 GB-class device (phone), single user, read-only.
 | Component | File / tech | Responsibility |
 |---|---|---|
 | API layer | `scripts/test_server.py` · FastAPI + uvicorn | HTTP, ndjson streaming, routing, upload, chat log |
+| Conversation layer | `scripts/conversation.py` — `CanonicalQuery` + `DialogueState` | one typed resolved query built per turn and consumed by every engine (no per-engine re-inference); full dialogue memory (HLD §5, LLD §4c, `docs/Penny_Conversation_Redesign.md`) |
 | Deterministic SQL layer ("Penny") | `backend/src/services/txn_store.py` · stdlib `sqlite3` | every figure: totals, by-category/merchant/month, extremes, fact sheet |
 | LLM subsystem | Ollama `llama3.1:8b` | intent classification (router) + advisory prose (grounded) |
 | Intelligence engines | `backend/src/services/txn_store.py` (engines) | health score, risk, behavioural, impact, category-trend — **every figure from SQL** (§10A) |
@@ -137,8 +138,11 @@ most deterministic handler that can answer, does. Routing order:
 0.   no letters/digits ("???", "...") → didn't-catch nudge
 0-RES. CONVERSATIONAL RESOLUTION (_resolve_conversation)           → resolved query `rq`  ◀ NEW
         rewrites an elliptical follow-up to STANDALONE form (inject carried scope); a "reset"
-        signal clears the thread; the merged scope is persisted every turn. EVERY gate below
-        routes on `rq`, so analytics/ML/advice are no longer context-blind. (§8, LLD §4a)
+        signal clears the thread; the merged scope is persisted every turn. (§8, LLD §4a)
+0-CQ.  CANONICAL QUERY (build_canonical_query → CanonicalQuery)     → `cq`  ◀ NEW (LLD §4c)
+        one typed object with the resolved period/merchant/category/concept/amount/filters,
+        built ONCE. EVERY engine below receives `cq` and reads its fields — none re-infer
+        scope from text. (conversation.py; Penny_Conversation_Redesign.md)
 0a.  follow-up ABOUT the last answer  (ctx + _FUP_ATTR + _REFS_RE)  → followup_response
 0a-ML.  ML gate    (_ANOM_RE | _FCAST_RE | _PROJ_RE)               → ml_answer (anomaly/forecast/projection)  ◀ ML
 0a-INT. INTELLIGENCE gate (health/risk/recurring/impact/cat-trend/ → SQL (intelligence_answer) — deterministic  ◀ NEW
@@ -388,7 +392,8 @@ computed independently from SQL.
 | Advisory grounding — 17 advisory questions | **17/17 grounded** (0 numbers outside the fact sheet) |
 | Vague / parrot battery — `scripts/test_vague_1000.py` | **0 parrots across 664 vague questions**; non-finance "should I…" correctly nudged |
 | Conversational battery — `scripts/test_conversation.py` | multi-turn context + fine-grained intents (metric-change, overall-reset, category/date lookup, payment interval, min/max balance, scope survival across amount→average→highest) |
-| Offline routing battery — `scripts/test_offline_routing.py` | **53/53** — replays both client test sessions plus the production-spec additions (concept grounding incl. flights/coffee/taxis, category aliases, today/yesterday/week/quarter dates, ambiguous-merchant clarification, why-question routing, markerless-stickiness, £ amount filters, scope-leak guards) against a fixture ledger with no server/Ollama/installs; sessions also verified live against the running server (Plaid data) |
+| Offline routing battery — `scripts/test_offline_routing.py` | **58/58** — replays both client test sessions plus the production-spec additions (concept grounding incl. flights/coffee/taxis, category aliases, today/yesterday/week/quarter dates, ambiguous-merchant clarification, why-question routing, markerless-stickiness, £ amount filters, scope-leak guards) against a fixture ledger with no server/Ollama/installs; sessions also verified live against the running server (Plaid data) |
+| Conversation battery — `scripts/test_conversations.py` | **267/267** multi-turn checks across the mandated categories (context carry, merchant/category switching, comparison chains, time filters, follow-ups, resets, ambiguous refs, no-context, long drill-downs), each asserted against `txn_store` SQL ground-truth (differential) via the real `query()` cascade |
 
 "Parrot" = a random/off-topic question echoing a previous answer; the routing fixes
 (finance-anchored advice gate, finance-relevance gate on the router, nudge-instead-of-

@@ -11,7 +11,8 @@ function/module/contract reference. Anchored to the code in
 
 | Module | Key responsibility |
 |---|---|
-| `scripts/test_server.py` | FastAPI app, routing cascade (incl. concept grounding §4b), LLM calls, streaming, doc rendering |
+| `scripts/conversation.py` | **CanonicalQuery** (the single resolved query object every engine consumes) + **DialogueState** (full dialogue memory, superset of the legacy `ConversationState`). Pure typed data + serialisation; no DB. See §4c and `docs/Penny_Conversation_Redesign.md`. |
+| `scripts/test_server.py` | FastAPI app, routing cascade (incl. concept grounding §4b, canonical pipeline §4c), LLM calls, streaming, doc rendering |
 | `backend/src/services/txn_store.py` | deterministic SQL layer ("Penny") — every figure |
 | `backend/src/services/ml_insights.py` | sklearn models — anomalies, forecast, recurring, categorise |
 | `plaid_integration/` (`plaid_service` · `plaid_ingest` · `plaid_routes`) | Plaid **Sandbox** bank link + `/transactions/sync` pull, mapped onto the `transactions` schema; a sync **replaces** the ledger like `/upload` and runs the same post-ingest refresh (currency detect, insights, ML-cache + **vocab-cache reset**) |
@@ -330,6 +331,51 @@ answer a broader question with confident numbers.
 - **Extending:** one `_CONCEPTS` entry (label + two regexes) adds a new concept; no other
   code changes. Concepts outside the lexicon fall through to the rest of the cascade
   (ultimately the LLM router when Ollama is up).
+
+---
+
+## 4c. Canonical query pipeline (`CanonicalQuery` + `build_canonical_query`)
+
+The architecture review (`docs/Penny_Conversation_Redesign.md`, 91 context-loss points)
+found one root cause: `_resolve_conversation` computed a fully-structured scope, then handed
+downstream only a rewritten English string `rq`, and **every engine re-inferred** period /
+merchant / category / amount from that text (17 call-site families; `_extract_slots` ran twice
+per turn; two period-carry ladders had diverged). The redesign introduces a single typed
+object consumed by all engines.
+
+- **`CanonicalQuery`** (conversation.py) — the one resolved query. Fields: `intent_family`,
+  `merchant/category/concept`, `start/end` (+ `period()` → the `_scope` period form),
+  `metric/group_by/txn_type/count_kind`, composable `weekend/exclude/amount_op/amount`,
+  `comparison`, `doc_name`, `date_dir`, `n`, clarify `options/phrase`, `carried_merchant/
+  carried_category` (advice topic-pinning only). `to_intent()` returns the **exact**
+  `dispatch_intent` dict (the factual path is byte-identical — guarded by the offline suites).
+- **`build_canonical_query(q, rq, sc, state)`** assembles it ONCE. Critical distinction:
+  - **Answer scope** (period/entity/concept/amount/filters) is read from `rq` — which already
+    has the carried scope injected IFF this turn was an elliptical follow-up. It is NOT read
+    from the persisted scope `sc`, because `sc` inherits the carried period/merchant
+    unconditionally (correct for *persistence*, but would leak a stale scope into a reframing
+    or standalone turn). This is why "what loans each month?" after "gambling in June" is
+    all-time, and "what is my total spending?" after "Amazon in June" is account-wide (CLP-04).
+  - `sc` supplies only the cross-turn extras (`txn_type/metric/comparison`), `doc_name`, and
+    the `carried_*` topic for advice.
+- **Cascade wiring** (`query()`): after `_resolve_conversation`, one `cq` is built and passed to
+  every engine — `concept_answer(cq)`, `analytics_answer(cq)`, `intelligence_answer(cq)`,
+  `ml_answer(cq)`, `grounded_advice(cq)`, and `dispatch_intent(det, USER, cq.doc_name)`. Each
+  reads resolved fields; none re-parse. Engines also accept a raw string (via `_cq_from_text`)
+  for the offline harness and the gate-0 guard, so those paths are behaviourally unchanged.
+- **Determinism preserved:** every number still from `txn_store` SQL; `to_intent()` keeps the
+  factual path identical; a fresh thread is a passthrough (single-turn suites unaffected). The
+  two period-carry ladders are now unified (`_resolve_conversation` gained the bare-month/range
+  fallbacks it was missing vs `_resolve_factual`).
+- **DialogueState** (conversation.py) upgrades `ConversationState` with the fields the review
+  found missing: `active_transaction`, structured `last_result`, `prev_spec`, composable
+  `filters`, `group_by`, `amount_op/amount`, `comparison`, `presentation`, `confidence` —
+  legacy ctx keys unchanged, so `_resolve_factual`/`_save_ctx`/`chats.json` keep working.
+
+**Staged (documented in the redesign doc):** composable filter-stack (weekend+amount+exclude
+in one query), by-month/breakdown entity scoping, ML/intelligence period threading, structured
+`last_result`-backed follow-ups with number verification, and the single-pass resolver
+collapse — each behind the differential so `txn_store` behaviour stays frozen.
 
 ---
 
@@ -656,7 +702,8 @@ summary line shows `total` matched + `out_total` / `in_total`; Prev/Next page 50
 | `scripts/golden_suite.py` | 41 questions × 10 categories → 41/41 (per-category + per-priority) |
 | `scripts/test_vague_1000.py` | parrot/routing at scale (0 parrots across 664 vague) |
 | `scripts/test_conversation.py` | multi-turn context + fine-grained intents (F1–F8): metric-change, overall-reset, category/date lookup, payment interval, min/max balance, scope survival across amount→average→highest. Runs on the Barclays test statement |
-| `scripts/test_offline_routing.py` | **no server / no Ollama / no installs** — stubs fastapi/uvicorn/sklearn in `sys.modules`, seeds a fixture GBP ledger into a temp DB, and replays both client test sessions plus regressions through the deterministic ladder (intelligence → advice-route → concept → analytics → factual), asserting on answer text: date lookups, day-scope/zero-result leaks, concept grounding (gambling/loans/fees/flights/coffee/taxis, % of income), category aliases ("eating out"), `£` amount filters, bare-month compare, carried-year, today/yesterday/week/quarter resolution, ambiguous-merchant clarification, why-question routing, markerless-stickiness, honesty fallbacks — **53/53** |
+| `scripts/test_offline_routing.py` | **no server / no Ollama / no installs** — stubs fastapi/uvicorn/sklearn in `sys.modules`, seeds a fixture GBP ledger into a temp DB, and replays both client test sessions plus regressions through the deterministic ladder (intelligence → advice-route → concept → analytics → factual), asserting on answer text: date lookups, day-scope/zero-result leaks, concept grounding (gambling/loans/fees/flights/coffee/taxis, % of income), category aliases ("eating out"), `£` amount filters, bare-month compare, carried-year, today/yesterday/week/quarter resolution, ambiguous-merchant clarification, why-question routing, markerless-stickiness, honesty fallbacks — **58/58** |
+| `scripts/test_conversations.py` (+ `_penny_testkit.py`) | **267 multi-turn checks** across the mandated categories (pronouns · context carry · merchant/category switching · comparison chains · time filters · nested filters · analytics/advice follow-ups · resets · ambiguous refs · no-context · regression · long drill-down chains). Expected values computed from `txn_store` SQL **ground-truth** (a differential, not hand-typed); the shared testkit stubs deps, seeds a rich fixture, and replays the real `query()` cascade per turn — **267/267** |
 
 Verdict kinds: deterministic (amount/percent/count vs SQL truth) · advice (route=advice +
 fully grounded + on-topic) · probe (capability + on-topic, accepts route ML/SQL/advice).
