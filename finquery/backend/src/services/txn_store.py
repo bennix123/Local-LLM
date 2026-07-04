@@ -628,15 +628,18 @@ def top_expenses(user_id, n=5, doc_name=None, period=None):
     return rows
 
 
-def extreme(user_id, kind, doc_name=None, period=None, merchant=None):
+def extreme(user_id, kind, doc_name=None, period=None, merchant=None, category=None):
     w, p = _scope(user_id, doc_name, period)
     col, order = ("debit", "DESC") if kind in ("largest_expense", "smallest_expense") else ("credit", "DESC")
     if kind == "smallest_expense":
         order = "ASC"
     mfilter, mp = "", []
     if merchant:
-        mfilter = " AND (LOWER(merchant)=? OR LOWER(descr) LIKE ?)"
-        mp = [merchant.lower(), f"%{merchant.lower()}%"]
+        mfilter += " AND (LOWER(merchant)=? OR LOWER(descr) LIKE ?)"
+        mp += [merchant.lower(), f"%{merchant.lower()}%"]
+    if category:                                   # "biggest Shopping expense" stays in-category
+        mfilter += " AND category=?"
+        mp += [category]
     con = connect()
     r = con.execute(f"""SELECT txn_date, merchant, {col} FROM transactions
                         WHERE {w} AND {col}>0{mfilter} ORDER BY {col} {order} LIMIT 1""",
@@ -685,6 +688,29 @@ def merchant_dates(user_id, keyword, doc_name=None, period=None, limit=500):
                        p + mp + [limit]).fetchall()
     con.close()
     return rows
+
+
+def list_transactions(user_id, merchant=None, category=None, doc_name=None, period=None, limit=25):
+    """Individual transaction ROWS for a 'show me the transactions' listing, scoped by any of
+    merchant keyword / category / period, in chronological order. Returns (rows, total) where
+    rows is [(txn_date, merchant, descr, debit, credit)] capped at `limit` and total is the
+    full count for that scope (so the caller can say '+N more'). Placeholder year-0000 rows
+    are excluded so a broken date never shows."""
+    w, p = _scope(user_id, doc_name, period)
+    clauses, params = [], []
+    if merchant:
+        mw, mp = _merch_where(merchant)
+        clauses.append(mw); params += mp
+    if category:
+        clauses.append("category=?"); params.append(category)
+    extra = (" AND " + " AND ".join(clauses)) if clauses else ""
+    base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
+    con = connect()
+    total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
+    rows = con.execute(f"""SELECT txn_date, merchant, descr, debit, credit {base}
+                           ORDER BY txn_date, seq LIMIT ?""", p + params + [limit]).fetchall()
+    con.close()
+    return rows, total
 
 
 def balance_extreme(user_id, kind, doc_name=None, period=None):
@@ -1553,6 +1579,27 @@ def dispatch_intent(intent, user_id, doc_name=None):
         o = overview(user_id, doc_name, period)
         return f"**Transactions{sfx}:** {grp(o['count'])}"
 
+    if t == "list":                                    # "show me the transactions" -> the rows
+        m = (intent.get("merchant") or "").strip()
+        cat = (intent.get("category") or "").strip()
+        cap = int(intent.get("n") or 0) or 25
+        rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap)
+        who = ""
+        if m and cat:   who = f" for {_mname(m)} ({cat})"
+        elif m:         who = f" for {_mname(m)}"
+        elif cat:       who = f" in {cat}"
+        if not rows:
+            return f"**No transactions found{who}{sfx}.**"
+        body = []
+        for d, mer, descr, deb, cr in rows:
+            name = (mer or descr or "").strip() or "-"
+            body.append((_dlabel(d), _mname(name[:34]),
+                         inr(deb) if (deb or 0) > 0 else inr(cr),
+                         "Spent" if (deb or 0) > 0 else "Received"))
+        head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
+        tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
+        return head + "\n\n" + _table(["Date", "Merchant", "Amount", "Type"], body) + tail
+
     if t == "spend":
         o = overview(user_id, doc_name, period)
         dc = txn_count(user_id, "debit", doc_name, period)   # debit rows only, not income
@@ -1702,14 +1749,15 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t in ("largest_expense", "smallest_expense", "largest_income"):
         m = (intent.get("merchant") or "").strip()
-        r = extreme(user_id, t, doc_name, period, merchant=m or None)
+        cat = (intent.get("category") or "").strip()
+        r = extreme(user_id, t, doc_name, period, merchant=m or None, category=cat or None)
         if r:
             label = {"largest_expense": "Largest expense", "smallest_expense": "Smallest expense",
                      "largest_income": "Largest credit"}[t]
-            at = f" at {_mname(m)}" if m else ""
+            at = f" at {_mname(m)}" if m else f" in {cat}" if cat else ""
             return f"**{label}{at}{sfx}:** {inr(r[2])} - {r[1]} on {_dlabel(r[0])}"
-        if m:
-            return f"**No transactions found for '{m}'{sfx}.**"
+        if m or cat:
+            return f"**No transactions found for '{m or cat}'{sfx}.**"
 
     if t == "subscriptions":
         rec = subscription_costs(user_id, doc_name, period)

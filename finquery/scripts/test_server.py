@@ -780,6 +780,59 @@ def _bare_month_period(q):
     return (f"{y}-{mm}", "") if y else None
 
 
+# Day-level RANGES with no explicit year — the year-required _DATE_EXPR/_RANGE_RE misses
+# these, so "1 July to 3 July" used to collapse to just the first day. Each end resolves to
+# a full date via the statement's year for its month.
+_SEP = r"(?:to|till|until|through|thru|[-–—]|and)"
+_DAY_RANGE_RES = [
+    # "1 July to 3 August" / "1st Jul - 3rd Aug"        (a month on BOTH ends)
+    (re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON_RE})\.?\s*{_SEP}\s*"
+                rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON_RE})\b", re.I), "dMdM"),
+    # "July 1 to July 3"                                (month FIRST on both ends)
+    (re.compile(rf"\b({_MON_RE})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\s*{_SEP}\s*"
+                rf"({_MON_RE})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", re.I), "MdMd"),
+    # "1 to 3 July" / "between 1 and 3 July" / "1-3 July"   (single trailing month)
+    (re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s*{_SEP}\s*"
+                rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON_RE})\b", re.I), "ddM"),
+    # "July 1 to 3" / "July 1-3"                        (single leading month)
+    (re.compile(rf"\b({_MON_RE})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?\s*{_SEP}\s*"
+                rf"(\d{{1,2}})(?:st|nd|rd|th)?\b", re.I), "Mdd"),
+]
+
+
+def _day_range_period(q):
+    """A day-level date range without an explicit year — '1 July to 3 July', 'between 1 and 3
+    August', 'July 1-3', '1 Jul to 3 Aug'. Returns a full (start, end) date range, using an
+    explicit trailing year if present else the statement's year for each month. None if no
+    day-range shape is found (year-qualified ranges are handled by _RANGE_RE)."""
+    low = q.lower()
+    ym = re.search(r"\b(20\d\d)\b", low)
+
+    def dfull(day, mon):
+        mm = _mon_num(mon)
+        if not mm or not (1 <= int(day) <= 31):
+            return None
+        yy = ym.group(1) if ym else _year_for_month(mm)
+        return f"{yy}-{mm}-{int(day):02d}" if yy else None
+
+    for rx, shape in _DAY_RANGE_RES:
+        m = rx.search(low)
+        if not m:
+            continue
+        g = m.groups()
+        if shape == "dMdM":
+            a, b = dfull(g[0], g[1]), dfull(g[2], g[3])
+        elif shape == "MdMd":
+            a, b = dfull(g[1], g[0]), dfull(g[3], g[2])
+        elif shape == "ddM":
+            a, b = dfull(g[0], g[2]), dfull(g[1], g[2])
+        else:  # "Mdd"
+            a, b = dfull(g[1], g[0]), dfull(g[2], g[0])
+        if a and b:
+            return (a, b) if a <= b else (b, a)
+    return None
+
+
 def _parse_period(q, bare_month=True):
     """Deterministic period from the question text: (start, end) or None.
     Handles explicit dates, word-years, and relative dates (this/last month/year).
@@ -790,6 +843,9 @@ def _parse_period(q, bare_month=True):
     rel = _relative_period(q)
     if rel:
         return rel
+    dr = _day_range_period(q)                          # yearless day range ("1 Jul to 3 Jul")
+    if dr:
+        return dr
     m = _RANGE_RE.search(q)
     if m:
         a, b = _norm_one(m.group(1)), _norm_one(m.group(2))
@@ -939,6 +995,48 @@ FOLLOWUP_SYSTEM = (
     "facts and figures already shown in that conversation. NEVER invent a number. If the answer "
     "isn't in the conversation, say you can look it up if they ask the question directly."
 )
+
+
+def followup_sql_answer(q, ctx):
+    """SQL-FIRST grounding for the follow-up path. A referential follow-up ('when were those?',
+    'how many of them?', 'which merchant?', 'the biggest one?') is translated into a concrete
+    intent scoped to the thread's carried merchant/category/period and answered deterministically
+    from SQL — so the number/rows are real, never the LLM's guess. Returns grounded markdown, or
+    None to let the LLM handle a genuinely narrative ask ('why…', 'should I…')."""
+    if not ctx:
+        return None
+    low = q.lower()
+    mer = (ctx.get("merchant") or "").strip()
+    cat = (ctx.get("category") or "").strip()
+    start, end = (ctx.get("start") or ""), (ctx.get("end") or "")
+    if not (mer or cat or start):
+        return None                               # nothing carried to ground on
+    # genuinely narrative / judgemental -> let the LLM reason (grounded-advice covers 'why')
+    if re.search(r"\bwhy\b|\bhow come\b|\bexplain\b|\bshould i\b|\bworth it\b|\bgood or bad\b|\bnormal\b", low):
+        return None
+    base = {"merchant": mer, "category": cat, "start": start, "end": end, "n": 0}
+    intent = None
+    if re.search(r"\bwhen\b|\bwhat date|\bwhich date|\bwhat day\b|\bon what day\b|\bdates?\b", low) and mer:
+        dd = ("last" if re.search(r"\b(last|latest|most recent|recently)\b", low)
+              else "first" if re.search(r"\b(first|earliest)\b", low) else "")
+        intent = {**base, "type": "merchant_date", "date_dir": dd}
+    elif re.search(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow often\b", low):
+        intent = {**base, "type": "count"}
+    elif re.search(r"\b(biggest|largest|highest|most expensive|priciest|dearest)\b", low):
+        intent = {**base, "type": "largest_expense"}
+    elif re.search(r"\b(smallest|lowest|cheapest|least expensive)\b", low):
+        intent = {**base, "type": "smallest_expense"}
+    elif re.search(r"\bwhich (?:merchant|shop|store|place|vendor|company|one)\b|\bwho\b", low):
+        if mer:
+            return f"That was **{ts._mname(mer)}**."
+        intent = {**base, "type": "top_expenses", "n": 1}    # top merchant/expense of the scope
+    elif re.search(r"\b(list|show|see|what were|which were)\b.*\b(them|those|these|it|they)\b", low):
+        intent = {**base, "type": "list"}
+    elif re.search(r"\bhow much\b|\btotal\b|\baltogether\b|\bin all\b", low):
+        intent = {**base, "type": "merchant" if mer else "category" if cat else "spend"}
+    if not intent:
+        return None
+    return ts.dispatch_intent(intent, USER)          # SQL renders every figure; None -> LLM
 
 
 def followup_response(q, history, thread="default"):
@@ -1168,8 +1266,51 @@ _ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\b
                          r"\b(?:whole|entire) (?:statement|account)\b", re.I)
 _COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btransactions?\b|\btxns?\b|\bpurchases?\b", re.I)
 _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
+# "show me the transactions", "list them", "show me all 3 transactions" -> LIST the rows,
+# not a count. Requires a show/list VERB and a transaction-listing NOUN, so "show me
+# spending by category" / "show my balance" (no such noun) are untouched.
+_LIST_RE = re.compile(
+    r"\b(?:show|list|display|view|see|pull up|give me|let me see|what were|what was)\b[^?]*?"
+    r"\b(transactions?|txns?|purchases?|payments?|entries|charges?|deposits?|them|these|those)\b", re.I)
+_LIST_N_RE = re.compile(
+    r"\b(\d{1,3})\s+(?:transactions?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
+# The named entity in "show me <X> transactions" (X between the verb and the noun), so an
+# UNKNOWN name ("show me Waitrose transactions") gets an honest "no transactions", not the
+# whole ledger. Leading filler (all / the / my / 3 / …) is stripped so "show me all 3
+# transactions" captures nothing (a scopeless list).
+_LIST_ENT_RE = re.compile(
+    r"\b(?:show|list|display|view|see|pull up|give me|let me see)\s+(?:me\s+)?"
+    r"([a-z0-9&'.\- ]+?)\s+"
+    r"(?:transactions?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
+_LIST_STOP = frozenset((
+    "all", "the", "my", "me", "these", "those", "last", "first", "recent", "a", "an",
+    "some", "any", "of", "them", "it", "new", "old", "total", "individual", "every", "each"))
+
+
+def _list_entity(low):
+    """The merchant/entity named in a 'show me <X> transactions' listing, or None when only
+    filler precedes the noun (a scopeless 'show me all transactions')."""
+    m = _LIST_ENT_RE.search(low)
+    if not m:
+        return None
+    toks = [t for t in m.group(1).split() if t]
+    while toks and toks[0] in _LIST_STOP:
+        toks.pop(0)
+    if not toks or all(t in _LIST_STOP or t.isdigit() for t in toks):
+        return None
+    cand = " ".join(toks)
+    if re.match(rf"(?:{_MON_RE})\b", cand) or cand in _GUARD_STOP:
+        return None                                    # a month/period word, not a merchant
+    return cand
+
+
 _BAL_RE = re.compile(r"\b(balance|left in (?:the )?(?:bank|account)|bacha)\b", re.I)
 _SPEND_RE = re.compile(r"\b(spend|spent|spending|kharcha|kharch|blew|burn)\b", re.I)
+# A "complete" money question that restates its own metric ("how much did I spend on X",
+# "how much was my X payment") — as opposed to an elliptical fragment ("on X?", "and X?").
+# A complete standalone question naming an entity must NOT inherit a period set turns ago.
+_COMPLETE_Q = re.compile(r"\bhow much\b|\bhow many\b|\bhow often\b|\bwhat did i (?:spend|pay)\b"
+                         r"|\bwhat'?s my\b|\bwhat is my\b|\btotal\b|\bpayments?\b|\bpaid\b", re.I)
 _INCOME_RE2 = re.compile(r"\b(incom(?:e|ings)?|earn(?:ed|ings|t)?|salary|salaries|inflow|received|receive)\b", re.I)
 _EXP_CTXT = ("expense", "spend", "purchase", "transaction", "charge", "buy", "kharcha", "kharch")
 _CONT_RE = re.compile(r"^\s*(and\b|also\b|plus\b|then\b|now\b|just\b|ok\b|okay\b|&|aur\b|phir\b|what about|how about|what'?s about)", re.I)
@@ -1548,6 +1689,23 @@ def _extract_slots(q):
         t = "largest_expense"
     elif _SMALL_RE.search(q):
         t = "smallest_expense"
+    # an explicit "show me / list the transactions" LISTS the rows — overrides a plain
+    # count/spend/merchant/category (a named merchant/category stays as a scope), but never
+    # hijacks a real count ("how many") or an extreme. "show me top N transactions" is the
+    # N largest, so it stays a top-N, not a chronological list.
+    list_n = 0
+    if _LIST_RE.search(q) and t in (None, "count", "spend", "merchant", "category") \
+            and not re.search(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b", low):
+        if topm:
+            t = "top_expenses"
+        else:
+            t = "list"
+            mn = _LIST_N_RE.search(low)
+            list_n = int(mn.group(1)) if mn else 0
+            if not merch and not cat:              # an unknown named entity -> honest "none",
+                ent = _list_entity(low)            # never a silent list of the whole ledger
+                if ent:
+                    merch = _resolve_merchant(ent) or ent
     ckind = ""
     if t == "count":
         if re.search(r"\bupi\b", low):
@@ -1557,7 +1715,8 @@ def _extract_slots(q):
         elif re.search(r"\bdebit\b", low):
             ckind = "debit"
     return {"type": t, "period_full": pf, "pmonth": pmonth, "pday": pday, "prange": prange,
-            "category": cat, "merchant": merch, "n": int(topm.group(1)) if topm else 0,
+            "category": cat, "merchant": merch,
+            "n": int(topm.group(1)) if topm else list_n,
             "count_kind": ckind}
 
 
@@ -1603,7 +1762,7 @@ def _resolve_factual(q, ctx):
     # question is an explicit count ("how many at Amazon" stays a count-of-Amazon).
     _KEEP_TYPE = ("count", "income", "largest_expense", "smallest_expense", "largest_income",
                   "merchant_category", "merchant_date", "merchant_interval",
-                  "balance_min", "balance_max")
+                  "balance_min", "balance_max", "list")
     if s["merchant"] and t not in _KEEP_TYPE:
         t = "merchant"
     elif s["category"] and t not in _KEEP_TYPE:
@@ -1645,21 +1804,46 @@ def _resolve_factual(q, ctx):
         # thread has none). This is the markerless context-carry, made safe by the
         # thread model: a fresh thread has no period to carry.
         start, end = ctx.get("start", ""), ctx.get("end", "")
-        # ...but a carried single-DAY scope ("...on 1 July") never applies to a turn that
-        # NAMES its own entity ("how much was my Bupa payment?") — a day lookup is a
-        # one-off, and silently day-scoping a standalone merchant/category question reads
-        # as "no transactions". (ctx can't be compared here: the conversation layer has
-        # already written THIS turn's entity into it.) Elliptical follow-ups
-        # (continuations / back-references) still keep the day.
-        if (s["merchant"] or s["category"]) and not (cont or refs) and not end \
-                and (start.startswith("MD-") or len(start) == 10):
-            start = ""
+        # ...but a stale scope never applies to a turn that NAMES its own entity and isn't an
+        # explicit continuation. Two cases:
+        #   • a carried DAY / day-RANGE scope — always dropped for ANY entity turn (a day
+        #     lookup is a one-off; "IKEA" after "1–3 July" is IKEA all-time, not in those days);
+        #   • a carried MONTH / YEAR scope — dropped only when the turn is a COMPLETE question
+        #     ("How much did I spend on Bupa?"), which is a fresh query and must not silently
+        #     inherit a month set turns ago (the real user protested "I am not asking for July").
+        # A bare fragment ("on transport?") keeps a month scope; continuations/back-references
+        # ("and Bupa?", "what about that?") keep any scope.
+        _complete_q = bool(_SPEND_RE.search(q) or _COMPLETE_Q.search(low))
+        if (s["merchant"] or s["category"]) and not (cont or refs) \
+                and (start.startswith("MD-") or len(start) == 10 or (_complete_q and start)):
+            start = end = ""
 
     cat, mer = s["category"], s["merchant"]
     if t == "category" and not cat and ctx:
         cat = ctx.get("category", "")
     if t == "merchant" and not mer and ctx:
         mer = ctx.get("merchant", "")
+    # "show me the transactions" is an elliptical listing — inherit the thread's merchant/
+    # category so it lists THAT scope's rows ("IKEA" -> "show me all 3 transactions"), not
+    # the whole account. But a listing turn that names its OWN fresh period and isn't an
+    # explicit continuation ("1 July to 3 July" after browsing IKEA) is a standalone range
+    # listing, not IKEA-in-that-range — don't drag the stale merchant into it.
+    if t == "list" and ctx and not (s["merchant"] or s["category"]):
+        turn_period = bool(s["period_full"] or s["pmonth"] or s["pday"] or s["prange"])
+        if cont or refs or not turn_period:
+            mer = mer or ctx.get("merchant", "")
+            cat = cat or ctx.get("category", "")
+    # a BARE extreme follow-up ("and the biggest?", "which was the biggest one?") — no
+    # expense noun and no own entity — stays on the thread's topic: inherit the carried
+    # merchant/category so it's "the biggest SHOPPING expense", not account-wide (which would
+    # also wipe the carried category from ctx). A standalone "what's my biggest expense?"
+    # names the noun, so it's untouched and stays account-wide (the c011bdc standalone rule).
+    if t in ("largest_expense", "smallest_expense") and not mer and not cat and ctx \
+            and not any(w in low for w in _EXP_CTXT):
+        if ctx.get("merchant"):
+            mer = ctx["merchant"]
+        elif ctx.get("category"):
+            cat = ctx["category"]
     # a bare "how many transactions?" inside a merchant/category thread (nothing new
     # but the count itself) stays scoped to that merchant/category.
     own_period = bool(s["period_full"] or s["pmonth"] or s["pday"] or s["prange"] or whole_year)
@@ -2314,6 +2498,20 @@ def _scoped_facts(ctx):
             f"{series}. Answer about {cat} specifically unless the user changes topic.\n")
 
 
+def _entity_months(merchant, category, period=None):
+    """Sorted distinct YYYY-MM the merchant/category actually transacted in over `period`
+    (placeholder year-0000 rows excluded). The single source of truth shared by the
+    per-merchant/category monthly average and the 'which months' enumeration, so the two
+    can never disagree."""
+    rows, _total = ts.list_transactions(USER, merchant or None, category or None, None, period, 5000)
+    return sorted({r[0][:7] for r in rows if not r[0].startswith("0000")})
+
+
+def _active_months(merchant, category, period=None):
+    """Count of _entity_months, floored at 1 so it's a safe average denominator."""
+    return len(_entity_months(merchant, category, period)) or 1
+
+
 def analytics_answer(q):
     """Deterministic analytics (compare, average, %, argmax, amount filter, multi-entity,
     exclusion). Returns markdown or None (not an analytics question)."""
@@ -2617,8 +2815,12 @@ def analytics_answer(q):
             if per_txn:
                 return (f"**Average transaction at {merchs[0]}{sfx}:** {inr(r['debit']/r['count'])}  "
                         f"(over {grp(r['count'])} transactions)")
-            return (f"**Average monthly spend at {merchs[0]}{sfx}:** {inr(r['debit']/nmon)}  "
-                    f"(over {nmon} months)")
+            # divide by the months the MERCHANT was active, not every statement month — else a
+            # merchant seen in 3 of 4 months is understated, and "over 4 months" contradicts the
+            # "which months" enumeration. Same appearance-month basis months_which_answer uses.
+            nmon_x = _active_months(merchs[0], None, period)
+            return (f"**Average monthly spend at {merchs[0]}{sfx}:** {inr(r['debit']/nmon_x)}  "
+                    f"(over {nmon_x} month{'s' if nmon_x != 1 else ''})")
         if cats:                                     # "average monthly spend on Groceries"
             amt = cnt = 0
             for c, a, n in ts.by_category(USER, None, period):
@@ -2628,8 +2830,9 @@ def analytics_answer(q):
             if per_txn:
                 return (f"**Average {cats[0]} transaction{sfx}:** {inr(amt/cnt) if cnt else inr(0)}  "
                         f"(over {grp(cnt)} transactions)")
-            return (f"**Average monthly spend on {cats[0]}{sfx}:** {inr(amt/nmon)}  "
-                    f"(over {nmon} months)")
+            nmon_c = _active_months(None, cats[0], period)
+            return (f"**Average monthly spend on {cats[0]}{sfx}:** {inr(amt/nmon_c)}  "
+                    f"(over {nmon_c} month{'s' if nmon_c != 1 else ''})")
         o = ts.overview(USER, None, period)          # whole-account average
         if per_txn:
             dc = ts.txn_count(USER, "debit", None, period)   # average over DEBIT txns, not all rows
@@ -2794,6 +2997,38 @@ def analytics_answer(q):
 
 
 _FUP_ATTR = re.compile(r"^\s*(which|who|whom|why|when|where|whose)\b", re.I)
+
+# "which months?" / "which 4 months?" — a follow-up asking to ENUMERATE the months of the
+# thread's carried merchant/category (e.g. after "avg spend at Ryanair (over 4 months)").
+# Plural 'months' only, so the singular argmax "which month did I spend most" is left to
+# analytics; coverage phrasings ("which months do you have") are left to the LLM/coverage.
+_WHICH_MONTHS_RE = re.compile(r"\b(?:which|what|list|show)\b[^?]*\bmonths\b", re.I)
+
+
+def months_which_answer(q, ctx):
+    """Enumerate the months the carried merchant/category actually appears in. Returns
+    markdown, or None to fall through (no plural-months ask, an argmax, a coverage question,
+    or no carried entity)."""
+    low = q.lower()
+    if not _WHICH_MONTHS_RE.search(low):
+        return None
+    if re.search(r"\b(most|highest|biggest|largest|lowest|smallest|least|max|min|top|worst|best)\b", low):
+        return None                                    # argmax ("which month did I spend most")
+    if re.search(r"\bdo you have\b|\bavailable\b|\bcover(?:age|ed)?\b|\bdata\b|\bstatement\b", low):
+        return None                                    # coverage question, handled elsewhere
+    if re.search(r"\bspen|\bspent|\bbreakdown\b|\bhow much\b|\btotal\b|\bby month\b|\beach month\b|\bper month\b", low):
+        return None                                    # a spend/breakdown ask, not month enumeration
+    mer = (ctx or {}).get("merchant", "")
+    cat = (ctx or {}).get("category", "")
+    if not mer and not cat:
+        return None                                    # nothing to enumerate -> fall through
+    months = _entity_months(mer or None, cat or None)  # same basis as the monthly average
+    if not months:
+        return None
+    label = ts._mname(mer) if mer else cat
+    names = ", ".join(ts._mlabel(m) for m in months)
+    return (f"**{label}** appears in {len(months)} "
+            f"month{'s' if len(months) != 1 else ''}: {names}.")
 
 
 @app.get("/chats")
@@ -3114,10 +3349,24 @@ async def query(request: Request):
     state.to_ctx(ctx)
     _log_conv(tid, q, rq, rinfo, state, before)
 
+    # 0-mon) "which months?" enumeration of the carried merchant/category (deterministic).
+    #        Runs before the generic follow-up gate so it lists the months, not an LLM guess.
+    mwa = months_which_answer(q, ctx)
+    if mwa is not None:
+        remember(history, q, mwa)
+        _append_log(tid, q, mwa, "SQL")
+        return stream_text("SQL", mwa)
+
     # 0) follow-up ABOUT the previous answer ("which merchant was that?", "why?")
-    #    -> answer from conversation, do NOT run a new query. (uses the ORIGINAL q.)
+    #    -> SQL-first: try to ground the referential follow-up in the carried scope and show
+    #    the real data; only a genuinely narrative ask ("why?") falls to the LLM.
     if ctx and _FUP_ATTR.search(q) and _REFS_RE.search(q) and not _resolve_factual(q, ctx) \
             and not analytics_answer(q):
+        fsa = followup_sql_answer(q, ctx)
+        if fsa is not None:
+            remember(history, q, fsa)
+            _append_log(tid, q, fsa, "SQL")
+            return stream_text("SQL", fsa)
         remember(history, q, "(answered from conversation)")
         return followup_response(q, history, tid)
 
@@ -3199,6 +3448,11 @@ async def query(request: Request):
             _append_log(tid, q, cap, "chat")
             return stream_text("chat", cap)
         if t == "followup" and history:
+            fsa = followup_sql_answer(rq, ctx)     # SQL-first: real data before the LLM narrates
+            if fsa is not None:
+                remember(history, q, fsa)
+                _append_log(tid, q, fsa, "SQL")
+                return stream_text("SQL", fsa)
             remember(history, q, "(answered from conversation)")
             return followup_response(q, history, tid)
         if t in ("unknown", ""):
