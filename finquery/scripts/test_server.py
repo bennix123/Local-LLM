@@ -1648,6 +1648,13 @@ def _resolve_factual(q, ctx):
         # date — so a stale period from a prior turn can't silently scope "the largest debit"
         # to last month. (No-op on a fresh thread; the safer failure mode.)
         start, end = "", ""
+    elif (s["type"] in ("spend", "count", "income", "summary") and not s["merchant"]
+          and not s["category"] and not (cont or refs)):
+        # a COMPLETE account-wide metric question ("what is my total spending?", "how many
+        # transactions do I have?") is a fresh, standalone query — it does NOT inherit the
+        # thread's period (R13 extended to period, CLP-04). Elliptical follow-ups (cont/refs)
+        # and entity-scoped questions still carry, so multi-turn drill-downs are untouched.
+        start, end = "", ""
     else:
         # No period in THIS question -> inherit the thread's period (all-time if the
         # thread has none). This is the markerless context-carry, made safe by the
@@ -1755,15 +1762,16 @@ _NO_ENTITY_INJECT_RE = re.compile(
     r"savings? rate|runway|health|risk|net position)\b", re.I)
 
 # bare-metric follow-ups -> a canonical stem the SQL engines parse
+_ELLIP_NOUN = r"amount|value|transaction|txn|spend(?:ing)?|purchase|payment|buy|item|order|charge"
 _CANON = [
     (re.compile(r"^\s*(?:what'?s|what is|show|give me|tell me)?\s*(?:the|my)?\s*(?:average|avg|mean)"
-                r"(?:\s+(?:amount|value|transaction|spend(?:ing)?|txn|per (?:transaction|txn|order)))?\s*\??$", re.I),
+                rf"(?:\s+(?:{_ELLIP_NOUN}|per (?:transaction|txn|order|purchase)))?\s*\??$", re.I),
      "average transaction"),
     (re.compile(r"^\s*(?:and|what about|the)?\s*(?:highest|biggest|largest|max(?:imum)?|priciest|"
-                r"most expensive|dearest)(?:\s+(?:one|expense|transaction|txn|amount|spend))?\s*\??$", re.I),
+                rf"most expensive|dearest)(?:\s+(?:one|expense|{_ELLIP_NOUN}))?\s*\??$", re.I),
      "biggest expense"),
     (re.compile(r"^\s*(?:and|what about|the)?\s*(?:lowest|smallest|min(?:imum)?|cheapest|"
-                r"least expensive)(?:\s+(?:one|expense|transaction|txn|amount))?\s*\??$", re.I),
+                rf"least expensive)(?:\s+(?:one|expense|{_ELLIP_NOUN}))?\s*\??$", re.I),
      "smallest expense"),
     (re.compile(r"^\s*(?:and|the)?\s*(?:monthly|month[- ]?wise|by month|per month|breakdown|"
                 r"monthly breakdown|month[- ]wise breakdown)\s*\??$", re.I), "monthly breakdown"),
@@ -2001,6 +2009,10 @@ def build_canonical_query(q, rq, sc, state):
     cq.metric = sc.get("metric", "") or ""
     cq.comparison = list(sc.get("comparison") or [])
     cq.doc_name = state.account or ""
+    # the persisted (carried) entity — for advice topic-pinning only, never for the
+    # factual/analytics answer scope (which stays answer-local to avoid over-inheritance).
+    cq.carried_merchant = sc.get("merchant", "") or ""
+    cq.carried_category = sc.get("category", "") or ""
     return cq
 
 
@@ -2037,7 +2049,7 @@ def _cq_from_text(text):
 #      multi-entity / exclusion). All numbers from SQL — never invented. -----------
 _ADVICE_RE = re.compile(
     r"\broast\b|how am i doing|am i doing (?:ok|well|good|bad|fine|alright|great)|"
-    r"should i (?:cut|save|spend|reduce|budget)|cut back|cut down|save money|saving enough|"
+    r"should i (?:cut|save|spend|reduce|budget|cancel|keep|drop|ditch|stop|get rid)|cut back|cut down|save money|saving enough|"
     r"spending too much|am i (?:broke|rich|overspending|spending)|give me (?:advice|tips)|"
     r"financial advice|help me save|improve my (?:finance|spending|budget|habit)|"
     r"where can i (?:save|cut)|tips to save|how (?:can|do) i save|"
@@ -2320,7 +2332,11 @@ def _scoped_facts(cq):
     sheet makes salient. '' with no carried entity; every number from SQL. Accepts a
     CanonicalQuery (preferred) or a legacy ctx dict."""
     if isinstance(cq, CanonicalQuery):
-        cat, mer, period = cq.category, cq.merchant, cq.period()
+        # advice pins the CARRIED topic (so a bare "more insights" stays on it), falling
+        # back to the answer-scope entity when this turn named one.
+        cat = cq.category or cq.carried_category
+        mer = cq.merchant or cq.carried_merchant
+        period = cq.period()
     else:                                    # legacy ctx dict (backward compat)
         cat, mer, period = (cq or {}).get("category", ""), (cq or {}).get("merchant", ""), None
     inr = ts.inr

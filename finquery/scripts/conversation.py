@@ -43,6 +43,11 @@ class CanonicalQuery:
     # ---- resolved scope (the context the old engines re-inferred) ----
     merchant: str = ""
     category: str = ""
+    # the thread's CARRIED entity (persisted scope) — distinct from the answer-scope
+    # merchant/category above. Used only by the advice path to pin the CURRENT TOPIC on a
+    # bare follow-up ("more insights") without over-inheriting into factual/analytics answers.
+    carried_merchant: str = ""
+    carried_category: str = ""
     concept: str = ""                # gambling|loans|bank_fees|flights|coffee|taxis (semantic label)
     start: str = ""                  # canonical period start (YYYY | YYYY-MM | YYYY-MM-DD | MD-MM-DD)
     end: str = ""                    # canonical period end
