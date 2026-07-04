@@ -1274,6 +1274,12 @@ _LIST_RE = re.compile(
     r"\b(transactions?|txns?|purchases?|payments?|entries|charges?|deposits?|them|these|those)\b", re.I)
 _LIST_N_RE = re.compile(
     r"\b(\d{1,3})\s+(?:transactions?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
+# "which 3 transactions?" / "which transactions?" / "what transactions" — a verb-less way to
+# ask for the rows (the real user's phrasing). No amount/period of its own, so an amount
+# filter ("which transactions over £100") is left to analytics, which runs first.
+_WHICH_TXN_RE = re.compile(
+    r"\b(?:which|what)\s+(?:are\s+|were\s+|was\s+|is\s+)?(?:the\s+|those\s+|these\s+)?"
+    r"(?:\d{1,3}\s+)?(?:transactions?|txns?|purchases?|payments?|entries|charges?)\b", re.I)
 # The named entity in "show me <X> transactions" (X between the verb and the noun), so an
 # UNKNOWN name ("show me Waitrose transactions") gets an honest "no transactions", not the
 # whole ledger. Leading filler (all / the / my / 3 / …) is stripped so "show me all 3
@@ -1559,10 +1565,12 @@ def _special_factual(s):
 def _extract_slots(q):
     low = q.lower()
     merch = ""
-    for m in _known_merchants():
-        if re.search(r"\b" + re.escape(m.lower()) + r"\b", low):
-            merch = m
-            break
+    # the LONGEST matching stored name wins, so "JD Sports" is picked over the separate
+    # merchant "Sports" (a sub-name of it) — not whichever happens to come first.
+    _mhits = [m for m in _known_merchants()
+              if re.search(r"\b" + re.escape(m.lower()) + r"\b", low)]
+    if _mhits:
+        merch = max(_mhits, key=lambda x: len(x.lower()))
     if not merch:
         # truncation-tolerant: a multi-word stored name (possibly cut off by the statement's
         # narrow column, e.g. "Putney Cricket Clu") that appears as a normalised substring of
@@ -1694,7 +1702,8 @@ def _extract_slots(q):
     # hijacks a real count ("how many") or an extreme. "show me top N transactions" is the
     # N largest, so it stays a top-N, not a chronological list.
     list_n = 0
-    if _LIST_RE.search(q) and t in (None, "count", "spend", "merchant", "category") \
+    if (_LIST_RE.search(q) or _WHICH_TXN_RE.search(q)) \
+            and t in (None, "count", "spend", "merchant", "category") \
             and not re.search(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b", low):
         if topm:
             t = "top_expenses"
@@ -2305,11 +2314,17 @@ def _find_categories(low):
 
 
 def _find_merchants(low):
-    out = []
-    for m in _known_merchants():
-        if re.search(r"\b" + re.escape(m.lower()) + r"\b", low) and m not in out:
-            out.append(m)
-    return out
+    hits = [m for m in _known_merchants()
+            if re.search(r"\b" + re.escape(m.lower()) + r"\b", low)]
+    # Drop a hit whose name is a word-subset of a LONGER hit — "Sports" inside "JD Sports"
+    # is a false sub-name match, and letting it through spawns a bogus second entity that
+    # the multi-entity combine then merges ("JD Sports + Sports"). Keep the longer name.
+    keep = []
+    for m in sorted(set(hits), key=lambda x: -len(x)):
+        if any(re.search(r"\b" + re.escape(m.lower()) + r"\b", k.lower()) for k in keep):
+            continue
+        keep.append(m)
+    return [m for m in _known_merchants() if m in keep]   # stable original order
 
 
 def _find_periods(q):

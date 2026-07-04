@@ -445,13 +445,19 @@ def by_category(user_id, doc_name=None, period=None):
 def merchant_spend(user_id, keyword, doc_name=None, period=None):
     w, p = _scope(user_id, doc_name, period)
     con = connect()
-    # Match the canonical merchant column (exact, case-insensitive) OR the description
-    # text. Descriptions store multi-word names with underscores ("Axis_Bank_Car_Loan"),
-    # so a spaced LIKE alone misses them — the merchant-column match fixes that.
-    r = con.execute(f"""SELECT COALESCE(SUM(debit),0), COALESCE(SUM(credit),0), COUNT(*),
-                        SUM(CASE WHEN debit>0 THEN 1 ELSE 0 END)
-                        FROM transactions WHERE {w} AND (LOWER(merchant)=? OR LOWER(descr) LIKE ?)""",
-                    p + [keyword.lower(), f"%{keyword.lower()}%"]).fetchone()
+    kw = keyword.lower()
+    cols = """COALESCE(SUM(debit),0), COALESCE(SUM(credit),0), COUNT(*),
+              SUM(CASE WHEN debit>0 THEN 1 ELSE 0 END)"""
+    # Prefer an EXACT canonical-merchant match. Only if there is none do we broaden to a
+    # description substring — otherwise "CHIP" would also swallow "Alfies Fish & Chips"
+    # (…Chip s), inflating the total. The substring fallback still catches names that live
+    # only in the description ("Axis_Bank_Car_Loan"), which the merchant column misses.
+    r = con.execute(f"SELECT {cols} FROM transactions WHERE {w} AND LOWER(merchant)=?",
+                    p + [kw]).fetchone()
+    if not r or r[2] == 0:
+        r = con.execute(f"SELECT {cols} FROM transactions WHERE {w} AND "
+                        f"(LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ?)",
+                        p + [f"%{kw}%", f"%{kw}%"]).fetchone()
     con.close()
     return {"debit": r[0], "credit": r[1], "count": r[2], "dcount": r[3] or 0}
 
