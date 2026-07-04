@@ -1461,6 +1461,46 @@ def _merchant_candidates(phrase):
     return [m for m in _known_merchants() if np_ in _norm_name(m)][:4]
 
 
+# ---- clarify-then-answer: resolve the user's reply to a pending "which did you mean?" ----
+_ORDINAL = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2,
+            "fourth": 3, "4th": 3, "fifth": 4, "5th": 4, "last": -1}
+
+
+def _clarify_choice(q, options):
+    """Resolve a reply to a pending clarification into the chosen option, or None when the
+    reply isn't a pick (so the caller treats it as a brand-new question). Accepts a name
+    ('Loans 2 Go'), a bare number ('2', 'option 2'), or an ordinal ('the first', 'last')."""
+    if not options:
+        return None
+    low = q.lower().strip().rstrip("?.! ")
+    # a NAME match first, so "Loans 2 Go" picks by name and not the digit inside it
+    for o in options:
+        ol = o.lower()
+        if low == ol or (len(low) >= 3 and (low in ol or ol in low)):
+            return o
+    # a reply that is JUST a number ("2", "option 2", "#2", "number 3")
+    m = re.fullmatch(r"(?:option\s*|no\.?\s*|#\s*|number\s*|the\s*)?(\d{1,2})", low)
+    if m:
+        i = int(m.group(1)) - 1
+        return options[i] if 0 <= i < len(options) else None
+    # ordinal words ("the first", "second one", "last")
+    for w, i in _ORDINAL.items():
+        if re.search(r"\b" + w + r"\b", low):
+            idx = i if i >= 0 else len(options) - 1
+            return options[idx] if 0 <= idx < len(options) else None
+    # a distinctive token (>=4 chars) shared with EXACTLY one option
+    hits = [o for o in options if any(t in o.lower().split() for t in low.split() if len(t) >= 4)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def _sub_clarify(orig, phrase, choice):
+    """Rebuild the original question with the chosen entity in place of the ambiguous phrase,
+    so the SAME metric/period is answered ('how many <deposit> txns' -> '… SAVINGS DEPOSIT …')."""
+    if phrase and re.search(re.escape(phrase), orig, flags=re.I):
+        return re.sub(re.escape(phrase), choice, orig, count=1, flags=re.I)
+    return f"how much did I spend at {choice}?"
+
+
 def _lookup_entity(q):
     """Pull the name a lookup question is about, from the sentence structure."""
     low = q.lower()
@@ -3343,6 +3383,17 @@ async def query(request: Request):
         _append_log(tid, q, DIDNT_CATCH, "chat")
         return stream_text("chat", DIDNT_CATCH)
 
+    # ---- resolve a PENDING clarification --------------------------------------------
+    # Last turn we asked "which X did you mean?". If THIS turn is a pick (a name, "the
+    # first", "2"), rewrite it back into the ORIGINAL question with the chosen entity and
+    # let the normal pipeline answer it. If it isn't a pick, drop the pending state and
+    # treat this as a fresh question.
+    _pend = ctx.pop("pending_clarify", None)
+    if _pend:
+        _choice = _clarify_choice(q, _pend.get("options") or [])
+        if _choice:
+            q = _sub_clarify(_pend.get("orig", q), _pend.get("phrase", ""), _choice)
+
     # ---- CONVERSATIONAL RESOLUTION ---------------------------------------------------
     # Rewrite an elliptical follow-up ("average transaction", "compare with swiggy") into a
     # fully-resolved STANDALONE query by injecting the thread's carried scope, so EVERY
@@ -3434,11 +3485,13 @@ async def query(request: Request):
     # 1) DETERMINISTIC factual resolution (standalone + thread context carry).
     det = _resolve_factual(rq, ctx)
     if det and det.get("type") == "clarify":
-        # low-confidence entity: several stored merchants match — ask which (Step-11-style
-        # clarification). Nothing is saved to ctx; the follow-up names the merchant.
+        # low-confidence entity: several stored merchants match — ask which, and REMEMBER the
+        # question so next turn's reply ("the first" / "2" / a name) resolves and answers it.
         opts = det.get("options") or []
-        msg = (f"I found {len(opts)} merchants matching **{det.get('phrase', '')}**: "
-               + ", ".join(f"**{o}**" for o in opts) + ". Which one did you mean?")
+        ctx["pending_clarify"] = {"options": opts, "phrase": det.get("phrase", ""), "orig": rq}
+        numbered = ", ".join(f"**{i + 1}. {o}**" for i, o in enumerate(opts))
+        msg = (f"I found {len(opts)} matches for **{det.get('phrase', '')}**: {numbered}. "
+               f"Which did you mean? (reply with a name or a number)")
         _append_log(tid, q, msg, "chat")
         return stream_text("chat", msg)
     if det and det.get("type"):
