@@ -1842,13 +1842,17 @@ def _resolve_factual(q, ctx):
         if cont or refs or not turn_period:
             mer = mer or ctx.get("merchant", "")
             cat = cat or ctx.get("category", "")
-    # a BARE extreme follow-up ("and the biggest?", "which was the biggest one?") — no
-    # expense noun and no own entity — stays on the thread's topic: inherit the carried
-    # merchant/category so it's "the biggest SHOPPING expense", not account-wide (which would
-    # also wipe the carried category from ctx). A standalone "what's my biggest expense?"
-    # names the noun, so it's untouched and stays account-wide (the c011bdc standalone rule).
+    # an extreme follow-up that refers to the carried set inherits it: either a BARE
+    # continuation with no expense noun ("and the biggest?") OR an explicit REFERENTIAL
+    # phrasing ("which one was the biggest purchase?", "the biggest one", "of those") — even
+    # with an expense noun, because "which one" clearly points back at the thread's topic.
+    # A standalone "what's my biggest expense?" (no referential cue) stays account-wide
+    # (the c011bdc standalone rule), and a scoped answer keeps ctx.merchant for the next turn.
+    _extreme_ref = bool(
+        (re.search(r"\b(?:which|what)\b", low) and re.search(r"\bone\b|\bof\s+(?:those|these|them)\b", low))
+        or re.search(r"\bthe\s+\w+\s+one\b", low))
     if t in ("largest_expense", "smallest_expense") and not mer and not cat and ctx \
-            and not any(w in low for w in _EXP_CTXT):
+            and (cont or refs or _extreme_ref or not any(w in low for w in _EXP_CTXT)):
         if ctx.get("merchant"):
             mer = ctx["merchant"]
         elif ctx.get("category"):
