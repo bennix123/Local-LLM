@@ -179,15 +179,19 @@ def ask(q, ctx):
     state.prev_query = q
     state.to_ctx(ctx)
 
-    ians = tsrv.intelligence_answer(rq)
+    # build the single CanonicalQuery exactly as query() does, so the harness exercises the
+    # real canonical path (carried period/entity reaching analytics/concept/intelligence).
+    cq = tsrv.build_canonical_query(q, rq, sc, state)
+
+    ians = tsrv.intelligence_answer(cq)
     if ians is not None:
         return "SQL", ians
     if tsrv._ADVICE_RE.search(rq) or tsrv._REASON_RE.search(rq) or tsrv._WHY_RE.search(rq):
         return "advice", "(grounded advice) " + rq
-    ca = tsrv.concept_answer(rq)
+    ca = tsrv.concept_answer(cq)
     if ca is not None:
         return "SQL", ca
-    aa = tsrv.analytics_answer(rq)
+    aa = tsrv.analytics_answer(cq)
     if aa is not None:
         return "SQL", aa
     det = tsrv._resolve_factual(rq, ctx)

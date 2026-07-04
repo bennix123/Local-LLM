@@ -161,8 +161,10 @@ Examples:
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))  # repo root, for plaid_integration
+sys.path.insert(0, os.path.dirname(__file__))                       # scripts/, for conversation.py
 from src.services import txn_store as ts  # noqa: E402
 from src.services import ml_insights as ml  # noqa: E402
+from conversation import CanonicalQuery, DialogueState, ConversationState  # noqa: E402,F401
 
 
 # last few (question, answer) exchanges so follow-ups ("4395 is what?", "and in may?")
@@ -1099,22 +1101,28 @@ def _advice_fallback(q):
     return line
 
 
-def grounded_advice(q, thread="default", ctx=None):
+def grounded_advice(q, thread="default"):
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
     is verified against those facts before going out, else a deterministic fallback.
-    `ctx` (thread scope) pins the CURRENT TOPIC with that entity's own fact block."""
-    facts = (ts.advice_facts(USER) + _concept_facts()   # + debt/fee/gambling obligations
-             + _scoped_facts(ctx))                      # + carried-topic facts (Healthcare…)
-    reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, q)
+    Accepts a CanonicalQuery or a raw string. When the query carries a period, the fact
+    sheet is scoped to it (so a period-scoped advice answer is no longer rejected by the
+    number guard); a carried merchant/category pins the CURRENT TOPIC block."""
+    cq = q if isinstance(q, CanonicalQuery) else _cq_from_text(q)
+    period = cq.period()
+    question = cq.resolved_text
+    facts = (ts.advice_facts(USER, None, period)        # period-scoped headline facts
+             + _concept_facts()                         # + debt/fee/gambling obligations (whole statement)
+             + _scoped_facts(cq))                       # + carried-topic facts (Healthcare…)
+    reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, question)
     if reply:
         reply = re.sub(r"^(?:answer|penny)\s*[:\-]\s*", "", reply, flags=re.I).strip()
         ok, why = _advice_grounded(reply, facts)
         if ok:
-            _append_log(thread, q, reply, "advice")
+            _append_log(thread, question, reply, "advice")
             return stream_text("advice", reply)
         print(f"[advice] reply rejected ({why}); using deterministic fallback")
-    fb = _advice_fallback(q)
-    _append_log(thread, q, fb, "advice")
+    fb = _advice_fallback(question)
+    _append_log(thread, question, fb, "advice")
     return stream_text("advice", fb)
 
 
@@ -1692,62 +1700,12 @@ def _save_ctx(ctx, intent):
 
 
 # ============================================================ conversational context
-# A typed view over the per-thread `ctx` dict. It serialises BACK into the same dict
-# (legacy keys: type/start/end/category/merchant/n) so `_resolve_factual`, `_save_ctx`
-# and existing chats.json keep working unchanged; new fields are added additively, so
-# older chat files (without them) still load. Nothing here invents a number — it only
-# tracks WHAT the conversation is about and rewrites elliptical follow-ups so the SQL
-# engines always receive a fully-resolved, standalone question.
-@dataclass
-class ConversationState:
-    topic: str = ""            # legacy `type`: merchant|category|count|spend|...
-    merchant: str = ""
-    category: str = ""
-    txn_type: str = ""         # debit|credit|income
-    payment_mode: str = ""     # upi (cash/card are not separable in statement data)
-    account: str = ""          # doc_name scope (multi-statement)
-    start: str = ""            # period start  (YYYY | YYYY-MM | YYYY-MM-DD)
-    end: str = ""              # period end
-    metric: str = ""           # spend|count|average|extreme|trend|breakdown|top|compare
-    filters: dict = field(default_factory=dict)      # {"weekend":True, "txn_type":"debit"}
-    comparison: list = field(default_factory=list)   # entities last compared
-    sort: str = ""
-    limit: int = 0             # legacy `n`
-    prev_route: str = ""
-    prev_query: str = ""
-    prev_entities: list = field(default_factory=list)
-    prev_answer: str = ""
-
-    @classmethod
-    def from_ctx(cls, ctx):
-        c = ctx or {}
-        return cls(
-            topic=c.get("type", "") or "", merchant=c.get("merchant", "") or "",
-            category=c.get("category", "") or "", txn_type=c.get("txn_type", "") or "",
-            payment_mode=c.get("payment_mode", "") or "", account=c.get("account", "") or "",
-            start=c.get("start", "") or "", end=c.get("end", "") or "",
-            metric=c.get("metric", "") or "", filters=dict(c.get("filters") or {}),
-            comparison=list(c.get("comparison") or []), sort=c.get("sort", "") or "",
-            limit=int(c.get("n") or c.get("limit") or 0),
-            prev_route=c.get("prev_route", "") or "", prev_query=c.get("prev_query", "") or "",
-            prev_entities=list(c.get("prev_entities") or []), prev_answer=c.get("prev_answer", "") or "")
-
-    def to_ctx(self, ctx):
-        """Mutate `ctx` in place — keep legacy keys for backward compat, add new ones."""
-        ctx["type"] = self.topic; ctx["merchant"] = self.merchant
-        ctx["category"] = self.category; ctx["start"] = self.start; ctx["end"] = self.end
-        ctx["n"] = self.limit
-        ctx["txn_type"] = self.txn_type; ctx["payment_mode"] = self.payment_mode
-        ctx["account"] = self.account; ctx["metric"] = self.metric
-        ctx["filters"] = self.filters; ctx["comparison"] = self.comparison
-        ctx["sort"] = self.sort; ctx["limit"] = self.limit
-        ctx["prev_route"] = self.prev_route; ctx["prev_query"] = self.prev_query
-        ctx["prev_entities"] = self.prev_entities; ctx["prev_answer"] = self.prev_answer
-        return ctx
-
-    @property
-    def entity(self):
-        return self.merchant or self.category
+# ConversationState / DialogueState / CanonicalQuery now live in conversation.py (imported
+# above). DialogueState is a strict superset of the old in-file class — identical legacy
+# serialisation (type/start/end/category/merchant/n) plus the fields the architecture review
+# found missing (composable filters, grouping, amount threshold, comparison, active
+# transaction, structured last_result, previous spec, confidence). The `ConversationState`
+# alias keeps every existing call site working during the migration.
 
 
 def _period_phrase(start, end=""):
@@ -1893,11 +1851,17 @@ def _resolve_conversation(q, state):
         new_start, new_end = s["period_full"]
     elif s["prange"] and cy:
         new_start, new_end = f"{cy}-{s['prange'][0]}", f"{cy}-{s['prange'][1]}"
+    elif s["prange"]:                     # bare "July to December" (no year) -> the data's year(s)
+        y0, y1 = _year_for_month(s["prange"][0]), _year_for_month(s["prange"][1])
+        new_start, new_end = (f"{y0}-{s['prange'][0]}", f"{y1}-{s['prange'][1]}") if (y0 and y1) else ("", "")
     elif s["pmonth"] and s["pday"]:
         new_start, new_end = (f"{cy}-{s['pmonth']}-{s['pday']}" if cy
                               else f"MD-{s['pmonth']}-{s['pday']}"), ""
     elif s["pmonth"] and cy:
         new_start, new_end = f"{cy}-{s['pmonth']}", ""
+    elif s["pmonth"]:                     # bare month ("in May", "August") -> the statement's year
+        y = _year_for_month(s["pmonth"])
+        new_start, new_end = (f"{y}-{s['pmonth']}", "") if y else ("", "")
     elif s["pday"] and cym:
         new_start, new_end = f"{cym}-{s['pday']}", ""
     elif scope_clear:
@@ -1998,6 +1962,75 @@ def _log_conv(tid, original, resolved, rinfo, state, before):
         }, ensure_ascii=False), flush=True)
     except Exception:
         pass
+
+
+# ============================================================ canonical query builder
+# The single point where the conversation's resolved scope becomes a typed CanonicalQuery.
+# Built ONCE per turn from the rewritten standalone text (rq) + the merged scope (sc), so
+# every engine reads resolved period / merchant / category / concept / amount / filters
+# instead of re-parsing the text. This is the fix for the whole context-loss class: the
+# structured scope is no longer thrown away in favour of an English string.
+_AMT_DIR_OVER = re.compile(r"\b(over|above|more than|greater than|bigger than|exceed\w*|"
+                           r"higher than|at\s?least|atleast)\b", re.I)
+_AMT_DIR_UNDER = re.compile(r"\b(under|below|less than|smaller than|cheaper than|lower than)\b", re.I)
+
+
+def _detect_concept(low):
+    """The semantic concept label a question triggers (gambling/loans/flights/...) or ''."""
+    for label, trig, _mrx in _CONCEPTS:
+        if trig.search(low):
+            return label
+    return ""
+
+
+def build_canonical_query(q, rq, sc, state):
+    """Assemble the CanonicalQuery for THIS turn's answer. `rq` is the rewritten standalone
+    text; `sc` is the merged scope persisted to state for FUTURE turns.
+
+    KEY distinction: the ANSWER scope (period / entity / concept / amount / filters) is read
+    from `rq` — which already has the carried scope injected IFF this was an elliptical
+    follow-up. It must NOT be read from `sc`, because `sc` inherits the carried period/merchant
+    unconditionally (that is correct for persistence but would leak a stale scope into a
+    reframing or standalone turn — e.g. "what loans each month?" must not inherit last turn's
+    "June"). `sc` supplies only the cross-turn extras (txn_type / metric / comparison) and
+    account. So the answer scope matches the pre-canonical behaviour exactly, while every
+    engine now reads it from ONE object instead of re-parsing `rq`."""
+    cq = _cq_from_text(rq)                       # answer scope from the resolved text
+    cq.raw = q                                   # keep the ORIGINAL question as raw
+    cq.txn_type = sc.get("txn_type", "") or cq.txn_type
+    cq.metric = sc.get("metric", "") or ""
+    cq.comparison = list(sc.get("comparison") or [])
+    cq.doc_name = state.account or ""
+    return cq
+
+
+def _cq_from_text(text):
+    """Backward-compat: build a minimal CanonicalQuery by re-parsing raw text, for callers
+    that still pass a string (the offline harness, the gate-0 followup guard, and any
+    standalone engine invocation). Reproduces the pre-canonical re-parse EXACTLY, so those
+    paths are behaviourally unchanged."""
+    if isinstance(text, CanonicalQuery):
+        return text
+    low = (text or "").lower()
+    cq = CanonicalQuery(raw=text, resolved_text=text)
+    pp = _parse_period(text)
+    if pp:
+        cq.start, cq.end = pp
+    merchs, cats = _find_merchants(low), _find_categories(low)
+    cq.merchant = merchs[0] if merchs else ""
+    cq.category = cats[0] if cats else ""
+    cq.concept = _detect_concept(low)
+    over, under = _AMT_DIR_OVER.search(low), _AMT_DIR_UNDER.search(low)
+    if over or under:
+        amt = _parse_amount(low)
+        if amt is not None:
+            cq.amount = amt
+            cq.amount_op = "under" if (under and not over) else "over"
+    if re.search(r"\bweekend", low):
+        cq.weekend = True
+    elif re.search(r"\bweekday", low):
+        cq.weekend = False
+    return cq
 
 
 # ---- ANALYTICS layer: ops beyond lookup (compare / average / % / argmax / filter /
@@ -2196,9 +2229,11 @@ _CONCEPTS = [
 
 def concept_answer(q):
     """Answer a semantic-concept spend question (see _CONCEPTS) from the ledger merchants
-    that match the concept. Markdown, or None if no concept is named. Period comes from
-    THIS question only (a concept question is self-contained — no thread scope carried)."""
-    low = q.lower()
+    that match the concept. Accepts a CanonicalQuery or a raw string. The period is the
+    RESOLVED period (so a carried year/month now scopes the concept, fixing the old
+    self-contained-only behaviour); every figure still comes from matched real merchants."""
+    cq = q if isinstance(q, CanonicalQuery) else _cq_from_text(q)
+    low = cq.resolved_text.lower()
     if _WHY_RE.search(low):
         return None            # "why …" is a reasoning question — the advice path owns it
     hit = next(((label, mrx) for label, trig, mrx in _CONCEPTS if trig.search(low)), None)
@@ -2210,8 +2245,7 @@ def concept_answer(q):
     for m in _known_merchants():
         if re.search(r"\b" + re.escape(m.lower()) + r"\b", low):
             return None
-    pf = _parse_period(q)
-    period, plabel = (ts._norm_period(pf[0], pf[1]) if pf else (None, None))
+    period, plabel = ts._norm_period(cq.start, cq.end)
     sfx = f" in {plabel}" if plabel else ""
     inr, grp = ts.inr, ts.grp
 
@@ -2278,17 +2312,20 @@ def _concept_facts():
     return ("\nOBLIGATIONS & HABITS (from the ledger):\n" + "\n".join(lines) + "\n") if lines else ""
 
 
-def _scoped_facts(ctx):
-    """CURRENT-TOPIC fact block for the advice prompt: when the thread carries a
+def _scoped_facts(cq):
+    """CURRENT-TOPIC fact block for the advice prompt: when the query carries a
     merchant/category, give the LLM that entity's REAL aggregates (total, share,
     month-by-month) and pin the topic — so "tell me some insights in this category" /
     "more insights" stays on the carried topic instead of whatever the account-wide
-    sheet makes salient. '' on a fresh thread; every number from SQL."""
-    cat = (ctx or {}).get("category", "")
-    mer = (ctx or {}).get("merchant", "")
+    sheet makes salient. '' with no carried entity; every number from SQL. Accepts a
+    CanonicalQuery (preferred) or a legacy ctx dict."""
+    if isinstance(cq, CanonicalQuery):
+        cat, mer, period = cq.category, cq.merchant, cq.period()
+    else:                                    # legacy ctx dict (backward compat)
+        cat, mer, period = (cq or {}).get("category", ""), (cq or {}).get("merchant", ""), None
     inr = ts.inr
     if mer:
-        r = ts.merchant_spend(USER, mer, None, None)
+        r = ts.merchant_spend(USER, mer, None, period)
         if not r["count"]:
             return ""
         return (f"\nCURRENT TOPIC: the merchant {mer}. FACTS FOR {mer}: spent "
@@ -2298,17 +2335,17 @@ def _scoped_facts(ctx):
     if not cat:
         return ""
     total, cnt = 0.0, 0
-    for c, a, n in ts.by_category(USER, None, None):
+    for c, a, n in ts.by_category(USER, None, period):
         if c == cat:
             total, cnt = a, n
             break
     if not cnt:
         return ""
-    o = ts.overview(USER, None, None)
+    o = ts.overview(USER, None, period)
     pct = (total / o["debit"] * 100.0) if o["debit"] else 0.0
     series = ", ".join(
         f"{ts._mlabel(m)} {inr(next((a for c2, a, _n in ts.by_category(USER, None, m) if c2 == cat), 0.0))}"
-        for m in ts.months_list(USER, None, None))
+        for m in ts.months_list(USER, None, period))
     return (f"\nCURRENT TOPIC: the {cat} category. FACTS FOR {cat}: total {inr(total)} "
             f"across {ts.grp(cnt)} transactions ({pct:.1f}% of all spending); by month: "
             f"{series}. Answer about {cat} specifically unless the user changes topic.\n")
@@ -2316,10 +2353,13 @@ def _scoped_facts(ctx):
 
 def analytics_answer(q):
     """Deterministic analytics (compare, average, %, argmax, amount filter, multi-entity,
-    exclusion). Returns markdown or None (not an analytics question)."""
-    low = q.lower()
-    pp = _parse_period(q)
-    period, plabel = (ts._norm_period(pp[0], pp[1]) if pp else (None, None))
+    exclusion). Accepts a CanonicalQuery (from the cascade) or a raw string (harness /
+    gate-0 guard); reads the RESOLVED period + carried entity from the canonical query
+    instead of re-parsing, so a carried period/merchant reaches every branch. Returns
+    markdown or None (not an analytics question)."""
+    cq = q if isinstance(q, CanonicalQuery) else _cq_from_text(q)
+    low = cq.resolved_text.lower()
+    period, plabel = ts._norm_period(cq.start, cq.end)   # RESOLVED period (from the canonical query)
     sfx = f" in {plabel}" if plabel else ""
     inr, grp = ts.inr, ts.grp
     cats, merchs = _find_categories(low), _find_merchants(low)
@@ -2752,7 +2792,7 @@ def analytics_answer(q):
 
     # 9) COMPARE / DIFFERENCE (two periods, or two categories/merchants)
     if re.search(r"\b(more|less|higher|lower|difference|compare|versus|vs|than)\b|\bor\b", low):
-        periods = _find_periods(q)
+        periods = _find_periods(cq.resolved_text)
         if len(periods) >= 2:
             a, b = periods[0], periods[1]
             # thread a named category/merchant symmetrically through BOTH periods, so
@@ -2825,8 +2865,11 @@ _PROJ_RE = re.compile(
 
 def ml_answer(q):
     """Anomaly / forecast questions -> the sklearn models. Deterministic figures from the
-    data. Returns markdown, or None if not applicable / not enough data."""
-    low = q.lower()
+    data. Accepts a CanonicalQuery or a raw string. Returns markdown, or None if not
+    applicable. (Period/entity scoping of the ML models is a follow-on: ml_insights issues
+    its own unscoped SQL; until it routes through ts._scope these stay account-wide.)"""
+    cq = q if isinstance(q, CanonicalQuery) else _cq_from_text(q)
+    low = cq.resolved_text.lower()
     if _ANOM_RE.search(low):
         r = _ml("anom", lambda: ml.anomalies(USER))
         items = r.get("items", [])
@@ -3040,28 +3083,32 @@ def insights_answer(q):
 
 
 def intelligence_answer(q):
-    """Dispatch to the pre-computed intelligence engines. Returns markdown or None
-    (None -> the question wasn't one of these, so the normal cascade continues)."""
-    low = q.lower()
+    """Dispatch to the pre-computed intelligence engines. Accepts a CanonicalQuery or a raw
+    string; dispatches on the RESOLVED text. Returns markdown or None (None -> the question
+    wasn't one of these, so the normal cascade continues). (Period/entity scoping of the
+    intelligence engines is a follow-on; health/risk/patterns are account-wide by nature.)"""
+    cq = q if isinstance(q, CanonicalQuery) else _cq_from_text(q)
+    low = cq.resolved_text.lower()
+    text = cq.resolved_text
     # Impact is checked before Health: "which transactions hurt my financial health"
     # mentions 'health' but is really an impact question. Impact needs the word
     # "transaction(s)", so it never steals a genuine health question.
     if _IMPACT_RE.search(low):
-        return impact_answer(q)
+        return impact_answer(text)
     if _HEALTH_RE.search(low):
-        return health_answer(q)
+        return health_answer(text)
     # "which/what months were risky" wants a per-month breakdown, not the overall
     # risk score -> let the analytics risky-months handler take it.
     if _RISK_RE.search(low) and not re.search(r"(?:which|what)\b.{0,25}month", low):
-        return risk_answer(q)
+        return risk_answer(text)
     if _RECUR_RE.search(low):
-        return recurring_answer(q)
+        return recurring_answer(text)
     if _CATTREND_RE.search(low):
-        return cattrend_answer(q)
+        return cattrend_answer(text)
     if _BEHAVE_RE.search(low):
-        return behavior_answer(q)
+        return behavior_answer(text)
     if _PATTERN_RE.search(low):
-        return insights_answer(q)
+        return insights_answer(text)
     return None
 
 
@@ -3114,6 +3161,11 @@ async def query(request: Request):
     state.to_ctx(ctx)
     _log_conv(tid, q, rq, rinfo, state, before)
 
+    # Build the single CanonicalQuery ONCE from the resolved conversation. Every engine
+    # below reads its resolved fields (period / merchant / category / concept / amount /
+    # filters) instead of re-parsing the text — this is the context-loss fix.
+    cq = build_canonical_query(q, rq, sc, state)
+
     # 0) follow-up ABOUT the previous answer ("which merchant was that?", "why?")
     #    -> answer from conversation, do NOT run a new query. (uses the ORIGINAL q.)
     if ctx and _FUP_ATTR.search(q) and _REFS_RE.search(q) and not _resolve_factual(q, ctx) \
@@ -3124,7 +3176,7 @@ async def query(request: Request):
     # 0a-ML) anomaly / forecast -> the sklearn models (deterministic figures from the
     #        data). Runs before the advice gate so these get the model, not a narrative.
     if _ANOM_RE.search(rq) or _FCAST_RE.search(rq) or _PROJ_RE.search(rq):
-        mlans = ml_answer(rq)
+        mlans = ml_answer(cq)
         if mlans is not None:
             remember(history, q, mlans)
             _append_log(tid, q, mlans, "ML")
@@ -3134,7 +3186,7 @@ async def query(request: Request):
     #         category-trend / behaviour / pattern digest) — deterministic, every
     #         number from SQL. Runs before the advice gate so these get the precise
     #         scored answer, not an LLM narrative.
-    intans = intelligence_answer(rq)
+    intans = intelligence_answer(cq)
     if intans is not None:
         remember(history, q, intans)
         _append_log(tid, q, intans, "SQL")
@@ -3145,11 +3197,11 @@ async def query(request: Request):
     #     fees") -> a real LLM answer reasoned over the SQL fact sheet (numbers verified).
     if _ADVICE_RE.search(rq) or _REASON_RE.search(rq) or _WHY_RE.search(rq):
         remember(history, q, "(financial advice given)")
-        return grounded_advice(rq, tid, ctx)
+        return grounded_advice(cq, tid)
 
     # 0c-CONCEPT) semantic spend concepts (gambling / loans / bank fees) grounded to
     #     real ledger merchants — deterministic, honest "not found" when nothing matches.
-    ca = concept_answer(rq)
+    ca = concept_answer(cq)
     if ca is not None:
         remember(history, q, ca)
         _append_log(tid, q, ca, "SQL")
@@ -3157,7 +3209,7 @@ async def query(request: Request):
 
     # 0c) ANALYTICS (compare / average / % / argmax / amount filter / multi-entity /
     #     exclusion) — deterministic, numbers from SQL.
-    aa = analytics_answer(rq)
+    aa = analytics_answer(cq)
     if aa is not None:
         remember(history, q, aa)
         _append_log(tid, q, aa, "SQL")
@@ -3174,7 +3226,7 @@ async def query(request: Request):
         _append_log(tid, q, msg, "chat")
         return stream_text("chat", msg)
     if det and det.get("type"):
-        ans = ts.dispatch_intent(det, USER)
+        ans = ts.dispatch_intent(det, USER, cq.doc_name or None)
         if ans is not None:
             if ans.lstrip("* ").lower().startswith("no transactions found"):
                 # a name with ZERO transactions is not a usable thread scope — carrying
@@ -3206,10 +3258,10 @@ async def query(request: Request):
             return stream_text("chat", DIDNT_CATCH)
         if t == "advice" and (_FIN_RE.search(rq) or _ADVICE_RE.search(rq) or _REASON_RE.search(rq)):
             remember(history, q, "(financial advice given)")
-            return grounded_advice(rq, tid, ctx)
+            return grounded_advice(cq, tid)
         # router said "advice" but the question has zero finance content (e.g. "should i
         # text my ex") -> don't lecture about money; fall through to a clean nudge below.
-        ans = ts.dispatch_intent(intent, USER)            # SQL produces every number
+        ans = ts.dispatch_intent(intent, USER, cq.doc_name or None)   # SQL produces every number
         if ans is not None:
             if ans.lstrip("* ").lower().startswith("no transactions found"):
                 intent = {**intent, "merchant": "", "category": ""}  # zero-result ≠ scope
