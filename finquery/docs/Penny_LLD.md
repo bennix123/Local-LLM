@@ -372,9 +372,16 @@ object consumed by all engines.
   `filters`, `group_by`, `amount_op/amount`, `comparison`, `presentation`, `confidence` —
   legacy ctx keys unchanged, so `_resolve_factual`/`_save_ctx`/`chats.json` keep working.
 
-**Staged (documented in the redesign doc):** composable filter-stack (weekend+amount+exclude
-in one query), by-month/breakdown entity scoping, ML/intelligence period threading, structured
-`last_result`-backed follow-ups with number verification, and the single-pass resolver
+**Delivered on top of the foundation:** composable filter-stack (weekend + amount + exclude
+in one `filtered_summary` query, CLP-6) and by-month/breakdown entity scoping ("Netflix per
+month", CLP-3); the follow-up path is now number-verified (buffered reply checked against the
+recent SQL answers; strayed number → deterministic restatement) and the number guard is
+currency-aware (₹/£/$/€), closing the last hallucination hole.
+
+**Staged (documented in the redesign doc):** ML/intelligence period+entity scoping (the
+sklearn layer issues its own unscoped SQL; health/risk/patterns are account-wide by nature),
+a prose response formatter (deferred — the current bold-headline + table format is already
+structured; a rewrite is cosmetic and high-regression-risk), and the single-pass resolver
 collapse — each behind the differential so `txn_store` behaviour stays frozen.
 
 ---
