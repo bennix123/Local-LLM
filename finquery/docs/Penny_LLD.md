@@ -239,6 +239,10 @@ this **once, before routing**, so every engine receives a fully-resolved standal
 - **`_resolve_conversation(q, state)`** rewrites an elliptical follow-up into a standalone
   query by injecting the carried scope, and returns the merged `scope` (persisted to `ctx`
   every turn — so context flows no matter which engine answers, not just the factual path):
+  - entity back-reference: `"this/that category"` → the carried NAME ("insights in this
+    category" after a Healthcare turn → "insights in Healthcare"), same for "this
+    merchant/shop/store" — so the ADVICE path sees the topic too, not just the factual path
+    (the 8B model must never pick the topic itself from an account-wide fact sheet).
   - bare metric → canonical stem + scope: `"average"` → `average transaction at Zomato in 2024`
   - comparison: `"compare with swiggy"` → `compare Zomato vs Swiggy in 2024`
   - filter: `"only weekends"` → `… at Zomato in 2024 on weekends` (→ `filtered_summary`)
@@ -450,7 +454,14 @@ return ok ? stream(reply) : stream(_advice_fallback(q))        # number guard
   concept aggregates (per-merchant, whole statement, all from SQL) — so "what debt should
   I pay off first?" and "why was I charged overdraft fees?" reason over the user's REAL
   obligations. The number guard validates against the combined sheet. "Why …" questions
-  route here via `_WHY_RE` (§4 g2) — they are reasoning, never a lookup.
+  route here via `_WHY_RE` (§4 g2) — they are reasoning, never a lookup; so are
+  solution-seeking follow-ups ("any solutions/suggestions/ideas…", `_ADVICE_RE`).
+- `_scoped_facts(ctx)` appends a **CURRENT TOPIC** block when the thread carries a
+  merchant/category — that entity's own aggregates (total, share of spending,
+  month-by-month) plus an instruction to answer about it specifically. This pins advice
+  follow-ups ("tell me some insights in this category", "more insights") to the carried
+  topic instead of whatever the account-wide sheet makes salient. Every number from SQL;
+  validated by the same number guard.
 
 ### 6.3 Number-validation — `_advice_grounded(reply, facts) -> (bool, reason)`
 The guarantee enforcer. Extraction + tolerance:

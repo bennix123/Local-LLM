@@ -183,7 +183,7 @@ def ask(q, ctx):
     if ians is not None:
         return "SQL", ians
     if tsrv._ADVICE_RE.search(rq) or tsrv._REASON_RE.search(rq) or tsrv._WHY_RE.search(rq):
-        return "advice", "(grounded advice — reasoned over the SQL fact sheet)"
+        return "advice", "(grounded advice) " + rq
     ca = tsrv.concept_answer(rq)
     if ca is not None:
         return "SQL", ca
@@ -344,6 +344,19 @@ check("N9 why-question routes to reasoning", r + " " + a, must=["advice"],
 ctx = {}
 _, a = ask("How much did I spend on taxis?", ctx)
 check("N10 ungrounded concept honest", a, must=["couldn't find any taxis"])
+ctx = {}
+_, a = ask("Why do I spend so much in Healthcare?", ctx)
+r2, a = ask("Tell me some insights in this category", ctx)
+check("H1 'this category' resolves to carried topic", a, must=["Healthcare"])
+r3, a = ask("Any solutions to above problems?", ctx)
+check("H2 solutions follow-up is advice, not a lookup", r3 + " " + a,
+      must=["advice"], must_not=["No transactions"])
+sf = tsrv._scoped_facts({"category": "Healthcare", "merchant": ""})
+check("H3 scoped advice facts pin the topic", sf,
+      must=["CURRENT TOPIC", "Healthcare", "111.00"])
+ctx = {}
+_, a = ask("How much did I pay to Bupa?", ctx)
+check("H4 'pay to <merchant>' still resolves", a, must=["Bupa", "111.00"])
 ctx = {}
 _, a = ask("Did my utility bills increase?", ctx)
 check("N12 named-category trend", a, must=["Utilities increased"])

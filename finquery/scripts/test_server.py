@@ -1099,10 +1099,12 @@ def _advice_fallback(q):
     return line
 
 
-def grounded_advice(q, thread="default"):
+def grounded_advice(q, thread="default", ctx=None):
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
-    is verified against those facts before going out, else a deterministic fallback."""
-    facts = ts.advice_facts(USER) + _concept_facts()   # + debt/fee/gambling obligations
+    is verified against those facts before going out, else a deterministic fallback.
+    `ctx` (thread scope) pins the CURRENT TOPIC with that entity's own fact block."""
+    facts = (ts.advice_facts(USER) + _concept_facts()   # + debt/fee/gambling obligations
+             + _scoped_facts(ctx))                      # + carried-topic facts (Healthcare…)
     reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, q)
     if reply:
         reply = re.sub(r"^(?:answer|penny)\s*[:\-]\s*", "", reply, flags=re.I).strip()
@@ -1151,6 +1153,7 @@ _CAT_STEMS = [
 _GUARD_STOP = frozenset((
     "the", "a", "an", "all", "my", "me", "it", "them", "that", "this", "these", "those",
     "in", "of", "off", "out", "back", "up", "for", "by", "per",
+    "above", "below", "such", "said", "earlier", "prior",
     "each", "every", "any", "some", "one", "home", "work", "least", "most", "more", "less",
     "now", "today", "yesterday", "tomorrow", "moment", "last", "next", "past", "previous",
     "recent", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
@@ -1470,7 +1473,7 @@ def _extract_slots(q):
     # answers about the right merchant, or an honest "no transactions found for X" — never
     # the account-wide total ("how much did I spend on <unknown>" must not read as ALL spend).
     if not merch and not cat:
-        um = re.search(r"\b(?:at|from|on|to|with|pay(?:ing)?|paid)\s+"
+        um = re.search(r"\b(?:at|from|on|to|with|pay(?:ing)?|paid)\s+(?:to\s+|the\s+|my\s+|an?\s+)?"
                        r"([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
                        r"(?:\s+(?:in|on|during|for|last|this|the|over|between|per|by)\b|[?.!,]|$)", low)
         if um:
@@ -1844,6 +1847,25 @@ def _resolve_conversation(q, state):
         out["reset"] = True; out["signals"] = ["reset"]
         return out
 
+    # entity back-reference: "this/that category|merchant" -> the carried NAME, so every
+    # engine — including the advice path — sees the real topic. ("Tell me some insights
+    # in this category" after a Healthcare turn must not drift to whatever category the
+    # LLM finds salient.)
+    if state.category:
+        q2 = re.sub(r"\b(?:this|that|the same)\s+category\b", lambda _m: state.category,
+                    q, flags=re.I)
+        if q2 != q:
+            q, low = q2, q2.lower().strip()
+            out["resolved"], out["changed"] = q, True
+            out["signals"].append("this-category")
+    if state.merchant:
+        q2 = re.sub(r"\b(?:this|that|the same)\s+(?:merchant|shop|store|place|company|brand)\b",
+                    lambda _m: state.merchant, q, flags=re.I)
+        if q2 != q:
+            q, low = q2, q2.lower().strip()
+            out["resolved"], out["changed"] = q, True
+            out["signals"].append("this-merchant")
+
     s = _extract_slots(q)
     own_merch, own_cat = s["merchant"], s["category"]
     own_entity = bool(own_merch or own_cat)
@@ -1985,7 +2007,11 @@ _ADVICE_RE = re.compile(
     r"should i (?:cut|save|spend|reduce|budget)|cut back|cut down|save money|saving enough|"
     r"spending too much|am i (?:broke|rich|overspending|spending)|give me (?:advice|tips)|"
     r"financial advice|help me save|improve my (?:finance|spending|budget|habit)|"
-    r"where can i (?:save|cut)|tips to save|how (?:can|do) i save", re.I)
+    r"where can i (?:save|cut)|tips to save|how (?:can|do) i save|"
+    # solution-seeking follow-ups ("any solutions to the above problems?") are advice,
+    # never an entity lookup — 'above problems' must not become a "merchant".
+    r"any (?:solutions?|suggestions?|recommendations?|ideas|fixes)\b|"
+    r"what (?:can|should) i do\b|how (?:can|do) i (?:fix|solve|address)\b", re.I)
 
 # "Why …" is a REASONING question, never a lookup — "why was I charged overdraft fees?"
 # must get a grounded explanation, not the fee total re-stated as a number.
@@ -2250,6 +2276,42 @@ def _concept_facts():
             det = ", ".join(f"{m} {ts.inr(a)}" for m, a, _ in parts[:5])
             lines.append(f"- {label.capitalize()} (whole statement): {ts.inr(tot)} — {det}")
     return ("\nOBLIGATIONS & HABITS (from the ledger):\n" + "\n".join(lines) + "\n") if lines else ""
+
+
+def _scoped_facts(ctx):
+    """CURRENT-TOPIC fact block for the advice prompt: when the thread carries a
+    merchant/category, give the LLM that entity's REAL aggregates (total, share,
+    month-by-month) and pin the topic — so "tell me some insights in this category" /
+    "more insights" stays on the carried topic instead of whatever the account-wide
+    sheet makes salient. '' on a fresh thread; every number from SQL."""
+    cat = (ctx or {}).get("category", "")
+    mer = (ctx or {}).get("merchant", "")
+    inr = ts.inr
+    if mer:
+        r = ts.merchant_spend(USER, mer, None, None)
+        if not r["count"]:
+            return ""
+        return (f"\nCURRENT TOPIC: the merchant {mer}. FACTS FOR {mer}: spent "
+                f"{inr(r['debit'])} across {ts.grp(r['dcount'])} transactions"
+                + (f", received {inr(r['credit'])}" if r["credit"] else "")
+                + f". Answer about {mer} specifically unless the user changes topic.\n")
+    if not cat:
+        return ""
+    total, cnt = 0.0, 0
+    for c, a, n in ts.by_category(USER, None, None):
+        if c == cat:
+            total, cnt = a, n
+            break
+    if not cnt:
+        return ""
+    o = ts.overview(USER, None, None)
+    pct = (total / o["debit"] * 100.0) if o["debit"] else 0.0
+    series = ", ".join(
+        f"{ts._mlabel(m)} {inr(next((a for c2, a, _n in ts.by_category(USER, None, m) if c2 == cat), 0.0))}"
+        for m in ts.months_list(USER, None, None))
+    return (f"\nCURRENT TOPIC: the {cat} category. FACTS FOR {cat}: total {inr(total)} "
+            f"across {ts.grp(cnt)} transactions ({pct:.1f}% of all spending); by month: "
+            f"{series}. Answer about {cat} specifically unless the user changes topic.\n")
 
 
 def analytics_answer(q):
@@ -3083,7 +3145,7 @@ async def query(request: Request):
     #     fees") -> a real LLM answer reasoned over the SQL fact sheet (numbers verified).
     if _ADVICE_RE.search(rq) or _REASON_RE.search(rq) or _WHY_RE.search(rq):
         remember(history, q, "(financial advice given)")
-        return grounded_advice(rq, tid)
+        return grounded_advice(rq, tid, ctx)
 
     # 0c-CONCEPT) semantic spend concepts (gambling / loans / bank fees) grounded to
     #     real ledger merchants — deterministic, honest "not found" when nothing matches.
@@ -3144,7 +3206,7 @@ async def query(request: Request):
             return stream_text("chat", DIDNT_CATCH)
         if t == "advice" and (_FIN_RE.search(rq) or _ADVICE_RE.search(rq) or _REASON_RE.search(rq)):
             remember(history, q, "(financial advice given)")
-            return grounded_advice(rq, tid)
+            return grounded_advice(rq, tid, ctx)
         # router said "advice" but the question has zero finance content (e.g. "should i
         # text my ex") -> don't lecture about money; fall through to a clean nudge below.
         ans = ts.dispatch_intent(intent, USER)            # SQL produces every number

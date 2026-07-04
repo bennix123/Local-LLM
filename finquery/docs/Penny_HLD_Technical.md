@@ -183,8 +183,12 @@ most deterministic handler that can answer, does. Routing order:
 > statement's latest date) and bare-month compares ("May or June?") resolve
 > deterministically — **no date in the question means the whole statement**. When a name is
 > genuinely ambiguous ("Apple" → Apple Store, Apple Pay), Penny asks which one instead of
-> guessing; "why …" questions route to grounded reasoning (with a deterministic
-> obligations fact block: loans, fees, gambling), never to a bare total (LLD §4a, §4b, §5).
+> guessing; "why …" questions and solution-seeking follow-ups ("any solutions?") route to
+> grounded reasoning (with a deterministic obligations fact block: loans, fees, gambling),
+> never to a bare total or an entity lookup. Advice follow-ups are **topic-pinned**:
+> "this/that category" resolves to the carried name in the query itself, and the advice
+> prompt carries a CURRENT-TOPIC fact block for the thread's entity, so the 8B model never
+> picks the topic itself (LLD §4a, §4b, §5, §6.2).
 
 **Step 2 — LLM router outcomes.** The model returns a structured intent `{type,
 category, merchant, n, start, end, table}`. `type` is dispatched:
