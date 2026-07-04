@@ -443,6 +443,48 @@ for mer in MERCHANTS[:4]:
     ])
 
 
+# ===================================================================== 16. COMPOSABLE FILTERS + SCOPED BREAKDOWN
+def gt_filtered(**kw):
+    return tk.ts.filtered_summary("local", **kw)
+
+
+# Scoped monthly breakdown per merchant / category.
+for mer in ["Netflix", "Amazon", "Tesco"]:
+    convo(f"scoped-breakdown/{mer}", [
+        (f"how much did I spend at {mer} per month?",
+         lambda r, a, mer=mer: has(a, f"{mer} month-wise breakdown")),
+    ])
+for c in ["Groceries", "Entertainment"]:
+    convo(f"scoped-breakdown-cat/{c}", [
+        (f"how much on {c} month by month?", lambda r, a, c=c: has(a, f"{c} month-wise breakdown")),
+    ])
+
+# Exclusion — account-wide minus one entity (excluded entity is NOT the scope).
+for c in ["Groceries", "Shopping", "Entertainment"]:
+    exp = gt("") - gc(c)
+    convo(f"exclude/{c}", [
+        (f"how much did I spend excluding {c}?",
+         lambda r, a, exp=exp, c=c: has(a, m(exp), "excluding") and lacks(a, f"on {c} (")),
+    ])
+
+# Composable: weekend + amount threshold in ONE query.
+for thr in [20, 50]:
+    fs = gt_filtered(weekend=True, amount_op="over", amount=thr)
+    convo(f"compose/weekend-over-{thr}", [
+        (f"how much did I spend on weekends over £{thr}?",
+         lambda r, a, fs=fs, thr=thr: has(a, "weekend", str(thr), m(fs["total"]))),
+    ])
+# Composable: merchant + weekend.
+convo("compose/merchant-weekend", [
+    ("how much did I spend at UniBet on weekends?",
+     lambda r, a: has(a, "weekend") and (has(a, "UniBet") or has(a, "totaling"))),
+])
+# Weekday filter.
+convo("compose/weekday", [
+    ("how much did I spend on weekdays?", lambda r, a: has(a, "weekday", m(gt_filtered(weekend=False)["total"]))),
+])
+
+
 # ===================================================================== report
 print(f"\n{'='*60}\nPenny conversation suite\n{'='*60}")
 if FAILURES:

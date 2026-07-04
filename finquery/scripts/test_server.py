@@ -2403,27 +2403,63 @@ def analytics_answer(q):
                 f"{inr(saved / nmw)}/month, {inr(saved / nmw * 12)}/year. "
                 f"({name} is currently {inr(amt)} over {nmw} months.)")
 
-    # ---- FILTERED transactions (weekend / weekday / debit-only / credit-only), scoped
-    #      to a merchant/category/period. Powers follow-ups like "only weekends".
+    # ---- COMPOSABLE FILTERS (weekend / weekday / debit-only / credit-only / exclusion),
+    #      optionally combined with an amount threshold, scoped to a merchant/category/period.
+    #      All filters AND together in ONE filtered_summary query — "weekend spending over £50
+    #      excluding rent" composes (CLP-6). Powers follow-ups like "only weekends".
     we = re.search(r"\bweekend", low); wd = re.search(r"\bweekday", low)
     deb_only = re.search(r"\b(only (?:on )?debit|debit only|just debit)\b", low)
     cred_only = re.search(r"\b(only (?:on )?credit|credit only|just credit)\b", low)
-    if we or wd or deb_only or cred_only:
+    exclude = []
+    xm = re.search(r"\b(?:exclud\w*|except|without|not counting|other than|apart from)\s+"
+                   r"(?:the\s+|my\s+)?([a-z][a-z0-9 &'.\-]{1,30})", low)
+    if xm:
+        xtext = xm.group(1).strip()
+        exclude = (_find_categories(xtext) + _find_merchants(xtext))[:2]
+        if not exclude:
+            xr = _resolve_merchant(xtext)
+            if xr:
+                exclude = [xr]
+    if we or wd or deb_only or cred_only or exclude:
         if empty():
             return nodata()
-        mname = merchs[0] if merchs else None
-        cname = cats[0] if cats else None
+        # an excluded entity must not also be the scope ("excluding Groceries" is
+        # account-wide-minus-Groceries, not Groceries-minus-Groceries).
+        merchs_f = [x for x in merchs if x not in exclude]
+        cats_f = [x for x in cats if x not in exclude]
+        mname = merchs_f[0] if merchs_f else None
+        cname = cats_f[0] if cats_f else None
         weekend = True if we else (False if wd else None)
         ttype = "debit" if deb_only else ("credit" if cred_only else None)
         r = ts.filtered_summary(USER, merchant=mname, category=cname, period=period,
-                                weekend=weekend, txn_type=ttype)
+                                weekend=weekend, txn_type=ttype,
+                                amount_op=cq.amount_op or None, amount=cq.amount, exclude=exclude)
         flt = []
         if weekend is True:    flt.append("on weekends")
         elif weekend is False: flt.append("on weekdays")
         if ttype:              flt.append(f"{ttype} only")
+        if cq.amount is not None: flt.append(f"{cq.amount_op} {inr(cq.amount)}")
+        if exclude:            flt.append("excluding " + ", ".join(exclude))
         scope = f" at {mname}" if mname else (f" on {cname}" if cname else "")
-        return (f"**{grp(r['count'])} transactions{scope}{sfx} ({' · '.join(flt)})** "
+        fltxt = f" ({' · '.join(flt)})" if flt else ""
+        return (f"**{grp(r['count'])} transactions{scope}{sfx}{fltxt}** "
                 f"— totaling {inr(r['total'])}")
+
+    # ---- SCOPED MONTHLY BREAKDOWN — "Netflix per month", "Groceries month by month".
+    #      A monthly breakdown for ONE merchant/category (not the account-wide table, and
+    #      not the which-month argmax). Uses the entity-scoped by_month (CLP-3).
+    if (merchs or cats) and re.search(r"\b(per month|month(?:ly|[- ]by[- ]month|[- ]?wise)|each month|breakdown)\b", low) \
+            and not re.search(r"\b(most|least|highest|lowest|max|min|biggest|smallest|which)\b", low):
+        if empty():
+            return nodata()
+        mname = merchs[0] if merchs else None
+        cname = cats[0] if cats else None
+        rows = [r for r in ts.by_month(USER, None, period, merchant=mname, category=cname) if r[1] or r[2]]
+        if rows:
+            scope = mname or cname
+            body = [(ts._mlabel(mm), inr(d), grp(n)) for mm, d, _c, n in rows]
+            return (f"**{scope} month-wise breakdown{sfx}**\n\n"
+                    + ts._table(["Month", "Spending", "Txns"], body))
 
     # ---- 0) FINANCIAL-REASONING questions (savings rate/target, runway, risky
     #         months, consistency, income trend/sources/timing, period compare,

@@ -456,11 +456,22 @@ def merchant_spend(user_id, keyword, doc_name=None, period=None):
     return {"debit": r[0], "credit": r[1], "count": r[2], "dcount": r[3] or 0}
 
 
-def by_month(user_id, doc_name=None, period=None):
+def by_month(user_id, doc_name=None, period=None, merchant=None, category=None):
+    """Per-month (debit, credit, count). Optional merchant/category scope so a monthly
+    breakdown can be for one merchant/category ("Netflix per month") — additive, so
+    existing account-wide callers are unchanged."""
     w, p = _scope(user_id, doc_name, period)
+    clauses, params = [w], list(p)
+    if merchant:
+        clauses.append("(LOWER(merchant)=? OR LOWER(descr) LIKE ?)")
+        params += [merchant.lower(), f"%{merchant.lower()}%"]
+    if category:
+        clauses.append("category=?")
+        params.append(category)
     con = connect()
     rows = con.execute(f"""SELECT month, SUM(debit), SUM(credit), COUNT(*) FROM transactions
-                           WHERE {w} GROUP BY month ORDER BY month""", p).fetchall()
+                           WHERE {" AND ".join(clauses)} GROUP BY month ORDER BY month""",
+                       params).fetchall()
     con.close()
     return rows
 
@@ -518,10 +529,13 @@ def amount_filter(user_id, op, amount, doc_name=None, period=None, merchant=None
 
 
 def filtered_summary(user_id, merchant=None, category=None, period=None, doc_name=None,
-                     weekend=None, txn_type=None):
-    """Count + total of transactions matching optional merchant / category / period /
-    weekend / txn_type filters. weekend: True = Sat/Sun only, False = weekdays only.
-    txn_type: 'debit' | 'credit'. Every figure from SQL."""
+                     weekend=None, txn_type=None, amount_op=None, amount=None, exclude=None):
+    """Count + total of transactions matching optional, COMPOSABLE filters: merchant /
+    category / period / weekend / txn_type / amount-threshold / exclusion. weekend:
+    True = Sat/Sun only, False = weekdays only. txn_type: 'debit' | 'credit'. amount_op:
+    'over' | 'under' with `amount` (on the spend side). exclude: list of category/merchant
+    names to leave out. Every figure from SQL — all filters AND together, so 'weekend
+    spending over £50 excluding rent' composes in one query."""
     w, p = _scope(user_id, doc_name, period)
     clauses = [w]
     params = list(p)
@@ -539,6 +553,12 @@ def filtered_summary(user_id, merchant=None, category=None, period=None, doc_nam
         clauses.append("CAST(strftime('%w',txn_date) AS INT) IN (0,6)")
     elif weekend is False:
         clauses.append("CAST(strftime('%w',txn_date) AS INT) NOT IN (0,6)")
+    if amount is not None and amount_op in ("over", "under"):
+        clauses.append(f"debit {'>=' if amount_op == 'over' else '<='} ?")
+        params.append(amount)
+    for x in (exclude or []):
+        clauses.append("NOT (LOWER(merchant)=? OR category=?)")
+        params += [str(x).lower(), x]
     con = connect()
     r = con.execute(f"""SELECT COUNT(*), COALESCE(SUM(debit),0), COALESCE(SUM(credit),0)
                         FROM transactions WHERE {" AND ".join(clauses)}""", params).fetchone()
