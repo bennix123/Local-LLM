@@ -943,18 +943,38 @@ FOLLOWUP_SYSTEM = (
 )
 
 
-def followup_response(q, history, thread="default"):
-    """Answer a question ABOUT the recent conversation (e.g. 'what is that number?')."""
-    convo = "\n".join(f"User: {h['q']}\nPenny: {h['a']}" for h in history[-4:])
+def _followup_fallback(recent):
+    """Deterministic answer to a conversation-follow-up when the LLM is unavailable or its
+    reply failed the number check: restate the most recent REAL answer (which already holds
+    the exact SQL figure). Never invents a number."""
+    for h in reversed(recent):
+        a = (h.get("a") or "").strip()
+        if a and not a.startswith("("):        # skip "(answered from conversation)" placeholders
+            return f"Here's the figure from a moment ago:\n\n{a}"
+    return ("I don't have that from the last few answers — ask the question directly "
+            "and I'll compute it from your statement.")
 
-    def gen():
-        parts = []
-        yield _nd({"type": "meta", "path": "chat"})
-        for nd in _llm_words(FOLLOWUP_SYSTEM + "\n\nConversation so far:\n" + convo, q):
-            parts.append(_txt(nd)); yield nd
-        yield _nd({"type": "done"})
-        _append_log(thread, q, "".join(parts), "chat")
-    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+def followup_response(q, history, thread="default"):
+    """Answer a question ABOUT the recent conversation (e.g. 'what is that number?').
+    DETERMINISM: the LLM only rephrases figures already shown; we buffer its reply and
+    verify every amount/percentage against the recent answers (the real SQL figures). If
+    it invents or computes a number, we discard it and restate the last answer verbatim —
+    so no unverified number can ever reach the user on this path either."""
+    recent = [h for h in history[-5:] if (h.get("a") or "").strip() and not h["a"].startswith("(")][-4:]
+    convo = "\n".join(f"User: {h['q']}\nPenny: {h['a']}" for h in recent)
+    facts = "\n".join(h["a"] for h in recent)           # the exact figures already shown
+    reply = _llm_complete(FOLLOWUP_SYSTEM + "\n\nConversation so far:\n" + convo, q) if convo else None
+    if reply:
+        reply = re.sub(r"^(?:answer|penny)\s*[:\-]\s*", "", reply, flags=re.I).strip()
+        ok, why = _advice_grounded(reply, facts)         # every number must appear in the answers
+        if ok:
+            _append_log(thread, q, reply, "chat")
+            return stream_text("chat", reply)
+        print(f"[followup] reply rejected ({why}); restating last answer")
+    fb = _followup_fallback(recent)
+    _append_log(thread, q, fb, "chat")
+    return stream_text("chat", fb)
 
 
 def advice_response(q, thread="default"):
@@ -1008,8 +1028,11 @@ def _llm_complete(system, user, num_predict=512, temperature=0.2):
 
 _NUM_MULT = {"crore": 1e7, "crores": 1e7, "cr": 1e7, "lakh": 1e5, "lakhs": 1e5,
              "lac": 1e5, "lacs": 1e5, "thousand": 1e3, "k": 1e3, "million": 1e6, "mn": 1e6}
+# Currency-aware: matches ₹/£/$/€-prefixed amounts (so the advice + follow-up number guard
+# verifies £ figures on GBP data, not only ₹ — it was INR-only, a latent determinism gap on
+# Barclays/Plaid statements) OR a number with a lakh/crore/k/million word multiplier.
 _AMT_RE = re.compile(
-    r"₹\s*([\d,]+(?:\.\d+)?)|\b(\d[\d,]*(?:\.\d+)?)\s*(crores?|cr|lakhs?|lacs?|lac|thousand|million|mn|k)\b",
+    r"[₹£$€]\s*([\d,]+(?:\.\d+)?)|\b(\d[\d,]*(?:\.\d+)?)\s*(crores?|cr|lakhs?|lacs?|lac|thousand|million|mn|k)\b",
     re.I)
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 

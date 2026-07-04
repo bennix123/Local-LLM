@@ -485,6 +485,33 @@ convo("compose/weekday", [
 ])
 
 
+# ===================================================================== 17. FOLLOWUP DETERMINISM
+# The follow-up path buffers the LLM reply and verifies every number against the recent
+# answers; a strayed number is rejected and the last real answer is restated verbatim.
+def _det(name, ok):
+    global PASS, FAIL
+    if ok:
+        PASS += 1
+    else:
+        FAIL += 1
+        FAILURES.append(name)
+
+
+_recent = [{"q": "how much at Tesco?", "a": "**Tesco:** spent £192.45 across 4 transactions"},
+           {"q": "why?", "a": "(answered from conversation)"}]
+_fb = tk.tsrv._followup_fallback(_recent)
+_det("followup/fallback restates the real figure", "192.45" in _fb)
+_det("followup/fallback skips placeholders", "answered from conversation" not in _fb)
+_det("followup/verify accepts a grounded reply",
+     tk.tsrv._advice_grounded("You spent £192.45 at Tesco.", _recent[0]["a"])[0])
+_det("followup/verify rejects a hallucinated number",
+     not tk.tsrv._advice_grounded("You spent £999.99 at Tesco.", _recent[0]["a"])[0])
+_det("followup/verify rejects a computed percentage",
+     not tk.tsrv._advice_grounded("That's 63% of your spending.", _recent[0]["a"])[0])
+_det("followup/empty history gives an honest nudge",
+     "ask the question directly" in tk.tsrv._followup_fallback([]))
+
+
 # ===================================================================== report
 print(f"\n{'='*60}\nPenny conversation suite\n{'='*60}")
 if FAILURES:
