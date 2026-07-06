@@ -55,13 +55,14 @@ ROW_RE = re.compile(
 CURRENCY = "INR"
 _CUR_SYM = {
     "INR": "₹", "GBP": "£", "USD": "$", "EUR": "€",
-    "OMR": "OMR ", "KWD": "KWD ", "BHD": "BHD ", "JOD": "JOD ", "IQD": "IQD "
+    "OMR": "OMR ", "KWD": "KWD ", "BHD": "BHD ", "JOD": "JOD ", "IQD": "IQD ",
+    "": ""
 }
 
 
 def set_currency(cur):
     global CURRENCY
-    CURRENCY = (cur or "INR").upper()
+    CURRENCY = (cur or "").upper()
 
 
 def _group_indian(intpart):
@@ -88,7 +89,9 @@ def inr(n):
     n = abs(round(float(n), dec_places))
     fmt_str = f"{{:.{dec_places}f}}"
     intpart, dec = fmt_str.format(n).split(".")
-    return ("-" if neg else "") + _CUR_SYM.get(CURRENCY, CURRENCY + " ") + f"{_grouped(intpart)}.{dec}"
+    # Avoid extra spaces for empty currency codes
+    prefix = _CUR_SYM.get(CURRENCY, CURRENCY + " " if CURRENCY else "")
+    return ("-" if neg else "") + prefix + f"{_grouped(intpart)}.{dec}"
 
 
 
@@ -359,6 +362,21 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
         d.close()
     except Exception:
         pass
+
+    # Detect currency code from header text metadata
+    detected_cur = "INR"
+    low_head = head.lower()
+    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.")):
+        detected_cur = "INR"
+    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb")):
+        detected_cur = "GBP"
+    elif any(k in low_head for k in ("oman", "muscat", "omr")):
+        detected_cur = "OMR"
+    elif any(k in low_head for k in ("chase", "routing", "$")):
+        detected_cur = "USD"
+    else:
+        detected_cur = "" # clean fallback: no symbol
+
     parser = parse_barclays if is_barclays(head) else parse_pdf
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
@@ -368,9 +386,14 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
            "debit,credit,balance,currency,seq)"
            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     for t in parser(pdf_path):
+        cur = t.get("currency", "INR")
+        # Override default INR if a different currency or RAW was detected in the header
+        if cur == "INR" and detected_cur != "INR":
+            cur = detected_cur
+
         buf.append((user_id, doc_name, t["txn_date"], t["month"], t["year"], t["month_no"], t["day"],
                     t["descr"], t["merchant"], t["category"], t["debit"], t["credit"], t["balance"],
-                    t.get("currency", "INR"), t["seq"]))
+                    cur, t["seq"]))
         if len(buf) >= batch:
             con.executemany(sql, buf); n += len(buf); buf = []
     if buf:
@@ -498,10 +521,11 @@ def top_merchants(user_id, n=8, doc_name=None, period=None):
 
 
 def txn_count(user_id, kind=None, doc_name=None, period=None):
-    """Count transactions, optionally restricted to debit / credit / UPI rows."""
+    """Count transactions, optionally restricted to debit / credit / UPI / card rows."""
     w, p = _scope(user_id, doc_name, period)
     cond = {"debit": " AND debit>0", "credit": " AND credit>0",
-            "upi": " AND LOWER(descr) LIKE '%upi%'"}.get(kind, "")
+            "upi": " AND LOWER(descr) LIKE '%upi%'",
+            "card": " AND (LOWER(descr) LIKE '%card%' OR LOWER(descr) LIKE '%visa%' OR LOWER(descr) LIKE '%contactless%' OR LOWER(descr) LIKE '%pos%')"}.get(kind, "")
     con = connect()
     r = con.execute(f"SELECT COUNT(*) FROM transactions WHERE {w}{cond}", p).fetchone()[0]
     con.close()
@@ -1584,9 +1608,9 @@ def dispatch_intent(intent, user_id, doc_name=None):
                     return f"**{c} transactions{sfx}:** {grp(cnt)}"
             return f"**{cat} transactions{sfx}:** 0"
         ck = (intent.get("count_kind") or "").strip()
-        if ck in ("debit", "credit", "upi"):           # "how many debit/credit/UPI transactions"
+        if ck in ("debit", "credit", "upi", "card"):           # "how many debit/credit/UPI/card transactions"
             label = {"debit": "Debit transactions", "credit": "Credit transactions",
-                     "upi": "UPI transactions"}[ck]
+                     "upi": "UPI transactions", "card": "Card transactions"}[ck]
             return f"**{label}{sfx}:** {grp(txn_count(user_id, ck, doc_name, period))}"
         o = overview(user_id, doc_name, period)
         return f"**Transactions{sfx}:** {grp(o['count'])}"

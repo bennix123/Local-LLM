@@ -636,7 +636,7 @@ _DATE_EXPR = (rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MON_RE})\.?,?\s+\
 _RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:to|till|until|through|thru|[-–—]|and)\s*({_DATE_EXPR})", re.I)
 _SINGLE_RE = re.compile(_DATE_EXPR, re.I)
 _INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|received|receive)\b", re.I)
-_COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b", re.I)
+_COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow much time\b|\bhow many times\b", re.I)
 
 
 _WORDNUM = {"twenty": 20, "thirty": 30, "twenty one": 21, "twenty two": 22, "twenty three": 23,
@@ -1289,7 +1289,7 @@ _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expen
 _SMALL_RE = re.compile(r"\b(smal{1,2}e?st|low+e?st|cheap+e?st|minimum|least expensive|sabse chota|sabse kam|sabse sasta)\b", re.I)
 _ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b|"
                          r"\b(?:whole|entire) (?:statement|account)\b", re.I)
-_COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btransactions?\b|\btxns?\b|\bpurchases?\b", re.I)
+_COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btransactions?\b|\btxns?\b|\bpurchases?\b|\bhow much time\b|\bhow many times\b|\bhow often\b", re.I)
 _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 # "show me the transactions", "list them", "show me all 3 transactions" -> LIST the rows,
 # not a count. Requires a show/list VERB and a transaction-listing NOUN, so "show me
@@ -1784,6 +1784,8 @@ def _extract_slots(q):
     if t == "count":
         if re.search(r"\bupi\b", low):
             ckind = "upi"
+        elif re.search(r"\bcard\b|\bvisa\b|\bpos\b", low):
+            ckind = "card"
         elif re.search(r"\bcredit\b|\bdeposit", low):
             ckind = "credit"
         elif re.search(r"\bdebit\b", low):
