@@ -53,10 +53,48 @@ export function detectCurrency(records) {
   else if (eurCount > 0) detected = CURRENCY_PATTERNS[2]; // €
   else if (gbpCount > 0) detected = CURRENCY_PATTERNS[3]; // £
   else if (omrCount > 0) detected = CURRENCY_PATTERNS[8]; // OMR
-  else detected = { symbol: "$", code: "USD", regex: null }; // default dollar
+  else detected = { symbol: "", code: "RAW", regex: null }; // Clean fallback: no symbol
 
   return detected;
 }
+
+export function detectCurrencyFromText(text) {
+  const low = (text || "").toLowerCase();
+  if (
+    low.includes("ifsc") ||
+    low.includes("micr") ||
+    low.includes("state bank") ||
+    low.includes("hdfc") ||
+    low.includes("icici") ||
+    low.includes("₹") ||
+    low.includes("rs.")
+  ) {
+    return setCurrency("INR");
+  }
+  if (
+    low.includes("barclays") ||
+    low.includes("sort code") ||
+    low.includes("£")
+  ) {
+    return setCurrency("GBP");
+  }
+  if (
+    low.includes("oman") ||
+    low.includes("muscat") ||
+    low.includes("omr")
+  ) {
+    return setCurrency("OMR");
+  }
+  if (
+    low.includes("chase") ||
+    low.includes("routing") ||
+    low.includes("$")
+  ) {
+    return setCurrency("USD");
+  }
+  return null;
+}
+
 
 export function setCurrency(code) {
   const p = CURRENCY_PATTERNS.find((x) => x.code === code);

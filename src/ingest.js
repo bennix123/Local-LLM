@@ -5,7 +5,8 @@
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
-import { detectCurrency, resetCurrency, setCurrency } from "./currency.js";
+import { detectCurrency, resetCurrency, setCurrency, detectCurrencyFromText } from "./currency.js";
+
 
 const MAX_ROWS = 20000;
 
@@ -88,6 +89,7 @@ function tabularToChunks(records) {
 
 export function parseCsv(buffer) {
   const text = buffer.toString("utf8");
+  detectCurrencyFromText(text);
   const result = Papa.parse(text, {
     header: true,
     skipEmptyLines: "greedy",
@@ -218,14 +220,12 @@ function isoFromDdMmYy(d) {
 export async function parsePdf(buffer) {
   const items = await extractPdfItems(buffer);
   const lines = itemsToLines(items);
+  const allText = lines.map((l) => l.items.map((i) => i.str).join(" ")).join(" ");
+  detectCurrencyFromText(allText);
 
   if (looksLikeHdfc(lines)) {
-    // The account header states the currency (e.g. "Currency : INR"); honor it,
-    // since the parsed amounts carry no symbol of their own.
-    const allText = lines.map((l) => l.items.map((i) => i.str).join(" ")).join(" ");
-    if (/\bINR\b|Currency\s*:?\s*INR|\bRs\.?\b/i.test(allText)) setCurrency("INR");
-
     const raw = parseHdfcTransactions(lines);
+
     if (raw.length >= 5) {
       const records = raw.map((r) => {
         const signed = r.withdrawal != null ? -r.withdrawal : r.deposit != null ? r.deposit : 0;
