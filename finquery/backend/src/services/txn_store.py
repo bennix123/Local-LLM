@@ -170,7 +170,7 @@ def init_db():
 def is_transaction_statement(text):
     """Heuristic: many DD-MM-YYYY rows carrying DR/CR + a balance column."""
     sample = text[:20000]
-    rows = ROW_RE.findall_count if False else len(ROW_RE.findall(sample))
+    rows = sum(1 for line in sample.splitlines() if ROW_RE.match(line))
     has_cols = bool(re.search(r"\bDebit\b.*\bCredit\b.*\bBalance\b", sample, re.I))
     return rows >= 5 or (has_cols and rows >= 1)
 
