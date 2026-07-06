@@ -53,7 +53,10 @@ ROW_RE = re.compile(
 # Active display currency — set from the loaded statement (₹ for Indian statements,
 # £ for Barclays, etc.). Symbol + digit grouping both follow it.
 CURRENCY = "INR"
-_CUR_SYM = {"INR": "₹", "GBP": "£", "USD": "$", "EUR": "€"}
+_CUR_SYM = {
+    "INR": "₹", "GBP": "£", "USD": "$", "EUR": "€",
+    "OMR": "OMR ", "KWD": "KWD ", "BHD": "BHD ", "JOD": "JOD ", "IQD": "IQD "
+}
 
 
 def set_currency(cur):
@@ -79,11 +82,14 @@ def _grouped(intpart):
 
 
 def inr(n):
-    """Money formatter for the ACTIVE currency (symbol + locale grouping, 2 decimals)."""
+    """Money formatter for the ACTIVE currency (symbol + locale grouping, 2 or 3 decimals dynamically)."""
     neg = n < 0
-    n = abs(round(float(n), 2))
-    intpart, dec = f"{n:.2f}".split(".")
-    return ("-" if neg else "") + _CUR_SYM.get(CURRENCY, "") + f"{_grouped(intpart)}.{dec}"
+    dec_places = 3 if CURRENCY in ("OMR", "KWD", "BHD", "JOD", "IQD") else 2
+    n = abs(round(float(n), dec_places))
+    fmt_str = f"{{:.{dec_places}f}}"
+    intpart, dec = fmt_str.format(n).split(".")
+    return ("-" if neg else "") + _CUR_SYM.get(CURRENCY, CURRENCY + " ") + f"{_grouped(intpart)}.{dec}"
+
 
 
 def grp(n):

@@ -11,6 +11,11 @@ const CURRENCY_PATTERNS = [
   { symbol: "Rs.", code: "INR", regex: /\bRs\.?\s/i },
   { symbol: "INR", code: "INR", regex: /\bINR\b/i },
   { symbol: "AED", code: "AED", regex: /\bAED\b/i },
+  { symbol: "OMR ", code: "OMR", regex: /\bOMR\b/i },
+  { symbol: "KWD ", code: "KWD", regex: /\bKWD\b/i },
+  { symbol: "BHD ", code: "BHD", regex: /\bBHD\b/i },
+  { symbol: "JOD ", code: "JOD", regex: /\bJOD\b/i },
+  { symbol: "IQD ", code: "IQD", regex: /\bIQD\b/i },
 ];
 
 let detected = null;
@@ -31,7 +36,7 @@ export function detectCurrency(records) {
   }
 
   // Check cell values for currency symbols
-  let inrCount = 0, usdCount = 0, eurCount = 0, gbpCount = 0;
+  let inrCount = 0, usdCount = 0, eurCount = 0, gbpCount = 0, omrCount = 0;
   for (const record of records.slice(0, 100)) {
     for (const col of columns) {
       const val = String(record[col] || "");
@@ -39,6 +44,7 @@ export function detectCurrency(records) {
       else if (/\$/.test(val)) usdCount++;
       else if (/[€€]/u.test(val)) eurCount++;
       else if (/£/.test(val)) gbpCount++;
+      else if (/\bOMR\b/i.test(val)) omrCount++;
     }
   }
 
@@ -46,6 +52,7 @@ export function detectCurrency(records) {
   else if (usdCount > 0) detected = CURRENCY_PATTERNS[1]; // $
   else if (eurCount > 0) detected = CURRENCY_PATTERNS[2]; // €
   else if (gbpCount > 0) detected = CURRENCY_PATTERNS[3]; // £
+  else if (omrCount > 0) detected = CURRENCY_PATTERNS[8]; // OMR
   else detected = { symbol: "$", code: "USD", regex: null }; // default dollar
 
   return detected;
@@ -65,17 +72,24 @@ export function getCurrencyCode() {
   return detected ? detected.code : "UNKNOWN";
 }
 
+export function getDecimalPlaces() {
+  const code = getCurrencyCode();
+  return ["OMR", "KWD", "BHD", "JOD", "IQD"].includes(code) ? 3 : 2;
+}
+
 export function fmtAmount(n) {
   const sym = getCurrencySymbol();
-  const val = Number.isInteger(n) ? String(n) : n.toFixed(2);
-  if (n < 0) return `-${sym}${Math.abs(n).toFixed(Number.isInteger(n) ? 0 : 2)}`;
+  const decimals = getDecimalPlaces();
+  const val = Number.isInteger(n) ? String(n) : n.toFixed(decimals);
+  if (n < 0) return `-${sym}${Math.abs(n).toFixed(Number.isInteger(n) ? 0 : decimals)}`;
   return `${sym}${val}`;
 }
 
 export function fmtAmountLabel(n) {
   const sym = getCurrencySymbol();
+  const decimals = getDecimalPlaces();
   const abs = Math.abs(n);
-  const val = Number.isInteger(abs) ? String(abs) : abs.toFixed(2);
+  const val = Number.isInteger(abs) ? String(abs) : abs.toFixed(decimals);
   if (n >= 0) return `${sym}${val}`;
   return `-${sym}${val}`;
 }
@@ -83,3 +97,4 @@ export function fmtAmountLabel(n) {
 export function resetCurrency() {
   detected = null;
 }
+
