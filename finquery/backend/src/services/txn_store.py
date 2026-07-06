@@ -261,6 +261,28 @@ def is_barclays(text):
                                   or "current account statement" in low)
 
 
+_BARCLAYS_MON_RE = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
+
+
+def _barclays_end_anchor(full, pdf_path):
+    """(end_month, end_year) of the statement period — the anchor for year resolution when the
+    primary 'DD Mon - DD Mon YYYY' header doesn't match (most often a CROSS-YEAR statement whose
+    header carries two years, e.g. '5 Dec 2025 - 5 Jan 2026'). Tries, in order: the END side of a
+    broader period range, the statement date in the FILENAME ('05-JAN-26'), then any 'Mon YYYY'
+    in the text. Returns (0, 0) if nothing is found, so the caller still degrades to year 0000."""
+    M = _BARCLAYS_MON_RE
+    m = re.search(rf"(?:to|through|[-–—])\s*(?:\d{{1,2}}\s+)?{M}\.?\s+(\d{{4}})", full, re.I)
+    if m:
+        return _BARCLAYS_MON[m.group(1)[:3].title()], int(m.group(2))
+    fm = re.search(r"(\d{1,2})-([A-Za-z]{3})-(\d{2})\b", os.path.basename(pdf_path or ""))
+    if fm and fm.group(2).title() in _BARCLAYS_MON:
+        return _BARCLAYS_MON[fm.group(2).title()], 2000 + int(fm.group(3))
+    m = re.search(rf"\b(?:\d{{1,2}}\s+)?{M}\.?\s+(\d{{4}})", full, re.I)
+    if m:
+        return _BARCLAYS_MON[m.group(1)[:3].title()], int(m.group(2))
+    return 0, 0
+
+
 def parse_barclays(pdf_path):
     """Parse a Barclays current-account statement by COLUMN position (PyMuPDF word x/y).
     Dates are 'DD MMM' with the year inferred from the statement-period header; same-day
@@ -270,15 +292,17 @@ def parse_barclays(pdf_path):
     full = "".join(p.get_text("text") for p in doc)
     pm = re.search(r"(\d{1,2})\s+([A-Z][a-z]{2})\s*[-–]\s*(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})", full)
     if pm:
-        sm, em, ey = _BARCLAYS_MON[pm.group(2)], _BARCLAYS_MON[pm.group(4)], int(pm.group(5))
-        sy = ey if sm <= em else ey - 1
+        em, ey = _BARCLAYS_MON[pm.group(4)], int(pm.group(5))     # end month, end year
     else:
-        sm = em = ey = sy = 0
+        # cross-year / two-year / filename-only statements — don't lose the year as 0000
+        em, ey = _barclays_end_anchor(full, pdf_path)
 
     def year_for(mon):
+        # a transaction whose month is AFTER the statement's END month belongs to the previous
+        # year — a Dec row on a "5 Jan 2026" statement is Dec 2025. 0 only if no anchor at all.
         if not ey:
             return 0
-        return ey if sy == ey else (sy if mon >= sm else ey)
+        return ey if mon <= em else ey - 1
 
     cur_date = None; cur = None; started = False; done = False; pending = []
     for page in doc:
