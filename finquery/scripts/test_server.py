@@ -17,6 +17,15 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+# Load environment configurations from root .env
+try:
+    from dotenv import load_dotenv
+    # test_server.py is in finquery/scripts/, .env is in workspace root
+    dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+    load_dotenv(dotenv_path)
+except ImportError:
+    pass
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -878,10 +887,25 @@ def _apply_guards(intent, q):
     """Override the LLM where regex is more reliable: period parsing, the
     income/count keywords it flubs, and whether a table was actually asked for.
     Category / merchant / extremes are left to the (now-fixed) LLM."""
+    low = q.lower()
+    # Clean up the merchant name if the LLM flubbed it and extracted a stopword or prepositional phrase
+    mer = intent.get("merchant", "")
+    if mer:
+        mer_low = mer.lower().strip()
+        first_tok = mer_low.split()[0] if mer_low else ""
+        if first_tok in _GUARD_STOP or mer_low in _GUARD_STOP:
+            intent["merchant"] = ""
+            if intent.get("type") == "merchant":
+                if _COUNTQ_RE.search(q) or re.search(r"\bhow much time\b", low):
+                    intent["type"] = "count"
+                elif _INCOME_RE.search(q):
+                    intent["type"] = "income"
+                else:
+                    intent["type"] = "spend"
+
     det = _parse_period(q)
     if det:
         intent["start"], intent["end"] = det
-    low = q.lower()
     # savings / net-position phrasings are the account summary (the Net row), never a spend
     # total — the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
     # intelligence gate's job and are handled before this point, so they never reach here.
@@ -1250,13 +1274,14 @@ _CAT_STEMS = [
 # guard can't invent merchants out of "on weekends" / "to my savings" / "on that".
 _GUARD_STOP = frozenset((
     "the", "a", "an", "all", "my", "me", "it", "them", "that", "this", "these", "those",
-    "in", "of", "off", "out", "back", "up", "for", "by", "per",
+    "in", "of", "off", "out", "back", "up", "for", "by", "per", "with", "at", "from", "on", "to",
+    "pay", "paid", "paying", "spend", "spent", "spending",
     "above", "below", "such", "said", "earlier", "prior",
     "each", "every", "any", "some", "one", "home", "work", "least", "most", "more", "less",
     "now", "today", "yesterday", "tomorrow", "moment", "last", "next", "past", "previous",
     "recent", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
     "month", "months", "year", "years", "quarter", "monday", "tuesday", "wednesday",
-    "thursday", "friday", "saturday", "sunday", "saving", "savings", "spending", "paying",
+    "thursday", "friday", "saturday", "sunday", "saving", "savings",
     "shopping", "buying", "anything", "something", "everything", "nothing", "stuff",
     "things", "average", "total", "credit", "debit", "card", "account", "bank", "cash",
     "what", "which", "how", "when", "where"))
