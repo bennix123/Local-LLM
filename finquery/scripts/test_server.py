@@ -1318,7 +1318,7 @@ _GUARD_STOP = frozenset((
     "above", "below", "such", "said", "earlier", "prior",
     "each", "every", "any", "some", "one", "home", "work", "least", "most", "more", "less",
     "now", "today", "yesterday", "tomorrow", "moment", "last", "next", "past", "previous",
-    "recent", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
+    "recent", "latest", "newest", "oldest", "top", "only", "day", "days", "week", "weeks", "weekend", "weekends", "weekday", "weekdays",
     "month", "months", "year", "years", "quarter", "monday", "tuesday", "wednesday",
     "thursday", "friday", "saturday", "sunday", "saving", "savings",
     "shopping", "buying", "anything", "something", "everything", "nothing", "stuff",
@@ -1353,7 +1353,7 @@ _LIST_ENT_RE = re.compile(
     r"([a-z0-9&'.\- ]+?)\s+"
     r"(?:transactions?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
 _LIST_STOP = frozenset((
-    "all", "the", "my", "me", "these", "those", "last", "first", "recent", "a", "an",
+    "all", "the", "my", "me", "these", "those", "last", "first", "recent", "latest", "newest", "oldest", "top", "only", "a", "an",
     "some", "any", "of", "them", "it", "new", "old", "total", "individual", "every", "each"))
 
 
@@ -1813,7 +1813,7 @@ def _extract_slots(q):
             t = "top_expenses"
         else:
             t = "list"
-            mn = _LIST_N_RE.search(low)
+            mn = _LIST_N_RE.search(low) or re.search(r"\b(?:only|top|latest|first|last|limit)\s*(\d{1,3})\b", low)
             list_n = int(mn.group(1)) if mn else 0
             if not merch and not cat:              # an unknown named entity -> honest "none",
                 ent = _list_entity(low)            # never a silent list of the whole ledger
@@ -2244,6 +2244,7 @@ def _resolve_conversation(q, state):
         mtop = _CANON_TOPN.match(low)
         if mtop:
             stem = f"top {mtop.group(1)} expenses"
+    is_period_only = bool(own_period and not own_entity and not has_metric and not has_amt and not has_argmax_ent)
     # Only ELLIPTICAL follow-ups inherit the carried scope: a bare-metric stem, a bare amount
     # filter, a "which-merchant" argmax, or a continuation/back-reference. A COMPLETE question
     # ("what is my biggest expense?") is a fresh account-wide query and is NEVER pinned to the
@@ -2253,11 +2254,11 @@ def _resolve_conversation(q, state):
     elliptical = bool(stem or (has_amt and not own_period) or has_argmax_ent
                       or _CONT_RE.search(q) or (_REFS_RE.search(q) and not own_entity))
     is_followup = bool(stem or has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
-                       or (_REFS_RE.search(q) and not own_entity))
+                       or (_REFS_RE.search(q) and not own_entity) or is_period_only)
     # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
     # ("which merchant …"), cleared the scope ("overall"), or is income-scoped.
     needs_entity = bool(carry_entity and not own_entity and not scope_clear and not income_ctx
-                        and not has_argmax_ent and elliptical)
+                        and not has_argmax_ent and (elliptical or is_period_only))
     # period: inject the carried period for elliptical metric/amount/argmax follow-ups; pure
     # period/factual follow-ups ("february?", "the whole year") stay with _resolve_factual.
     needs_period = bool(carry_start and not own_period and not scope_clear and not has_period_word
