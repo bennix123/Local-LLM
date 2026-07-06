@@ -1054,7 +1054,7 @@ def followup_sql_answer(q, ctx):
         if mer:
             return f"That was **{ts._mname(mer)}**."
         intent = {**base, "type": "top_expenses", "n": 1}    # top merchant/expense of the scope
-    elif re.search(r"\b(list|show|see|what were|which were)\b.*\b(them|those|these|it|they)\b", low):
+    elif re.search(r"\b(list|show|see|what were|which were|details?)\b.*\b(them|those|these|it|they|details?)\b|\bdetails?\b", low):
         intent = {**base, "type": "list"}
     elif re.search(r"\bhow much\b|\btotal\b|\baltogether\b|\bin all\b", low):
         intent = {**base, "type": "merchant" if mer else "category" if cat else "spend"}
@@ -1767,7 +1767,7 @@ def _extract_slots(q):
     # hijacks a real count ("how many") or an extreme. "show me top N transactions" is the
     # N largest, so it stays a top-N, not a chronological list.
     list_n = 0
-    if (_LIST_RE.search(q) or _WHICH_TXN_RE.search(q)) \
+    if (_LIST_RE.search(q) or _WHICH_TXN_RE.search(q) or re.search(r"\bdetails?\b", low)) \
             and t in (None, "count", "spend", "merchant", "category") \
             and not re.search(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b", low):
         if topm:
@@ -2078,6 +2078,7 @@ _CANON = [
     (re.compile(r"^\s*(?:and|the)?\s*total\s*\??$", re.I), "total spending"),
     (re.compile(r"^\s*(?:and|the)?\s*(?:count|how many|number of (?:them|transactions)?)\s*\??$", re.I),
      "how many transactions"),
+    (re.compile(r"^\s*(?:show\s+)?details?\s*\??$", re.I), "list"),
 ]
 _CANON_TOPN = re.compile(r"^\s*(?:and|the)?\s*top\s*(\d+)\s*\??$", re.I)
 
@@ -2212,7 +2213,7 @@ def _resolve_conversation(q, state):
     # not a bare "and over £500?" follow-up.
     elliptical = bool(stem or (has_amt and not own_period) or has_argmax_ent
                       or _CONT_RE.search(q) or (_REFS_RE.search(q) and not own_entity))
-    is_followup = bool(has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
+    is_followup = bool(stem or has_metric or has_amt or has_argmax_ent or _CONT_RE.search(q)
                        or (_REFS_RE.search(q) and not own_entity))
     # merchant/category: inherit the carried entity — UNLESS this turn asks across entities
     # ("which merchant …"), cleared the scope ("overall"), or is income-scoped.
@@ -2221,7 +2222,7 @@ def _resolve_conversation(q, state):
     # period: inject the carried period for elliptical metric/amount/argmax follow-ups; pure
     # period/factual follow-ups ("february?", "the whole year") stay with _resolve_factual.
     needs_period = bool(carry_start and not own_period and not scope_clear and not has_period_word
-                        and (has_metric or has_amt or has_argmax_ent) and elliptical)
+                        and (stem or has_metric or has_amt or has_argmax_ent) and elliptical)
     if not is_followup or (not needs_entity and not needs_period):
         return out
 
