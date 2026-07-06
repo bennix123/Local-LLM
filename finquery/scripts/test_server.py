@@ -848,6 +848,35 @@ def _day_range_period(q):
             return (a, b) if a <= b else (b, a)
     return None
 
+_WEEK_ORD_RE = re.compile(
+    r"\b(1st|first|2nd|second|3rd|third|4th|fourth)\s+week\s+(?:of\s+)?(" + _MON_RE + r")\b|"
+    rf"\b({_MON_RE})\s+(1st|first|2nd|second|3rd|third|4th|fourth)\s+week\b", re.I
+)
+
+
+def _week_of_month_period(q):
+    low = q.lower()
+    m = _WEEK_ORD_RE.search(low)
+    if not m:
+        return None
+    ord_str = m.group(1) or m.group(4)
+    mon_str = m.group(2) or m.group(3)
+    if not ord_str or not mon_str:
+        return None
+    mm = _mon_num(mon_str)
+    if not mm:
+        return None
+    yy = _year_for_month(mm)
+    if not yy:
+        yy = _anchor_month()[:4] if _anchor_month() else "2024"
+    days = {"1st": (1, 7), "first": (1, 7),
+            "2nd": (8, 14), "second": (8, 14),
+            "3rd": (15, 21), "third": (15, 21),
+            "4th": (22, 28), "fourth": (22, 28)}.get(ord_str.lower())
+    if not days:
+        return None
+    return f"{yy}-{mm}-{days[0]:02d}", f"{yy}-{mm}-{days[1]:02d}"
+
 
 def _parse_period(q, bare_month=True):
     """Deterministic period from the question text: (start, end) or None.
@@ -859,6 +888,9 @@ def _parse_period(q, bare_month=True):
     rel = _relative_period(q)
     if rel:
         return rel
+    wom = _week_of_month_period(q)
+    if wom:
+        return wom
     dr = _day_range_period(q)                          # yearless day range ("1 Jul to 3 Jul")
     if dr:
         return dr
@@ -1061,7 +1093,7 @@ def followup_sql_answer(q, ctx):
         if mer:
             return f"That was **{ts._mname(mer)}**."
         intent = {**base, "type": "top_expenses", "n": 1}    # top merchant/expense of the scope
-    elif re.search(r"\b(list|show|see|what were|which were|details?)\b.*\b(them|those|these|it|they|details?)\b|\bdetails?\b", low):
+    elif re.search(r"\b(list|show|see|what were|which were|details?|report)\b.*\b(them|those|these|it|they|that|details?)\b|\bdetails?\b", low):
         intent = {**base, "type": "list"}
     elif re.search(r"\bhow much\b|\btotal\b|\baltogether\b|\bin all\b", low):
         intent = {**base, "type": "merchant" if mer else "category" if cat else "spend"}
