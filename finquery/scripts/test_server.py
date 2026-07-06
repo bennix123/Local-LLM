@@ -542,6 +542,13 @@ async def upload(request: Request):
         # fresh analysis: replace prior data, then ingest the statement(s) found
         _c = ts.connect(); _c.execute("DELETE FROM transactions WHERE user_id=?", (USER,))
         _c.commit(); _c.close()
+        # Clear all active chat thread states and history logs to prevent context leaks
+        THREADS.clear()
+        try:
+            if os.path.exists(CHAT_LOG):
+                os.remove(CHAT_LOG)
+        except Exception as e:
+            print(f"[upload] failed to clear chats log: {e}", flush=True)
         total, parsed = 0, []
         for p, lbl in statements:
             n = ts.ingest_pdf(p, lbl, USER)
