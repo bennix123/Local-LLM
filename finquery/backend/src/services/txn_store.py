@@ -338,9 +338,193 @@ def detect_currency(user_id, doc_name=None):
     return r[0] if r else "INR"
 
 
+def is_pnb(text):
+    low = (text or "").lower()
+    return "pnb" in low and "particulars" in low and ("withdrawal" in low or "deposit" in low)
+
+
+def is_wrenfield(text):
+    low = (text or "").lower()
+    return "wrenfield" in low and "outgoings" in low and "incomings" in low
+
+
+_PNB_MON = {
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+}
+
+
+def parse_pnb(pdf_path):
+    """Parse Punjab National Bank statements."""
+    doc = pymupdf.open(pdf_path)
+    seq = 0
+    lines = []
+    for page in doc:
+        lines.extend(page.get_text("text").splitlines())
+    doc.close()
+
+    date_re = re.compile(r"^(\d{2})-([A-Za-z]{3})-(\d{4})$")
+    bal_re = re.compile(r"^(-?[\d,]+\.\d{2})(CR|DR)\.?$", re.I)
+
+    running_balance = 0.0
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        if "opening balance" in line.lower():
+            if i + 1 < len(lines):
+                nxt = lines[i+1].strip()
+                bm = bal_re.match(nxt)
+                if bm:
+                    val_str, suffix = bm.groups()
+                    running_balance = _money(val_str)
+                    if suffix.upper() == "DR":
+                        running_balance = -running_balance
+        
+        dm = date_re.match(line)
+        if dm:
+            date = line
+            day_str, mon_name, yr_str = dm.groups()
+            day = int(day_str)
+            month_no = _PNB_MON.get(mon_name[:3].title(), 1)
+            year = int(yr_str)
+            iso = f"{year:04d}-{month_no:02d}-{day:02d}"
+
+            desc_parts = []
+            amount_str = None
+            balance_str = None
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j].strip()
+                if date_re.match(next_line):
+                    break
+                bm = bal_re.match(next_line)
+                if bm:
+                    balance_str = next_line
+                    if desc_parts:
+                        amount_str = desc_parts.pop()
+                    break
+                else:
+                    desc_parts.append(next_line)
+                j += 1
+
+            if amount_str and balance_str:
+                desc = " ".join(desc_parts).strip()
+                desc = re.sub(r"\s+", " ", desc)
+                
+                amt = _money(amount_str)
+                bal_val_str, bal_suffix = bal_re.match(balance_str).groups()
+                curr_bal = _money(bal_val_str)
+                if bal_suffix.upper() == "DR":
+                    curr_bal = -curr_bal
+
+                diff = curr_bal - running_balance
+                is_credit = False
+                if abs(diff - amt) < 0.01:
+                    is_credit = True
+                elif abs(diff + amt) < 0.01:
+                    is_credit = False
+                else:
+                    if "/CR/" in desc or "CR." in balance_str or "INTT." in desc:
+                        is_credit = True
+                    else:
+                        is_credit = False
+
+                debit = amt if not is_credit else 0.0
+                credit = amt if is_credit else 0.0
+
+                merchant, category = _classify(desc)
+                seq += 1
+                yield {
+                    "txn_date": iso, "month": iso[:7],
+                    "year": year, "month_no": month_no, "day": day,
+                    "descr": desc, "merchant": merchant, "category": category,
+                    "debit": debit, "credit": credit,
+                    "balance": curr_bal, "currency": "INR", "seq": seq
+                }
+                running_balance = curr_bal
+                i = j
+            else:
+                i += 1
+        else:
+            i += 1
+
+
+def parse_wrenfield(pdf_path):
+    """Parse Wrenfield Bank statements."""
+    doc = pymupdf.open(pdf_path)
+    seq = 0
+    lines = []
+    for page in doc:
+        lines.extend(page.get_text("text").splitlines())
+    doc.close()
+
+    date_re = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+    num_re = re.compile(r"^-?[\d,]+\.\d{2}$")
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        dm = date_re.match(line)
+        if dm:
+            date = line
+            day = int(dm.group(1))
+            month_no = int(dm.group(2))
+            year = int(dm.group(3))
+            iso = f"{year:04d}-{month_no:02d}-{day:02d}"
+
+            desc_parts = []
+            amount_str = None
+            balance_str = None
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j].strip()
+                if date_re.match(next_line):
+                    break
+                if num_re.match(next_line):
+                    if j + 1 < len(lines) and num_re.match(lines[j+1].strip()):
+                        amount_str = next_line
+                        balance_str = lines[j+1].strip()
+                        j += 2
+                        break
+                desc_parts.append(next_line)
+                j += 1
+
+            if amount_str and balance_str:
+                desc = " ".join(desc_parts)
+                desc = re.sub(r"Wrenfield Bank\s*?\s*Statement\s*?\s*Page \d+ of \d+", "", desc)
+                desc = re.sub(r"Date\s+Description\s+\(GBP\)\s+Amount\s+\(GBP\)\s+Balance", "", desc)
+                desc = re.sub(r"\s+", " ", desc).strip()
+
+                amt = _money(amount_str)
+                bal = _money(balance_str)
+
+                if amount_str.startswith("-"):
+                    debit = abs(amt)
+                    credit = 0.0
+                else:
+                    debit = 0.0
+                    credit = amt
+
+                merchant, category = _barclays_merchant(desc, credit > 0)
+                seq += 1
+                yield {
+                    "txn_date": iso, "month": iso[:7],
+                    "year": year, "month_no": month_no, "day": day,
+                    "descr": desc, "merchant": merchant, "category": category,
+                    "debit": debit, "credit": credit,
+                    "balance": bal, "currency": "GBP", "seq": seq
+                }
+                i = j
+            else:
+                i += 1
+        else:
+            i += 1
+
+
 def is_statement_pdf(path):
     """True if the PDF at `path` looks like a parseable bank statement (any supported
-    format: Barclays columnar, or the DR/CR row layout). Used to pick statements out of
+    format: Barclays columnar, or the DR/CR row layout, or PNB, or Wrenfield). Used to pick statements out of
     a ZIP and to reject non-statement PDFs."""
     try:
         d = pymupdf.open(path)
@@ -348,7 +532,7 @@ def is_statement_pdf(path):
         d.close()
     except Exception:
         return False
-    return is_barclays(head) or is_transaction_statement(head)
+    return is_barclays(head) or is_transaction_statement(head) or is_pnb(head) or is_wrenfield(head)
 
 
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
@@ -366,9 +550,9 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     # Detect currency code from header text metadata
     detected_cur = "INR"
     low_head = head.lower()
-    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.")):
+    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb")):
         detected_cur = "INR"
-    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb")):
+    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb", "wrenfield")):
         detected_cur = "GBP"
     elif any(k in low_head for k in ("oman", "muscat", "omr")):
         detected_cur = "OMR"
@@ -377,7 +561,15 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     else:
         detected_cur = "" # clean fallback: no symbol
 
-    parser = parse_barclays if is_barclays(head) else parse_pdf
+    if is_barclays(head):
+        parser = parse_barclays
+    elif is_pnb(head):
+        parser = parse_pnb
+    elif is_wrenfield(head):
+        parser = parse_wrenfield
+    else:
+        parser = parse_pdf
+
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
     buf, n = [], 0
