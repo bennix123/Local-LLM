@@ -241,7 +241,22 @@ export async function parsePdf(buffer) {
     }
   }
 
-  // Fallback: plain visual lines (unknown layout / non-tabular PDF).
+  // Fallback: try SBI bank PDF format (plain text, not tabular like HDFC)
+  const plainText = lines
+    .map((ln) => ln.items.map((i) => i.str).join(" ").trim())
+    .join("\n");
+
+  if (plainText.includes("STATE BANK OF INDIA")) {
+    resetCurrency();
+    setCurrency("INR"); // Force INR for SBI bank statements
+    const { parseSBIPdfFile } = await import("./parse-sbi.js");
+    const sbiResult = parseSBIPdfFile(plainText);
+    if (sbiResult && sbiResult.records.length >= 5) {
+      return tabularToChunks(sbiResult.records);
+    }
+  }
+
+  // Fallback: plain text lines (unknown layout / non-tabular PDF).
   const textLines = lines
     .map((ln) => ln.items.map((i) => i.str).join(" ").trim())
     .filter((l) => l.length > 0)
