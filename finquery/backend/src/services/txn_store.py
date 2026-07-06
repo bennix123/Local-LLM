@@ -101,7 +101,14 @@ def grp(n):
 
 
 def _money(s):
-    return float(s.replace(",", "")) if s and s.strip() else 0.0
+    if not s or not s.strip():
+        return 0.0
+    s_cleaned = re.sub(r"(?i)(cr|dr)\.?$", "", s.strip())
+    s_cleaned = re.sub(r"[^\d.-]", "", s_cleaned)
+    try:
+        return float(s_cleaned)
+    except ValueError:
+        return 0.0
 
 
 # ------------------------------------------------------------------ db
@@ -522,9 +529,199 @@ def parse_wrenfield(pdf_path):
             i += 1
 
 
+DATE_PATTERNS = [
+    re.compile(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})$"),
+    re.compile(r"^(\d{2})[-/.](\d{2})[-/.](\d{4})$"),
+    re.compile(r"^(\d{2})-([A-Za-z]{3,9})-(\d{4})$"),
+    re.compile(r"^(\d{2})\s+([A-Za-z]{3,9})\s+(\d{4})$"),
+    re.compile(r"^(\d{2})/(\d{2})/(\d{2})$"),
+]
+
+
+def parse_date(t):
+    t_clean = t.strip()
+    for pat in DATE_PATTERNS:
+        m = pat.match(t_clean)
+        if m:
+            g = m.groups()
+            if len(g) == 3:
+                if len(g[0]) == 4:
+                    return int(g[0]), int(g[1]), int(g[2])
+                if g[1].isalpha():
+                    mon = _PNB_MON.get(g[1][:3].title(), 1)
+                else:
+                    mon = int(g[1])
+                day = int(g[0])
+                yr = int(g[2])
+                if yr < 100:
+                    yr += 2000
+                return yr, mon, day
+    return None
+
+
+MONEY_PAT = re.compile(r"^-?[\d,]+\.\d{2}$")
+
+
+def parse_generic_statement(pdf_path):
+    """Generic fallback statement parser that extracts transactions from visual layout coordinates."""
+    doc = pymupdf.open(pdf_path)
+    
+    # Detect currency locally to avoid global NameError
+    head = ""
+    try:
+        head = "".join(doc[i].get_text("text") for i in range(min(3, len(doc))))
+    except Exception:
+        pass
+    
+    local_cur = "INR"
+    low_head = head.lower()
+    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb")):
+        local_cur = "INR"
+    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb", "wrenfield")):
+        local_cur = "GBP"
+    elif any(k in low_head for k in ("oman", "muscat", "omr")):
+        local_cur = "OMR"
+    elif any(k in low_head for k in ("chase", "routing", "$")):
+        local_cur = "USD"
+    else:
+        local_cur = ""
+        
+    raw_rows = []
+    
+    for page_idx, page in enumerate(doc):
+        words = page.get_text("words")
+        lines = {}
+        for x0, y0, x1, y1, w, *_ in words:
+            lines.setdefault(round(y0 / 2.0) * 2, []).append((x0, w))
+            
+        for y in sorted(lines):
+            row_words = sorted(lines[y])
+            tokens = [w for x, w in row_words]
+            
+            date_idx = -1
+            date_val = None
+            for idx, t in enumerate(tokens):
+                d_parsed = parse_date(t)
+                if d_parsed:
+                    date_idx = idx
+                    date_val = d_parsed
+                    break
+                    
+            if date_idx != -1:
+                money_tokens = []
+                other_tokens = []
+                for idx, t in enumerate(tokens):
+                    if idx == date_idx:
+                        continue
+                    t_clean = re.sub(r"[₹£$€]", "", t).strip()
+                    t_clean_num = re.sub(r"(cr|dr)\.?$", "", t_clean, flags=re.I).strip()
+                    if MONEY_PAT.match(t_clean_num):
+                        money_tokens.append((idx, t))
+                    else:
+                        other_tokens.append(t)
+                
+                desc = " ".join(other_tokens).strip()
+                if not money_tokens or any(w in desc.lower() for w in ("statement period", "opening balance", "closing balance", "total balance")):
+                    continue
+                
+                raw_rows.append({
+                    "date_val": date_val,
+                    "money_tokens": money_tokens,
+                    "desc": desc
+                })
+    doc.close()
+    
+    if not raw_rows:
+        return
+        
+    first_date = raw_rows[0]["date_val"]
+    last_date = raw_rows[-1]["date_val"]
+    if first_date > last_date:
+        raw_rows.reverse()
+        
+    seq = 0
+    running_balance = None
+    
+    for row in raw_rows:
+        date_val = row["date_val"]
+        money_tokens = row["money_tokens"]
+        desc = row["desc"]
+        
+        amt = 0.0
+        bal = 0.0
+        is_credit = False
+        
+        if len(money_tokens) >= 2:
+            amt_str = money_tokens[0][1]
+            bal_str = money_tokens[-1][1]
+            
+            amt = abs(_money(amt_str))
+            bal = _money(bal_str)
+            if "dr" in bal_str.lower():
+                bal = -bal
+                
+            if running_balance is not None:
+                diff = bal - running_balance
+                if diff > 0.01:
+                    is_credit = True
+                elif diff < -0.01:
+                    is_credit = False
+                else:
+                    if amt_str.startswith("-"):
+                        is_credit = False
+                    elif "/cr/" in desc.lower() or "/cr " in desc.lower() or "cr/" in desc.lower():
+                        is_credit = True
+                    elif "/dr/" in desc.lower() or "/dr " in desc.lower() or "dr/" in desc.lower():
+                        is_credit = False
+                    elif "cr" in amt_str.lower() or "cr" in bal_str.lower():
+                        is_credit = True
+                    else:
+                        is_credit = False
+            else:
+                if amt_str.startswith("-"):
+                    is_credit = False
+                elif "/cr/" in desc.lower() or "/cr " in desc.lower() or "cr/" in desc.lower():
+                    is_credit = True
+                elif "/dr/" in desc.lower() or "/dr " in desc.lower() or "dr/" in desc.lower():
+                    is_credit = False
+                elif "cr" in amt_str.lower() or "cr" in bal_str.lower() or "deposit" in desc.lower():
+                    is_credit = True
+                else:
+                    is_credit = False
+            running_balance = bal
+        elif len(money_tokens) == 1:
+            amt_str = money_tokens[0][1]
+            amt = abs(_money(amt_str))
+            is_credit = not amt_str.startswith("-")
+            if running_balance is not None:
+                bal = running_balance + (amt if is_credit else -amt)
+                running_balance = bal
+            else:
+                bal = 0.0
+                
+        yr, mon, day = date_val
+        iso = f"{yr:04d}-{mon:02d}-{day:02d}"
+        seq += 1
+        
+        # Categorize
+        if local_cur == "GBP":
+            merchant, category = _barclays_merchant(desc, is_credit)
+        else:
+            merchant, category = _classify(desc)
+            
+        yield {
+            "txn_date": iso, "month": iso[:7],
+            "year": yr, "month_no": mon, "day": day,
+            "descr": desc, "merchant": merchant, "category": category,
+            "debit": amt if not is_credit else 0.0,
+            "credit": amt if is_credit else 0.0,
+            "balance": bal, "currency": local_cur or "INR", "seq": seq
+        }
+
+
 def is_statement_pdf(path):
     """True if the PDF at `path` looks like a parseable bank statement (any supported
-    format: Barclays columnar, or the DR/CR row layout, or PNB, or Wrenfield). Used to pick statements out of
+    format: Barclays columnar, or the DR/CR row layout, or PNB, or Wrenfield, or generic fallback). Used to pick statements out of
     a ZIP and to reject non-statement PDFs."""
     try:
         d = pymupdf.open(path)
@@ -532,7 +729,13 @@ def is_statement_pdf(path):
         d.close()
     except Exception:
         return False
-    return is_barclays(head) or is_transaction_statement(head) or is_pnb(head) or is_wrenfield(head)
+    if is_barclays(head) or is_transaction_statement(head) or is_pnb(head) or is_wrenfield(head):
+        return True
+    try:
+        txns = list(parse_generic_statement(path))
+        return len(txns) >= 3
+    except Exception:
+        return False
 
 
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
@@ -568,7 +771,8 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     elif is_wrenfield(head):
         parser = parse_wrenfield
     else:
-        parser = parse_pdf
+        # Check if transaction statement format (HDFC) is matched, else fallback to generic parser
+        parser = parse_pdf if is_transaction_statement(head) else parse_generic_statement
 
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
