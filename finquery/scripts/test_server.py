@@ -643,7 +643,7 @@ _DATE_EXPR = (rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MON_RE})\.?,?\s+\
 _RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:to|till|until|through|thru|[-–—]|and)\s*({_DATE_EXPR})", re.I)
 _SINGLE_RE = re.compile(_DATE_EXPR, re.I)
 _INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|recei?ve?d?|recie?ve?d?)\b", re.I)
-_COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow much time\b|\bhow many times\b", re.I)
+_COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow much time\b|\bhow many times\b|\bhow much\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?)\b", re.I)
 
 
 _WORDNUM = {"twenty": 20, "thirty": 30, "twenty one": 21, "twenty two": 22, "twenty three": 23,
@@ -1382,22 +1382,22 @@ _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expen
 _SMALL_RE = re.compile(r"\b(smal{1,2}e?st|low+e?st|cheap+e?st|minimum|least expensive|sabse chota|sabse kam|sabse sasta)\b", re.I)
 _ALLTIME_RE = re.compile(r"\ball[- ]?time\b|\boverall\b|\blifetime\b|\bever\b|\bin total\b|"
                          r"\b(?:whole|entire) (?:statement|account)\b", re.I)
-_COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btrans[ac]*tion[s]?\b|\btxns?\b|\bpurchases?\b|\bhow much time\b|\bhow many times\b|\bhow often\b", re.I)
+_COUNT_X = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bkitne\b|\btrans[ac]*ti(?:on|no|o|n)s?\b|\btxns?\b|\bpurchases?\b|\bhow much time\b|\bhow many times\b|\bhow often\b|\bhow much\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?)\b", re.I)
 _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 # "show me the transactions", "list them", "show me all 3 transactions" -> LIST the rows,
 # not a count. Requires a show/list VERB and a transaction-listing NOUN, so "show me
 # spending by category" / "show my balance" (no such noun) are untouched.
 _LIST_RE = re.compile(
     r"\b(?:show|list|display|view|see|pull up|give me|let me see|what were|what was)\b[^?]*?"
-    r"\b(trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those)\b", re.I)
+    r"\b(trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those)\b", re.I)
 _LIST_N_RE = re.compile(
-    r"\b(\d{1,3})\s+(?:trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
+    r"\b(\d{1,3})\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
 # "which 3 transactions?" / "which transactions?" / "what transactions" — a verb-less way to
 # ask for the rows (the real user's phrasing). No amount/period of its own, so an amount
 # filter ("which transactions over £100") is left to analytics, which runs first.
 _WHICH_TXN_RE = re.compile(
     r"\b(?:which|what)\s+(?:are\s+|were\s+|was\s+|is\s+)?(?:the\s+|those\s+|these\s+)?"
-    r"(?:\d{1,3}\s+)?(?:trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?)\b", re.I)
+    r"(?:\d{1,3}\s+)?(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?)\b", re.I)
 # The named entity in "show me <X> transactions" (X between the verb and the noun), so an
 # UNKNOWN name ("show me Waitrose transactions") gets an honest "no transactions", not the
 # whole ledger. Leading filler (all / the / my / 3 / …) is stripped so "show me all 3
@@ -1879,9 +1879,9 @@ def _extract_slots(q):
             ckind = "upi"
         elif re.search(r"\bcard\b|\bvisa\b|\bpos\b", low):
             ckind = "card"
-        elif re.search(r"\bcredit\b|\bdeposit", low):
+        elif re.search(r"\b(credit|deposit)\b", low) or _INCOME_RE.search(low):
             ckind = "credit"
-        elif re.search(r"\bdebit\b", low):
+        elif re.search(r"\b(debit|spend|spent|expense|payment|paid|purchase|withdrawal)\b", low):
             ckind = "debit"
     return {"type": t, "period_full": pf, "pmonth": pmonth, "pday": pday, "prange": prange,
             "category": cat, "merchant": merch,

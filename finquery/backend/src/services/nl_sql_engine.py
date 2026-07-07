@@ -378,7 +378,7 @@ _DEBIT_RE = re.compile(
     r"\b(spend|spent|expense|expenditure|payment|paid|purchase|withdrawal|debit|money\s+out)\b", re.I
 )
 _COUNT_RE = re.compile(
-    r"\b(how\s+many|number\s+of|no\.?\s+of|count|how\s+much\s+time|how\s+many\s+times|trans[ac]*tion[s]?|txns?)\b", re.I
+    r"\b(how\s+many|number\s+of|no\.?\s+of|count|how\s+much\s+time|how\s+many\s+times|trans[ac]*ti(?:on|no|o|n)s?|txns?|how\s+much\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?))\b", re.I
 )
 _BAL_RE = re.compile(r"\b(current\s+balance|balance|remaining|left|kitna\s+bacha)\b", re.I)
 _TOP_N_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
