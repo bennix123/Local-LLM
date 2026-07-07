@@ -1336,7 +1336,7 @@ def merchant_dates(user_id, keyword, doc_name=None, period=None, limit=500):
     return rows
 
 
-def list_transactions(user_id, merchant=None, category=None, doc_name=None, period=None, limit=25):
+def list_transactions(user_id, merchant=None, category=None, doc_name=None, period=None, limit=25, txn_type=None):
     """Individual transaction ROWS for a 'show me the transactions' listing, scoped by any of
     merchant keyword / category / period, in chronological order. Returns (rows, total) where
     rows is [(txn_date, merchant, descr, debit, credit)] capped at `limit` and total is the
@@ -1349,6 +1349,10 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
         clauses.append(mw); params += mp
     if category:
         clauses.append("category=?"); params.append(category)
+    if txn_type == "debit":
+        clauses.append("debit>0")
+    elif txn_type == "credit":
+        clauses.append("credit>0")
     extra = (" AND " + " AND ".join(clauses)) if clauses else ""
     base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
     con = connect()
@@ -2229,7 +2233,8 @@ def dispatch_intent(intent, user_id, doc_name=None):
         m = (intent.get("merchant") or "").strip()
         cat = (intent.get("category") or "").strip()
         cap = int(intent.get("n") or 0) or 25
-        rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap)
+        ttype = intent.get("txn_type")
+        rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap, ttype)
         who = ""
         if m and cat:   who = f" for {_mname(m)} ({cat})"
         elif m:         who = f" for {_mname(m)}"

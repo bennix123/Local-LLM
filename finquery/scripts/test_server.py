@@ -642,7 +642,7 @@ _DATE_EXPR = (rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MON_RE})\.?,?\s+\
               rf"|20\d\d)")
 _RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:to|till|until|through|thru|[-–—]|and)\s*({_DATE_EXPR})", re.I)
 _SINGLE_RE = re.compile(_DATE_EXPR, re.I)
-_INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|received|receive)\b", re.I)
+_INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|recei?ve?d?|recie?ve?d?)\b", re.I)
 _COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow much time\b|\bhow many times\b", re.I)
 
 
@@ -882,8 +882,8 @@ def _day_range_period(q):
     return None
 
 _WEEK_ORD_RE = re.compile(
-    r"\b(1st|first|2nd|second|3rd|third|4th|fourth)\s+week\s+(?:of\s+)?(" + _MON_RE + r")\b|"
-    rf"\b({_MON_RE})\s+(1st|first|2nd|second|3rd|third|4th|fourth)\s+week\b", re.I
+    r"\b(1st|first|2nd|second|3rd|third|4th|fourth|last)\s+week\s+(?:of\s+)?(" + _MON_RE + r")\b|"
+    rf"\b({_MON_RE})\s+(1st|first|2nd|second|3rd|third|4th|fourth|last)\s+week\b", re.I
 )
 
 
@@ -902,10 +902,16 @@ def _week_of_month_period(q):
     yy = _year_for_month(mm)
     if not yy:
         yy = _anchor_month()[:4] if _anchor_month() else "2024"
-    days = {"1st": (1, 7), "first": (1, 7),
-            "2nd": (8, 14), "second": (8, 14),
-            "3rd": (15, 21), "third": (15, 21),
-            "4th": (22, 28), "fourth": (22, 28)}.get(ord_str.lower())
+    if ord_str.lower() == "last":
+        ld = {"01":31,"02":28,"03":31,"04":30,"05":31,"06":30,
+              "07":31,"08":31,"09":30,"10":31,"11":30,"12":31}
+        last_day = ld.get(mm, 30)
+        days = (22, last_day)
+    else:
+        days = {"1st": (1, 7), "first": (1, 7),
+                "2nd": (8, 14), "second": (8, 14),
+                "3rd": (15, 21), "third": (15, 21),
+                "4th": (22, 28), "fourth": (22, 28)}.get(ord_str.lower())
     if not days:
         return None
     return f"{yy}-{mm}-{days[0]:02d}", f"{yy}-{mm}-{days[1]:02d}"
@@ -1383,7 +1389,7 @@ _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 # spending by category" / "show my balance" (no such noun) are untouched.
 _LIST_RE = re.compile(
     r"\b(?:show|list|display|view|see|pull up|give me|let me see|what were|what was)\b[^?]*?"
-    r"\b(trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?|them|these|those)\b", re.I)
+    r"\b(trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those)\b", re.I)
 _LIST_N_RE = re.compile(
     r"\b(\d{1,3})\s+(?:trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
 # "which 3 transactions?" / "which transactions?" / "what transactions" — a verb-less way to
@@ -1429,7 +1435,7 @@ _SPEND_RE = re.compile(r"\b(spend|spent|spending|kharcha|kharch|blew|burn)\b", r
 # A complete standalone question naming an entity must NOT inherit a period set turns ago.
 _COMPLETE_Q = re.compile(r"\bhow much\b|\bhow many\b|\bhow often\b|\bwhat did i (?:spend|pay)\b"
                          r"|\bwhat'?s my\b|\bwhat is my\b|\btotal\b|\bpayments?\b|\bpaid\b", re.I)
-_INCOME_RE2 = re.compile(r"\b(incom(?:e|ings)?|earn(?:ed|ings|t)?|salary|salaries|inflow|received|receive)\b", re.I)
+_INCOME_RE2 = re.compile(r"\b(incom(?:e|ings)?|earn(?:ed|ings|t)?|salary|salaries|inflow|recei?ve?d?|recie?ve?d?)\b", re.I)
 _EXP_CTXT = ("expense", "spend", "purchase", "transaction", "charge", "buy", "kharcha", "kharch")
 _CONT_RE = re.compile(r"^\s*(and\b|also\b|plus\b|then\b|now\b|just\b|ok\b|okay\b|&|aur\b|phir\b|what about|how about|what'?s about)", re.I)
 _REFS_RE = re.compile(r"\b(that|then|those|same|it)\b", re.I)
@@ -1821,7 +1827,7 @@ def _extract_slots(q):
                 "date_dir": sp.get("date_dir", "")}
     topm = _TOP_RE.search(q)
     has_exp = any(w in low for w in _EXP_CTXT)
-    has_cr = any(w in low for w in ("deposit", "credit", "received", "income", "inflow"))
+    has_cr = bool(_INCOME_RE.search(low) or re.search(r"\b(deposit|credit)\b", low))
     t = None
     if _BIG_RE.search(q) and has_cr and not has_exp:    # "largest deposit/credit"
         t = "largest_income"
@@ -1855,7 +1861,7 @@ def _extract_slots(q):
     # N largest, so it stays a top-N, not a chronological list.
     list_n = 0
     if (_LIST_RE.search(q) or _WHICH_TXN_RE.search(q) or re.search(r"\bdetails?\b", low)) \
-            and t in (None, "count", "spend", "merchant", "category") \
+            and t in (None, "count", "spend", "merchant", "category", "income") \
             and not re.search(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b", low):
         if topm:
             t = "top_expenses"
@@ -2031,13 +2037,17 @@ def _resolve_factual(q, ctx):
             if t == "spend":
                 t = "category"
     n = s["n"] or (ctx.get("n", 0) if (cont and t == "top_expenses") else 0)
+    txn_type = ("credit" if _INCOME_RE.search(low) or re.search(r"\b(credit|deposit)\b", low)
+                else "debit" if re.search(r"\b(debit|spend|spent|expense|payment|paid|purchase|withdrawal)\b", low) else "")
+    if not txn_type and ctx:
+        txn_type = ctx.get("txn_type", "")
     return {"type": t, "category": cat, "merchant": mer, "n": n,
             "start": start, "end": end, "table": bool(_TABLE_RE.search(q)),
-            "count_kind": s.get("count_kind", "")}
+            "count_kind": s.get("count_kind", ""), "txn_type": txn_type}
 
 
 def _save_ctx(ctx, intent):
-    for k in ("type", "start", "end", "category", "merchant"):
+    for k in ("type", "start", "end", "category", "merchant", "txn_type"):
         ctx[k] = intent.get(k, "")
     ctx["n"] = intent.get("n", 0)
 
@@ -2144,7 +2154,7 @@ _SCOPE_CLEAR_RE = re.compile(
     r"\b(overall|in total|all[- ]time|everything|across (?:all|everything|the (?:account|statement))|"
     r"(?:entire|whole) (?:account|statement)|all merchants|all categories|for all|account[- ]wide)\b", re.I)
 _NO_ENTITY_INJECT_RE = re.compile(
-    r"\b(income|salary|salaries|earn\w*|\bcredit\b|deposit\w*|balance|net worth|inflow|received|"
+    r"\b(income|salary|salaries|earn\w*|\bcredit\b|deposit\w*|balance|net worth|inflow|recei?ve?d?|recie?ve?d?|"
     r"savings? rate|runway|health|risk|net position)\b", re.I)
 
 # bare-metric follow-ups -> a canonical stem the SQL engines parse

@@ -372,7 +372,7 @@ _PROFILE_FIELDS = {
 }
 
 _CREDIT_RE = re.compile(
-    r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|received?|credit|money\s+in|deposit)\b", re.I
+    r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|recei?ve?d?|recie?ve?d?|credit|money\s+in|deposit)\b", re.I
 )
 _DEBIT_RE = re.compile(
     r"\b(spend|spent|expense|expenditure|payment|paid|purchase|withdrawal|debit|money\s+out)\b", re.I
