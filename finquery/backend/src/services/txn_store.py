@@ -586,8 +586,10 @@ def parse_date(t):
 MONEY_PAT = re.compile(r"^-?[\d,]+\.\d{2}$")
 
 
-def parse_generic_statement(pdf_path):
-    """Generic fallback statement parser that extracts transactions from visual layout coordinates."""
+def _parse_generic_columnar(pdf_path):
+    """Generic fallback: extract transactions from visual layout coordinates, one date-bearing
+    row = one transaction. Great for column layouts with a date on every row; blind to layouts
+    that print the date once per day (see _parse_generic_dateinherited)."""
     doc = pymupdf.open(pdf_path)
     
     # Detect currency locally to avoid global NameError
@@ -715,7 +717,13 @@ def parse_generic_statement(pdf_path):
             running_balance = bal
         elif len(money_tokens) == 1:
             amt_str = money_tokens[0][1]
-            amt = abs(_money(amt_str))
+            val = _money(amt_str)
+            # A lone money value that EQUALS the running balance is a balance-display /
+            # carried-forward line (only the Balance column populated, no Withdrawal/Deposit) —
+            # not a transaction. Skip it, otherwise it's mistaken for an amount and added twice.
+            if running_balance is not None and abs(abs(val) - running_balance) < 0.005:
+                continue
+            amt = abs(val)
             is_credit = not amt_str.startswith("-")
             if running_balance is not None:
                 bal = running_balance + (amt if is_credit else -amt)
@@ -741,6 +749,158 @@ def parse_generic_statement(pdf_path):
             "credit": amt if is_credit else 0.0,
             "balance": bal, "currency": local_cur or "INR", "seq": seq
         }
+
+
+_GEN_MON3 = {m: i + 1 for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+_GEN_MONEY_RE = re.compile(r"^-?[£$€₹]?[\d,]+\.\d{2}(?:\s?(?:cr|dr))?$", re.I)
+_GEN_SUMMARY_RE = re.compile(
+    r"start balance|end balance|opening balance|closing balance|total balance|money in|"
+    r"money out|at a glance|statement period|brought forward|balance b/?f", re.I)
+
+
+def _gen_money(s):
+    return float(re.sub(r"[£$€₹,]|(?:\s?(?:cr|dr))", "", s, flags=re.I).strip())
+
+
+def _gen_valid(mo, d):
+    return 1 <= mo <= 12 and 1 <= d <= 31
+
+
+def _gen_row_date(toks):
+    """((year|None, month, day), {consumed indices}) — a full date token, or 'D Mon [YYYY]' /
+    'Mon D [YYYY]' across tokens, validated so a sort code ('11-47-29') isn't read as a date."""
+    for i, t in enumerate(toks):
+        m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", t) or re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", t)
+        if m:
+            g = m.groups()
+            if len(g[0]) == 4:
+                y, mo, d = int(g[0]), int(g[1]), int(g[2])
+            else:
+                y = int(g[2]); y += 2000 if y < 100 else 0; mo, d = int(g[1]), int(g[0])
+            if _gen_valid(mo, d):
+                return (y, mo, d), {i}
+    for i in range(len(toks) - 1):
+        a, b = toks[i].strip(".,"), toks[i + 1].strip(".,")
+        used = {i, i + 1}; yr = None
+        if i + 2 < len(toks) and re.fullmatch(r"20\d\d", toks[i + 2]):
+            yr = int(toks[i + 2]); used.add(i + 2)
+        if re.fullmatch(r"\d{1,2}", a) and b[:3].lower() in _GEN_MON3 and _gen_valid(_GEN_MON3[b[:3].lower()], int(a)):
+            return (yr, _GEN_MON3[b[:3].lower()], int(a)), used
+        if a[:3].lower() in _GEN_MON3 and re.fullmatch(r"\d{1,2}", b) and _gen_valid(_GEN_MON3[a[:3].lower()], int(b)):
+            return (yr, _GEN_MON3[a[:3].lower()], int(b)), used
+    return None, set()
+
+
+def _gen_rows(page):
+    """Cluster a page's words into visual rows (tokens sorted left-to-right)."""
+    ws = sorted((round(y0), round(x0), w) for x0, y0, x1, y1, w, *_ in page.get_text("words"))
+    out = []
+    for y, x, w in ws:
+        if out and y - out[-1][0] <= 3:
+            out[-1][1].append((x, w)); out[-1][0] = y
+        else:
+            out.append([y, [(x, w)]])
+    return [[w for _x, w in sorted(toks)] for _y, toks in out]
+
+
+def _parse_generic_dateinherited(pdf_path):
+    """Generic fallback for layouts that print the DATE ONCE PER DAY (e.g. Castlemere): the
+    date is carried across rows, multi-token/yearless dates are recognised with chronological
+    year rollover, continuation lines ('SO', 'Ref: …') are stitched into the description, and
+    debit/credit is read from the BALANCE DIRECTION. Yields the standard row dict."""
+    doc = pymupdf.open(pdf_path)
+    head = "".join(doc[i].get_text("text") for i in range(min(3, len(doc))))
+    low = head.lower()
+    cur = ("GBP" if any(k in low for k in ("barclays", "sort code", "£", "iban gb", "castlemere", "wrenfield"))
+           else "OMR" if any(k in low for k in ("oman", "muscat", "omr"))
+           else "USD" if "$" in low else "INR")
+    years = [int(y) for y in re.findall(r"\b(20\d\d)\b", head)]
+    base_year = min(years) if years else 2000
+
+    txns, cur_date, cur_txn = [], None, None
+    for page in doc:
+        for toks in _gen_rows(page):
+            money = [t for t in toks if _GEN_MONEY_RE.match(t)]
+            dt, used = _gen_row_date(toks)
+            text = " ".join(t for j, t in enumerate(toks) if j not in used and not _GEN_MONEY_RE.match(t)).strip()
+            if dt:
+                cur_date = dt
+            if money and cur_date and not _GEN_SUMMARY_RE.search(text):
+                if cur_txn:
+                    txns.append(cur_txn)
+                cur_txn = {"date": cur_date, "desc": text, "money": money}
+            elif text and cur_txn and not dt and not _GEN_SUMMARY_RE.search(text):
+                cur_txn["desc"] = (cur_txn["desc"] + " " + text).strip()
+    if cur_txn:
+        txns.append(cur_txn)
+    doc.close()
+    if not txns:
+        return
+
+    prev_m, yr = None, base_year                    # chronological year rollover for yearless dates
+    for t in txns:
+        y0, m, d = t["date"]
+        if y0 is not None:
+            yr = y0
+        elif prev_m is not None and m < prev_m:
+            yr += 1
+        prev_m = m
+        t["iso"] = (yr, m, d)
+    if txns[0]["iso"] > txns[-1]["iso"]:
+        txns.reverse()
+
+    seq, running = 0, None
+    for t in txns:
+        mny = t["money"]
+        amt = abs(_gen_money(mny[0])); bal = _gen_money(mny[-1])
+        if running is not None:
+            diff = bal - running
+            is_credit = diff > 0.005 if abs(diff) > 0.005 else mny[0].lower().rstrip().endswith("cr")
+        else:
+            is_credit = ("cr" in mny[0].lower()) or ("deposit" in t["desc"].lower())
+        running = bal
+        yr, mm, dd = t["iso"]
+        seq += 1
+        desc = t["desc"][:80]
+        merchant, category = (_barclays_merchant(desc, is_credit) if cur == "GBP" else _classify(desc))
+        yield {"txn_date": f"{yr:04d}-{mm:02d}-{dd:02d}", "month": f"{yr:04d}-{mm:02d}",
+               "year": yr, "month_no": mm, "day": dd, "descr": desc, "merchant": merchant,
+               "category": category, "debit": 0.0 if is_credit else amt,
+               "credit": amt if is_credit else 0.0, "balance": bal, "currency": cur, "seq": seq}
+
+
+def _generic_breaks(rows):
+    """Order-aware count of running-balance violations (min over both row orderings). Returns a
+    large number when there are too few rows to verify, so a genuinely reconciling parse always
+    wins the strategy comparison."""
+    def chk(seq):
+        prev, b = None, 0
+        for r in seq:
+            bal = r["balance"]
+            if prev is not None and abs(bal - (prev + r["credit"] - r["debit"])) > 0.005:
+                b += 1
+            prev = bal
+        return b
+    if len(rows) < 2:
+        return 10 ** 9
+    return min(chk(rows), chk(rows[::-1]))
+
+
+def parse_generic_statement(pdf_path):
+    """Generic fallback parser. Runs the columnar strategy first; if it doesn't reconcile
+    against the running balance, tries the date-inherited strategy and keeps whichever parse
+    RECONCILES BEST (fewest balance violations). Because the balance column picks the correct
+    parse, adding a strategy can never regress a statement the previous one already got right."""
+    columnar = list(_parse_generic_columnar(pdf_path))
+    if columnar and _generic_breaks(columnar) == 0:
+        yield from columnar
+        return
+    inherited = list(_parse_generic_dateinherited(pdf_path))
+    if inherited and (not columnar or _generic_breaks(inherited) < _generic_breaks(columnar)):
+        yield from inherited
+    else:
+        yield from columnar
 
 
 def is_statement_pdf(path):
