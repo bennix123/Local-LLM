@@ -402,7 +402,7 @@ async def dashboard():
             subs.append({"name": r[0], "count": r[1], "total": r[2], "last": _fmt_date(r[3])})
     con.close()
     return JSONResponse({
-        "ready": True, "currency": "₹",
+        "ready": True, "currency": ts.CURRENCY,
         "totals": {"spending": o["debit"], "income": o["credit"],
                    "net": o["credit"] - o["debit"], "count": o["count"]},
         "balance": ts.latest_balance(USER),
@@ -1389,7 +1389,7 @@ _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 # spending by category" / "show my balance" (no such noun) are untouched.
 _LIST_RE = re.compile(
     r"\b(?:show|list|display|view|see|pull up|give me|let me see|what were|what was)\b[^?]*?"
-    r"\b(trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those)\b", re.I)
+    r"\b(trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those|that|list)\b", re.I)
 _LIST_N_RE = re.compile(
     r"\b(\d{1,3})\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
 # "which 3 transactions?" / "which transactions?" / "what transactions" — a verb-less way to
@@ -1838,6 +1838,8 @@ def _extract_slots(q):
     elif _COUNT_X.search(q):
         t = "count"
     elif _INCOME_RE2.search(q):
+        t = "income"
+    elif has_cr and not _COUNT_X.search(q):   # "total credit amount", "credit balance", etc.
         t = "income"
     elif _BAL_RE.search(q):
         t = "balance"
@@ -3112,9 +3114,12 @@ def analytics_answer(q):
         op = "under" if re.search(r"\b(under|below|less than|smaller than|cheaper than|lower than)\b", low) else "over"
         mname = merchs[0] if merchs else None
         cname = cats[0] if cats else None
-        r = ts.amount_filter(USER, op, amt, None, period, merchant=mname, category=cname)
+        is_credit = bool(re.search(r"\b(received|credit|deposit|income|earn(?:ed|ings|t)?|salary|inflow|recie?ve?d?)\b", low))
+        ttype = "credit" if is_credit else "debit"
+        r = ts.amount_filter(USER, op, amt, None, period, merchant=mname, category=cname, txn_type=ttype)
         scope = f" at {mname}" if mname else (f" on {cname}" if cname else "")
-        return (f"**{grp(r['count'])} transactions{scope}{sfx} {op} {inr(amt)}** — totaling {inr(r['total'])}")
+        label = "credit transactions" if is_credit else "transactions"
+        return (f"**{grp(r['count'])} {label}{scope}{sfx} {op} {inr(amt)}** — totaling {inr(r['total'])}")
 
     # 8) MULTI-ENTITY (two+ merchants/categories combined)
     combine = re.search(r"\b(together|combined|total of|both|sum of|plus|altogether)\b", low)
