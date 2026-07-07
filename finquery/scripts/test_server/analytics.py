@@ -100,6 +100,7 @@ def followup_response(q, history, thread="default"):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 def advice_response(q, thread="default"):
+    from .server import _append_log, stream_markdown
     """Deterministic insights (exact SQL figures) + one grounded LLM sentence."""
     report, grounding = ts.build_insights(USER)
     snapshot, _ = ts.advice_context(USER)
@@ -223,6 +224,7 @@ def _advice_fallback(q):
     return line
 
 def grounded_advice(q, thread="default", ctx=None):
+    from .server import _append_log, stream_text
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
     is verified against those facts before going out, else a deterministic fallback.
     `ctx` (thread scope) pins the CURRENT TOPIC with that entity's own fact block."""
