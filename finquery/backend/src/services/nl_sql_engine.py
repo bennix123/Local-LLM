@@ -172,11 +172,11 @@ def _norm_date(s: str) -> Optional[str]:
 def extract_account_profile(pdf_path: str, user_id: str) -> dict:
     """Extract account metadata from the first 4 pages of a bank statement PDF."""
     text = ""
+    doc = None
     if _HAS_PYMUPDF:
         try:
             doc = pymupdf.open(pdf_path)
             text = "".join(doc[i].get_text("text") for i in range(min(4, len(doc))))
-            doc.close()
         except Exception:
             pass
 
@@ -190,24 +190,70 @@ def extract_account_profile(pdf_path: str, user_id: str) -> dict:
         "email": None, "phone": None,
     }
 
-    # Bank name
-    for pat, name in [
-        (r"punjab national bank|pnb", "Punjab National Bank"),
-        (r"barclays", "Barclays Bank"),
-        (r"hdfc bank", "HDFC Bank"),
-        (r"state bank of india|sbi\b", "State Bank of India"),
-        (r"icici bank", "ICICI Bank"),
-        (r"axis bank", "Axis Bank"),
-        (r"wrenfield bank", "Wrenfield Bank"),
-        (r"kotak mahindra", "Kotak Mahindra Bank"),
-        (r"yes bank", "Yes Bank"),
-        (r"bank of baroda", "Bank of Baroda"),
-        (r"canara bank", "Canara Bank"),
-        (r"union bank", "Union Bank of India"),
-    ]:
-        if re.search(pat, text, re.I):
-            data["bank_name"] = name
-            break
+    # Bank name dynamic extraction
+    bank_name = None
+    if doc and text:
+        # 1. Fast-track check of popular hardcoded names
+        for pat, name in [
+            (r"punjab national bank|pnb", "Punjab National Bank"),
+            (r"barclays", "Barclays Bank"),
+            (r"hdfc bank", "HDFC Bank"),
+            (r"state bank of india|sbi\b", "State Bank of India"),
+            (r"icici bank", "ICICI Bank"),
+            (r"axis bank", "Axis Bank"),
+            (r"wrenfield bank", "Wrenfield Bank"),
+            (r"kotak mahindra", "Kotak Mahindra Bank"),
+            (r"yes bank", "Yes Bank"),
+            (r"bank of baroda", "Bank of Baroda"),
+            (r"canara bank", "Canara Bank"),
+            (r"union bank", "Union Bank of India"),
+        ]:
+            if re.search(pat, text, re.I):
+                bank_name = name
+                break
+
+        # 2. Check metadata
+        if not bank_name:
+            meta = doc.metadata or {}
+            for key in ("author", "creator", "title"):
+                val = meta.get(key)
+                if val and isinstance(val, str):
+                    val_clean = val.strip()
+                    if re.search(r"\bbank\b", val_clean, re.I) and not re.search(r"statement|report|doc", val_clean, re.I):
+                        bank_name = val_clean
+                        break
+
+        # 3. Read first page lines
+        if not bank_name and len(doc) > 0:
+            first_page_text = doc[0].get_text("text")
+            lines = [line.strip() for line in first_page_text.split("\n") if line.strip()]
+            for line in lines[:15]:
+                if re.search(r"\b(bank|banking|financial|cooperative|credit union)\b", line, re.I):
+                    if not re.search(r"\b(statement|account|e-statement|summary|report|period|details?|date)\b", line, re.I):
+                        if len(line) < 60:
+                            bank_name = line
+                            break
+
+    # 4. Try from filename
+    if not bank_name:
+        filename = os.path.basename(pdf_path)
+        name_no_ext = os.path.splitext(filename)[0]
+        name_spaced = re.sub(r"[-_.]+", " ", name_no_ext).strip()
+        if re.search(r"\bbank\b", name_spaced, re.I):
+            m = re.match(r"^(.*?\bbank\b)", name_spaced, re.I)
+            if m:
+                bank_name = m.group(1).title()
+        if not bank_name:
+            bank_name = name_spaced.title()
+
+    data["bank_name"] = bank_name
+
+    # Close document safely
+    if doc:
+        try:
+            doc.close()
+        except Exception:
+            pass
 
     # Currency
     if re.search(r"ifsc|micr|\bINR\b|rs\.", text, re.I):
