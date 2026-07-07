@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 import re, sqlite3, json, urllib.request
 from src.services import txn_store as ts
 from src.services.txn_store import (
-    DISCRETIONARY, SUBSCRIPTION_MERCHANTS, advice_facts, inr, grp, USER
+    DISCRETIONARY, SUBSCRIPTION_MERCHANTS, advice_facts, inr, grp
 )
 from src.services import ml_insights as ml
 from .router import (
@@ -86,7 +86,7 @@ def followup_sql_answer(q, ctx):
         intent = {**base, "type": "merchant" if mer else "category" if cat else "spend"}
     if not intent:
         return None
-    return ts.dispatch_intent(intent, USER)          # SQL renders every figure; None -> LLM
+    return ts.dispatch_intent(intent, ts.USER)          # SQL renders every figure; None -> LLM
 
 def followup_response(q, history, thread="default"):
     """Answer a question ABOUT the recent conversation (e.g. 'what is that number?')."""
@@ -104,8 +104,8 @@ def followup_response(q, history, thread="default"):
 def advice_response(q, thread="default"):
     from .server import _append_log, stream_markdown
     """Deterministic insights (exact SQL figures) + one grounded LLM sentence."""
-    report, grounding = ts.build_insights(USER)
-    snapshot, _ = ts.advice_context(USER)
+    report, grounding = ts.build_insights(ts.USER)
+    snapshot, _ = ts.advice_context(ts.USER)
 
     def gen():
         parts = []
@@ -167,19 +167,19 @@ def _advice_grounded(reply, facts):
 def _advice_fallback(q):
     """Concise, fully-deterministic advisory answer (no LLM) — used when the model is
     unavailable or its reply failed the number check. On-topic and short, never a dump."""
-    o = ts.overview(USER)
+    o = ts.overview(ts.USER)
     if o["count"] == 0:
         return "_Upload a statement first._"
     low = q.lower()
     inr, grp = ts.inr, ts.grp
-    nmon = max(len(ts.months_list(USER)), 1)
+    nmon = max(len(ts.months_list(ts.USER)), 1)
     inc, sp, net = o["credit"], o["debit"], o["net"]
     rate = (net / inc * 100) if inc else 0
-    cats = ts.by_category(USER)
+    cats = ts.by_category(ts.USER)
     disc = [(c, a) for c, a, _n in cats if c in ts.DISCRETIONARY][:3]
 
     if re.search(r"\btransactions?\b|biggest impact|impact on (?:my )?(?:financial|finances|health)", low):
-        tx = ts.top_expenses(USER, 5)
+        tx = ts.top_expenses(ts.USER, 5)
         if tx:
             body = "; ".join(f"{inr(amt)} to {mer}" for _dt, mer, amt in tx)
             return (f"**Your 5 largest single transactions** — the individual debits with the biggest "
@@ -193,7 +193,7 @@ def _advice_fallback(q):
                 f"({inr(inc / nmon * 0.20)}/month), which you clear comfortably, so directing most of "
                 f"that surplus to investments while keeping an emergency buffer is reasonable.")
     if re.search(r"depend|relian|income source|concentrat|diversif", low):
-        src = [r for r in ts.income_by_source(USER) if r[1] > 0]
+        src = [r for r in ts.income_by_source(ts.USER) if r[1] > 0]
         if src and inc:
             top, amt = src[0][0], src[0][1]
             dep = amt / inc * 100
@@ -208,7 +208,7 @@ def _advice_fallback(q):
                     f"categories and the easiest to limit. You spend {inr(sp)} against {inr(inc)} income "
                     f"(a {rate:.1f}% savings rate), so trimming these lifts what you keep.")
     if re.search(r"trend|pattern|observe|notice|insight|how am i|doing|healthy", low):
-        bm = ts.by_month(USER)
+        bm = ts.by_month(ts.USER)
         extra = ""
         if len(bm) >= 2:
             half = len(bm) // 2
@@ -230,7 +230,7 @@ def grounded_advice(q, thread="default", ctx=None):
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
     is verified against those facts before going out, else a deterministic fallback.
     `ctx` (thread scope) pins the CURRENT TOPIC with that entity's own fact block."""
-    facts = (ts.advice_facts(USER) + _concept_facts()   # + debt/fee/gambling obligations
+    facts = (ts.advice_facts(ts.USER) + _concept_facts()   # + debt/fee/gambling obligations
              + _scoped_facts(ctx))                      # + carried-topic facts (Healthcare…)
     reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, q)
     if reply:
@@ -268,11 +268,11 @@ def concept_answer(q):
     parts = []
     for m in _known_merchants():
         if mrx.search(m):
-            r = ts.merchant_spend(USER, m, None, period)
+            r = ts.merchant_spend(ts.USER, m, None, period)
             if r["dcount"]:
                 parts.append((m, r["debit"], r["dcount"]))
     if not parts:
-        cov = ts.coverage(USER)
+        cov = ts.coverage(ts.USER)
         span = f" Your data covers {ts._mlabel(cov[0])}–{ts._mlabel(cov[1])}." if cov else ""
         return (f"**I couldn't find any {label}-related transactions{sfx}.** "
                 f"I checked every merchant in your statement against the concept.{span}")
@@ -283,7 +283,7 @@ def concept_answer(q):
     # "% of my income goes on <concept>" -> concept spend vs income, same scope
     if (re.search(r"\bpercent\w*\b|%|\bproportion\b|\bshare\b|\bfraction\b", low)
             and re.search(r"\bincome\b|\bsalary\b|\bearn\w*\b", low)):
-        inc = ts.overview(USER, None, period)["credit"]
+        inc = ts.overview(ts.USER, None, period)["credit"]
         if not inc:
             return f"**No income recorded{sfx}** — can't compute a percentage."
         return (f"**{label.capitalize()} take {total / inc * 100.0:.1f}% of your income{sfx}** — "
@@ -296,7 +296,7 @@ def concept_answer(q):
                 + ", ".join(f"{m} {grp(c)}" for m, _, c in parts) + ")")
 
     head = f"**{label.capitalize()}{sfx}:** {inr(total)} across {grp(n)} transactions"
-    nmon = len(ts.months_list(USER, None, period))
+    nmon = len(ts.months_list(ts.USER, None, period))
     if nmon > 1:                     # "what loans am I repaying each month?"
         head += f" — about {inr(total / nmon)}/month"
     if len(parts) == 1:
@@ -316,7 +316,7 @@ def _concept_facts():
         parts = []
         for m in _known_merchants():
             if mrx.search(m):
-                r = ts.merchant_spend(USER, m, None, None)
+                r = ts.merchant_spend(ts.USER, m, None, None)
                 if r["dcount"]:
                     parts.append((m, r["debit"], r["dcount"]))
         if parts:
@@ -336,7 +336,7 @@ def _scoped_facts(ctx):
     mer = (ctx or {}).get("merchant", "")
     inr = ts.inr
     if mer:
-        r = ts.merchant_spend(USER, mer, None, None)
+        r = ts.merchant_spend(ts.USER, mer, None, None)
         if not r["count"]:
             return ""
         return (f"\nCURRENT TOPIC: the merchant {mer}. FACTS FOR {mer}: spent "
@@ -346,17 +346,17 @@ def _scoped_facts(ctx):
     if not cat:
         return ""
     total, cnt = 0.0, 0
-    for c, a, n in ts.by_category(USER, None, None):
+    for c, a, n in ts.by_category(ts.USER, None, None):
         if c == cat:
             total, cnt = a, n
             break
     if not cnt:
         return ""
-    o = ts.overview(USER, None, None)
+    o = ts.overview(ts.USER, None, None)
     pct = (total / o["debit"] * 100.0) if o["debit"] else 0.0
     series = ", ".join(
-        f"{ts._mlabel(m)} {inr(next((a for c2, a, _n in ts.by_category(USER, None, m) if c2 == cat), 0.0))}"
-        for m in ts.months_list(USER, None, None))
+        f"{ts._mlabel(m)} {inr(next((a for c2, a, _n in ts.by_category(ts.USER, None, m) if c2 == cat), 0.0))}"
+        for m in ts.months_list(ts.USER, None, None))
     return (f"\nCURRENT TOPIC: the {cat} category. FACTS FOR {cat}: total {inr(total)} "
             f"across {ts.grp(cnt)} transactions ({pct:.1f}% of all spending); by month: "
             f"{series}. Answer about {cat} specifically unless the user changes topic.\n")
@@ -366,7 +366,7 @@ def _entity_months(merchant, category, period=None):
     (placeholder year-0000 rows excluded). The single source of truth shared by the
     per-merchant/category monthly average and the 'which months' enumeration, so the two
     can never disagree."""
-    rows, _total = ts.list_transactions(USER, merchant or None, category or None, None, period, 5000)
+    rows, _total = ts.list_transactions(ts.USER, merchant or None, category or None, None, period, 5000)
     return sorted({r[0][:7] for r in rows if not r[0].startswith("0000")})
 
 def _active_months(merchant, category, period=None):
@@ -384,10 +384,10 @@ def analytics_answer(q):
     cats, merchs = _find_categories(low), _find_merchants(low)
 
     def empty():
-        return bool(period) and ts.overview(USER, None, period)["count"] == 0
+        return bool(period) and ts.overview(ts.USER, None, period)["count"] == 0
 
     def nodata():
-        cov = ts.coverage(USER)
+        cov = ts.coverage(ts.USER)
         span = f" Your data covers {ts._mlabel(cov[0])}–{ts._mlabel(cov[1])}." if cov else ""
         return f"**No transactions found for {plabel}.**{span}"
 
@@ -395,12 +395,12 @@ def analytics_answer(q):
     wif = re.search(r"\b(?:cut|reduce|trim|lower|slash|decreas\w*|drop)\b.*?\bby\s+(\d+(?:\.\d+)?)\s*%", low)
     if wif and (cats or merchs):
         pct = float(wif.group(1)) / 100.0
-        nmw = len([1 for _m, d, c, _n in ts.by_month(USER, None, period) if d or c]) or 1
+        nmw = len([1 for _m, d, c, _n in ts.by_month(ts.USER, None, period) if d or c]) or 1
         if cats:
-            amt = next((a for c, a, _ in ts.by_category(USER, None, period) if c == cats[0]), 0.0)
+            amt = next((a for c, a, _ in ts.by_category(ts.USER, None, period) if c == cats[0]), 0.0)
             name = cats[0]
         else:
-            amt = ts.merchant_spend(USER, merchs[0], None, period)["debit"]; name = merchs[0]
+            amt = ts.merchant_spend(ts.USER, merchs[0], None, period)["debit"]; name = merchs[0]
         saved = amt * pct
         return (f"**Cutting {name} by {wif.group(1)}% would save {inr(saved)}{sfx}** — about "
                 f"{inr(saved / nmw)}/month, {inr(saved / nmw * 12)}/year. "
@@ -418,7 +418,7 @@ def analytics_answer(q):
         cname = cats[0] if cats else None
         weekend = True if we else (False if wd else None)
         ttype = "debit" if deb_only else ("credit" if cred_only else None)
-        r = ts.filtered_summary(USER, merchant=mname, category=cname, period=period,
+        r = ts.filtered_summary(ts.USER, merchant=mname, category=cname, period=period,
                                 weekend=weekend, txn_type=ttype)
         flt = []
         if weekend is True:    flt.append("on weekends")
@@ -436,8 +436,8 @@ def analytics_answer(q):
                  r"volatil|erratic|fluctuat|predictab|\bvary\b|variab|earning|\bincome\b|salary|"
                  r"subscription|recurring|recurr|repeat\w*|lifestyle|personality|\bhabit|shop(?:ping)? online|how often|"
                  r"prevent|stopping me|last\s+\d+\s+months|\btrend\b|spending profile|spending style", low):
-        bm = ts.by_month(USER, None, period)            # [(month, debit, credit, count)]
-        o0 = ts.overview(USER, None, period)
+        bm = ts.by_month(ts.USER, None, period)            # [(month, debit, credit, count)]
+        o0 = ts.overview(ts.USER, None, period)
         mset = [r for r in bm if (r[1] or r[2])]
         nmon0 = len(mset) or 1
 
@@ -445,7 +445,7 @@ def analytics_answer(q):
         mcmp = re.search(r"last\s+(\d+)\s+months?\s+(?:with|to|and|vs\.?|versus|against|compared?\s+(?:to|with))\s+"
                          r"(?:the\s+)?(?:previous|prior|preceding|last|earlier)\s*(\d+)?\s*months?", low)
         if mcmp:
-            allm = ts.by_month(USER)
+            allm = ts.by_month(ts.USER)
             n1 = int(mcmp.group(1)); n2 = int(mcmp.group(2)) if mcmp.group(2) else n1
             if len(allm) >= n1 + n2:
                 rec, prev = allm[-n1:], allm[-(n1 + n2):-n1]
@@ -484,7 +484,7 @@ def analytics_answer(q):
         # survival runway
         if re.search(r"how (?:long|many months).*(survive|last|go|cover)|\b(runway|emergency fund)\b|"
                      r"if (?:my )?income (?:stop|stopped|stops|dried)|without (?:any )?income|no income", low):
-            bal = ts.latest_balance(USER, None, period)
+            bal = ts.latest_balance(ts.USER, None, period)
             avg_sp = o0["debit"] / nmon0
             if bal is not None and avg_sp > 0:
                 return (f"**Survival runway{sfx}:** about {bal / avg_sp:.1f} months — closing balance "
@@ -531,7 +531,7 @@ def analytics_answer(q):
         # income sources / reliability
         if re.search(r"income source|sources? of (?:my )?income|where (?:does|do)\s+(?:my\s+)?(?:income|earnings)\s+come from|"
                      r"\bincome\b.*\b(reliable|sources?|breakdown)\b|\b(reliable|main|primary|biggest)\b.*\bincome\b", low):
-            rows = [r for r in ts.income_by_source(USER, None, period) if r[1] > 0]
+            rows = [r for r in ts.income_by_source(ts.USER, None, period) if r[1] > 0]
             if rows:
                 body = [(m, inr(c), grp(n)) for m, c, n in rows]
                 return f"**Income sources{sfx}**\n\n" + ts._table(["Source", "Received", "Txns"], body)
@@ -546,7 +546,7 @@ def analytics_answer(q):
         # spending profile / personality / lifestyle
         if re.search(r"spending personality|describe my spend|what does my spending say|lifestyle|"
                      r"spending profile|spending style|kind of spender|type of spender", low):
-            rows = ts.by_category(USER, None, period)
+            rows = ts.by_category(ts.USER, None, period)
             tot = sum(a for _c, a, _n in rows) or 1
             if rows:
                 parts = ", ".join(f"{c} ({a / tot * 100:.0f}%)" for c, a, _n in rows[:3])
@@ -556,7 +556,7 @@ def analytics_answer(q):
         # what's preventing me from saving -> biggest outflows
         if re.search(r"prevent.*sav|stop\w*.*sav|why can.?t i save|what.?s stopping|keeping me from saving|"
                      r"hard(?:er)? to save", low):
-            rows = ts.by_category(USER, None, period)
+            rows = ts.by_category(ts.USER, None, period)
             if rows:
                 body = ", ".join(f"{c} ({inr(a)})" for c, a, _n in rows[:3])
                 return (f"**What's eating your savings{sfx}:** biggest outflows are {body}. Total "
@@ -564,7 +564,7 @@ def analytics_answer(q):
 
         # habits to reconsider / change first -> biggest flexible categories
         if re.search(r"\bhabit", low) or re.search(r"(reconsider|change first|cut down|trim)", low):
-            rows = ts.by_category(USER, None, period)
+            rows = ts.by_category(ts.USER, None, period)
             disc = sorted([(c, a) for c, a, _n in rows
                            if c in ("Shopping", "Food & Dining", "Entertainment", "Transport")],
                           key=lambda r: r[1], reverse=True)
@@ -577,7 +577,7 @@ def analytics_answer(q):
         if re.search(r"\bsubscription|recurring|recurr|repeat\w*", low):
             if re.search(r"increas|rose|risen|rising|went up|gone up|grew|growing|more expensive|"
                          r"cost.*chang|chang.*cost|decreas|dropp|fell|cheaper|\btrend\b|over time", low):
-                tr = ts.subscription_trends(USER, None, period)
+                tr = ts.subscription_trends(ts.USER, None, period)
                 up = [(m, a1, a2, c) for m, a1, a2, c in tr if c > 1]
                 if up:
                     body = [(m, inr(a1), inr(a2), f"+{c:.0f}%") for m, a1, a2, c in up]
@@ -588,13 +588,13 @@ def analytics_answer(q):
                     return ("**No subscription rose meaningfully** — monthly cost is stable across the "
                             "period. Full trend (avg ₹/month: first half → second half):\n\n"
                             + ts._table(["Subscription", "Was", "Now", "Change"], body))
-            det = ts.dispatch_intent({"type": "subscriptions", "start": "", "end": ""}, USER)
+            det = ts.dispatch_intent({"type": "subscriptions", "start": "", "end": ""}, ts.USER)
             if det:
                 return det
 
         # online shopping frequency
         if re.search(r"shop(?:ping)? online|online shop|how often.*shop", low):
-            for c, a, n in ts.by_category(USER, None, period):
+            for c, a, n in ts.by_category(ts.USER, None, period):
                 if c == "Shopping":
                     return (f"**Online shopping{sfx}:** {grp(n)} Shopping transactions totalling "
                             f"{inr(a)} (about {n // nmon0} a month).")
@@ -603,12 +603,12 @@ def analytics_answer(q):
     if re.search(r"percent|percentage|%|\bshare\b|fraction|proportion", low) and (cats or merchs):
         if empty():
             return nodata()
-        tot = ts.overview(USER, None, period)["debit"] or 1
+        tot = ts.overview(ts.USER, None, period)["debit"] or 1
         if cats:
-            amt = next((a for c, a, _ in ts.by_category(USER, None, period) if c == cats[0]), 0.0)
+            amt = next((a for c, a, _ in ts.by_category(ts.USER, None, period) if c == cats[0]), 0.0)
             name = cats[0]
         else:
-            amt = ts.merchant_spend(USER, merchs[0], None, period)["debit"]
+            amt = ts.merchant_spend(ts.USER, merchs[0], None, period)["debit"]
             name = merchs[0]
         return f"**{name}{sfx}:** {inr(amt)} — **{amt/tot*100:.1f}%** of total spending ({inr(tot)})"
 
@@ -616,8 +616,8 @@ def analytics_answer(q):
     if re.search(r"\b(excluding|except|other than|without|besides|apart from|minus|not counting)\b", low) and cats:
         if empty():
             return nodata()
-        tot = ts.overview(USER, None, period)["debit"]
-        amt = next((a for c, a, _ in ts.by_category(USER, None, period) if c == cats[0]), 0.0)
+        tot = ts.overview(ts.USER, None, period)["debit"]
+        amt = next((a for c, a, _ in ts.by_category(ts.USER, None, period) if c == cats[0]), 0.0)
         return (f"**Spending{sfx} excluding {cats[0]}:** {inr(tot - amt)}  "
                 f"(total {inr(tot)} − {cats[0]} {inr(amt)})")
 
@@ -640,23 +640,23 @@ def analytics_answer(q):
             threshold, tlabel = _thr, inr(_thr)
         else:                                            # threshold = the scoped average
             if mname:
-                r0 = ts.merchant_spend(USER, mname, None, period)
+                r0 = ts.merchant_spend(ts.USER, mname, None, period)
                 threshold = (r0["debit"] / r0["dcount"]) if r0["dcount"] else 0.0
             elif cname:
                 amt0 = cnt0 = 0
-                for c, a, n in ts.by_category(USER, None, period):
+                for c, a, n in ts.by_category(ts.USER, None, period):
                     if c == cname:
                         amt0, cnt0 = a, n
                         break
                 threshold = (amt0 / cnt0) if cnt0 else 0.0
             else:
-                o0 = ts.overview(USER, None, period)
-                dc0 = ts.txn_count(USER, "debit", None, period)
+                o0 = ts.overview(ts.USER, None, period)
+                dc0 = ts.txn_count(ts.USER, "debit", None, period)
                 threshold = (o0["debit"] / dc0) if dc0 else 0.0
             tlabel = f"the average {inr(threshold)}"
         if threshold <= 0:
             return nodata()
-        r = ts.amount_filter(USER, op, threshold, None, period, merchant=mname, category=cname)
+        r = ts.amount_filter(ts.USER, op, threshold, None, period, merchant=mname, category=cname)
         scope = f" at {mname}" if mname else (f" on {cname}" if cname else "")
         return (f"**{grp(r['count'])} transactions{scope}{sfx} {op} {tlabel}** "
                 f"— totaling {inr(r['total'])}")
@@ -668,9 +668,9 @@ def analytics_answer(q):
             return nodata()
         per_txn = bool(re.search(r"per (?:transaction|txn|purchase|order|swipe|payment)|each (?:transaction|order|purchase)|a transaction|per[- ]txn", low)
                        or (re.search(r"transaction|txn|purchase|order", low) and not re.search(r"month", low)))
-        nmon = len([1 for _m, d, c, _n in ts.by_month(USER, None, period) if d or c]) or 1
+        nmon = len([1 for _m, d, c, _n in ts.by_month(ts.USER, None, period) if d or c]) or 1
         if merchs:                                   # "average transaction at Zomato" / monthly at X
-            r = ts.merchant_spend(USER, merchs[0], None, period)
+            r = ts.merchant_spend(ts.USER, merchs[0], None, period)
             if r["count"] == 0:
                 return f"**No transactions found for '{merchs[0]}'{sfx}.**"
             if per_txn:
@@ -684,7 +684,7 @@ def analytics_answer(q):
                     f"(over {nmon_x} month{'s' if nmon_x != 1 else ''})")
         if cats:                                     # "average monthly spend on Groceries"
             amt = cnt = 0
-            for c, a, n in ts.by_category(USER, None, period):
+            for c, a, n in ts.by_category(ts.USER, None, period):
                 if c == cats[0]:
                     amt, cnt = a, n
                     break
@@ -694,9 +694,9 @@ def analytics_answer(q):
             nmon_c = _active_months(None, cats[0], period)
             return (f"**Average monthly spend on {cats[0]}{sfx}:** {inr(amt/nmon_c)}  "
                     f"(over {nmon_c} month{'s' if nmon_c != 1 else ''})")
-        o = ts.overview(USER, None, period)          # whole-account average
+        o = ts.overview(ts.USER, None, period)          # whole-account average
         if per_txn:
-            dc = ts.txn_count(USER, "debit", None, period)   # average over DEBIT txns, not all rows
+            dc = ts.txn_count(ts.USER, "debit", None, period)   # average over DEBIT txns, not all rows
             if dc == 0:
                 return nodata()
             return f"**Average transaction{sfx}:** {inr(o['debit']/dc)}  (over {grp(dc)} expenses)"
@@ -706,8 +706,8 @@ def analytics_answer(q):
     #     movement of THAT category, not its flat total. Every figure from by_category SQL.
     if cats and re.search(r"\b(increas\w*|decreas\w*|go(?:ne|ing)?\s+up|went\s+up|"
                           r"ris(?:e|en|ing)|drop\w*|fall\w*|grow\w*|creep\w*)\b", low):
-        ms = ts.months_list(USER, None, period)
-        series = [(m, next((a for c2, a, _n in ts.by_category(USER, None, m) if c2 == cats[0]), 0.0))
+        ms = ts.months_list(ts.USER, None, period)
+        series = [(m, next((a for c2, a, _n in ts.by_category(ts.USER, None, m) if c2 == cats[0]), 0.0))
                   for m in ms]
         if len(series) >= 2:
             first, last = series[0][1], series[-1][1]
@@ -732,7 +732,7 @@ def analytics_answer(q):
        and not (re.search(rf"\b({_MON_RE})\b", low) and not _mon_superl):
         if empty():
             return nodata()
-        bm = ts.by_month(USER, None, period)
+        bm = ts.by_month(ts.USER, None, period)
         if bm:
             least = bool(re.search(r"\b(least|lowest|min|smallest|fewest)\b", low))
             if re.search(r"\b(transactions?|txns?|count|purchases?|busiest|active)\b", low):
@@ -754,7 +754,7 @@ def analytics_answer(q):
        re.search(r"what do i spend (?:the )?most on|where (?:does|do) (?:most of )?my money go", low):
         if empty():
             return nodata()
-        rows = ts.by_category(USER, None, period)
+        rows = ts.by_category(ts.USER, None, period)
         if rows:
             tot = sum(a for _, a, _ in rows) or 1
             least = bool(re.search(r"\b(least|lowest|smallest)\b", low))
@@ -771,7 +771,7 @@ def analytics_answer(q):
             return nodata()
         nm = re.search(r"top\s+(\d+)", low)
         n = int(nm.group(1)) if nm else 5
-        rows = ts.top_merchants(USER, n, None, period)
+        rows = ts.top_merchants(ts.USER, n, None, period)
         if rows:
             if not nm or n == 1:
                 c, a, cnt = rows[0]
@@ -790,7 +790,7 @@ def analytics_answer(q):
         cname = cats[0] if cats else None
         is_credit = bool(re.search(r"\b(received|credit|deposit|income|earn(?:ed|ings|t)?|salary|inflow|recie?ve?d?)\b", low))
         ttype = "credit" if is_credit else "debit"
-        r = ts.amount_filter(USER, op, amt, None, period, merchant=mname, category=cname, txn_type=ttype)
+        r = ts.amount_filter(ts.USER, op, amt, None, period, merchant=mname, category=cname, txn_type=ttype)
         scope = f" at {mname}" if mname else (f" on {cname}" if cname else "")
         label = "credit transactions" if is_credit else "transactions"
         return (f"**{grp(r['count'])} {label}{scope}{sfx} {op} {inr(amt)}** — totaling {inr(r['total'])}")
@@ -804,14 +804,14 @@ def analytics_answer(q):
                                              or _DATELOOKUP_RE.search(low))):
         if empty():
             return nodata()
-        parts = [(m, ts.merchant_spend(USER, m, None, period)["debit"]) for m in merchs[:4]]
+        parts = [(m, ts.merchant_spend(ts.USER, m, None, period)["debit"]) for m in merchs[:4]]
         tot = sum(a for _, a in parts)
         return (f"**{' + '.join(m for m, _ in parts)}{sfx}:** {inr(tot)}  ("
                 + ", ".join(f"{m} {inr(a)}" for m, a in parts) + ")")
     if len(cats) >= 2 and combine and not re.search(r"\bor\b|more|less|vs\b|versus|compare|than", low):
         if empty():
             return nodata()
-        cmap = {c: a for c, a, _ in ts.by_category(USER, None, period)}
+        cmap = {c: a for c, a, _ in ts.by_category(ts.USER, None, period)}
         parts = [(c, cmap.get(c, 0.0)) for c in cats[:4]]
         tot = sum(a for _, a in parts)
         return (f"**{' + '.join(c for c, _ in parts)}{sfx}:** {inr(tot)}  ("
@@ -825,16 +825,16 @@ def analytics_answer(q):
             # thread a named category/merchant symmetrically through BOTH periods, so
             # "Entertainment: March vs May" compares Entertainment, not total spend.
             if cats:
-                sa = next((x for c, x, _ in ts.by_category(USER, None, a) if c == cats[0]), 0.0)
-                sb = next((x for c, x, _ in ts.by_category(USER, None, b) if c == cats[0]), 0.0)
+                sa = next((x for c, x, _ in ts.by_category(ts.USER, None, a) if c == cats[0]), 0.0)
+                sb = next((x for c, x, _ in ts.by_category(ts.USER, None, b) if c == cats[0]), 0.0)
                 lbl = f"{cats[0]} "
             elif merchs:
-                sa = ts.merchant_spend(USER, merchs[0], None, a)["debit"]
-                sb = ts.merchant_spend(USER, merchs[0], None, b)["debit"]
+                sa = ts.merchant_spend(ts.USER, merchs[0], None, a)["debit"]
+                sb = ts.merchant_spend(ts.USER, merchs[0], None, b)["debit"]
                 lbl = f"{merchs[0]} "
             else:
-                sa = ts.overview(USER, None, a)["debit"]
-                sb = ts.overview(USER, None, b)["debit"]
+                sa = ts.overview(ts.USER, None, a)["debit"]
+                sb = ts.overview(ts.USER, None, b)["debit"]
                 lbl = ""
             diff = sa - sb
             rel = "more" if diff >= 0 else "less"
@@ -844,7 +844,7 @@ def analytics_answer(q):
         if len(cats) >= 2:
             if empty():
                 return nodata()
-            cmap = {c: a for c, a, _ in ts.by_category(USER, None, period)}
+            cmap = {c: a for c, a, _ in ts.by_category(ts.USER, None, period)}
             va, vb = cmap.get(cats[0], 0.0), cmap.get(cats[1], 0.0)
             hi = cats[0] if va >= vb else cats[1]
             return (f"**{cats[0]}{sfx}:** {inr(va)}  vs  **{cats[1]}:** {inr(vb)}\n\n"
@@ -852,8 +852,8 @@ def analytics_answer(q):
         if len(merchs) >= 2:
             if empty():
                 return nodata()
-            va = ts.merchant_spend(USER, merchs[0], None, period)["debit"]
-            vb = ts.merchant_spend(USER, merchs[1], None, period)["debit"]
+            va = ts.merchant_spend(ts.USER, merchs[0], None, period)["debit"]
+            vb = ts.merchant_spend(ts.USER, merchs[1], None, period)["debit"]
             hi = merchs[0] if va >= vb else merchs[1]
             return (f"**{merchs[0]}{sfx}:** {inr(va)}  vs  **{merchs[1]}:** {inr(vb)}\n\n"
                     f"You spent more at **{hi}** (by {inr(abs(va - vb))}).")
@@ -889,7 +889,7 @@ def ml_answer(q):
     data. Returns markdown, or None if not applicable / not enough data."""
     low = q.lower()
     if _ANOM_RE.search(low):
-        r = _ml("anom", lambda: ml.anomalies(USER))
+        r = _ml("anom", lambda: ml.anomalies(ts.USER))
         items = r.get("items", [])
         scanned = ts.grp(r.get("trained_on", 0))
         if not items:
@@ -900,7 +900,7 @@ def ml_answer(q):
                 f"(largest first):\n\n"
                 + ts._table(["Date", "Merchant", "Amount", "Why flagged"], body))
     if _FCAST_RE.search(low):
-        r = _ml("fc", lambda: ml.forecast(USER))
+        r = _ml("fc", lambda: ml.forecast(ts.USER))
         t = r.get("total")
         if not t:
             return None
@@ -909,7 +909,7 @@ def ml_answer(q):
                 f"(likely range {ts.inr(t['lo'])}–{ts.inr(t['hi'])}), from a per-category linear trend:\n\n"
                 + ts._table(["Category", "Predicted next month", "Trend"], rows))
     if _PROJ_RE.search(low):
-        o = ts.overview(USER); nm = max(len(ts.months_list(USER)), 1)
+        o = ts.overview(ts.USER); nm = max(len(ts.months_list(ts.USER)), 1)
         msp, mnet = o["debit"] / nm, o["net"] / nm
         return (f"**Run-rate projection** (at your current pace): annual spending about "
                 f"**{ts.inr(msp * 12)}** and annual net savings about **{ts.inr(mnet * 12)}** — "
@@ -917,7 +917,7 @@ def ml_answer(q):
     return None
 
 def health_answer(q):
-    h = ts.health_score(USER)
+    h = ts.health_score(ts.USER)
     if not h:
         return None
     comp = h["components"]
@@ -934,7 +934,7 @@ def health_answer(q):
             + ts._table(["Pillar (max 25)", "Score"], body))
 
 def risk_answer(q):
-    r = ts.risk_assessment(USER)
+    r = ts.risk_assessment(ts.USER)
     if not r:
         return None
     if not r["flags"]:
@@ -951,7 +951,7 @@ def recurring_answer(q):
     # auto-detector; return None so the subscription-trend / advice paths run.
     if _RECUR_DEFER.search(q.lower()):
         return None
-    r = _ml("recur", lambda: ml.recurring(USER))
+    r = _ml("recur", lambda: ml.recurring(ts.USER))
     items = r.get("items", [])
     if items:
         body = [(it["merchant"], it["cadence"], ts.inr(it["amount"]), ts.grp(it["count"]),
@@ -966,7 +966,7 @@ def recurring_answer(q):
                 + note)
     # Auto-detector found no stable cadence (e.g. amounts vary too much) -> fall back to
     # the known-subscription view so the answer is still useful, never worse than before.
-    rec = ts.subscription_costs(USER)
+    rec = ts.subscription_costs(ts.USER)
     rec = [(m, mo, t, c) for m, mo, t, c in rec if mo]
     if rec:
         per_month = sum(t / mo for _m, mo, t, _c in rec)
@@ -979,7 +979,7 @@ def recurring_answer(q):
             "and stable amount, and no known subscription merchants appear in your statement.")
 
 def behavior_answer(q):
-    b = ts.behavior_metrics(USER)
+    b = ts.behavior_metrics(ts.USER)
     if not b:
         return None
     rows = [
@@ -1010,7 +1010,7 @@ def behavior_answer(q):
 def impact_answer(q):
     m = re.search(r"\b(\d{1,2})\b", q)
     n = max(1, min(int(m.group(1)), 10)) if m else 5
-    items = ts.transaction_impact(USER, n)
+    items = ts.transaction_impact(ts.USER, n)
     if not items:
         return None
     body = [(it["date"], it["merchant"], ts.inr(it["amount"]),
@@ -1023,7 +1023,7 @@ def cattrend_answer(q):
     low = q.lower()
     window = 6 if re.search(r"\b(?:6|six)\b", low) else \
         12 if re.search(r"\b(?:12|twelve|year|annual)\b", low) else 3
-    ct = ts.category_trend(USER, window)
+    ct = ts.category_trend(ts.USER, window)
     if not ct or not ct["movers"]:
         return None
     body = [(mv["category"], ts.inr(mv["prior_avg"]), ts.inr(mv["recent_avg"]),
@@ -1036,7 +1036,7 @@ def cattrend_answer(q):
 def insights_answer(q):
     """Pre-computed insight digest (the Insight Engine surface). Reads stored
     insights; falls back to a live compute when none have been persisted yet."""
-    items = ts.get_insights(USER) or ts.compute_insights(USER)
+    items = ts.get_insights(ts.USER) or ts.compute_insights(ts.USER)
     if not items:
         return None
     order = {"risk": 0, "pattern": 1, "behavior": 2, "impact": 3, "health": 4}
@@ -1075,7 +1075,7 @@ def intelligence_answer(q):
 
 
 def _ml(kind, fn):
-    key = (kind, ts.overview(USER)["count"])
+    key = (kind, ts.overview(ts.USER)["count"])
     if key not in _ML_CACHE:
         _ML_CACHE.clear()
         _ML_CACHE[key] = fn()

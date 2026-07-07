@@ -3,6 +3,7 @@ import sys
 from types import ModuleType
 from . import db
 from . import formatters
+from . import dispatcher
 
 from .db import connect, init_db
 from .formatters import (
@@ -29,7 +30,7 @@ from .insights import (
 )
 from .dispatcher import dispatch_intent, answer, USER
 
-# Subclass module to support dynamic getters/setters for DB_PATH and CURRENCY
+# Subclass module to support dynamic getters/setters for DB_PATH, CURRENCY, and USER
 class TxnStoreModule(ModuleType):
     @property
     def DB_PATH(self):
@@ -47,4 +48,13 @@ class TxnStoreModule(ModuleType):
     def CURRENCY(self, value):
         formatters.CURRENCY = value
 
+    @property
+    def USER(self):
+        return dispatcher.USER
+
+    @USER.setter
+    def USER(self, value):
+        dispatcher.USER = value
+
 sys.modules[__name__].__class__ = TxnStoreModule
+
