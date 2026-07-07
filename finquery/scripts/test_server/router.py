@@ -83,7 +83,7 @@ _DATE_EXPR = (rf"(?:\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MON_RE})\.?,?\s+\
               rf"|(?:{_MON_RE})\.?,?\s+\d{{4}}"
               rf"|20\d\d)")
 
-_RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:to|till|until|through|thru|[-- - ]|and)\s*({_DATE_EXPR})", re.I)
+_RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:\-|to|till|until|through|thru|and)\s*({_DATE_EXPR})", re.I)
 
 _SINGLE_RE = re.compile(_DATE_EXPR, re.I)
 
@@ -261,7 +261,7 @@ def _bare_month_period(q):
     y = _year_for_month(mm)
     return (f"{y}-{mm}", "") if y else None
 
-_SEP = r"(?:to|till|until|through|thru|[-- - ]|and)"
+_SEP = r"(?:\-|to|till|until|through|thru|and)"
 
 _DAY_RANGE_RES = [
     # "1 July to 3 August" / "1st Jul - 3rd Aug"        (a month on BOTH ends)
