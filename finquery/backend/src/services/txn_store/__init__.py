@@ -7,7 +7,7 @@ from . import formatters
 from .db import connect, init_db
 from .formatters import (
     set_currency, inr, grp, _money, _mlabel, _plabel, 
-    _norm_period, _mname, _dlabel, _table, _pct
+    _norm_period, _mname, _dlabel, _table, _pct, MONTHS
 )
 from .parsers import (
     ingest_pdf, is_statement_pdf, detect_currency, parse_pdf, 
