@@ -1,7 +1,179 @@
 # HTML templates and stylesheets for local server UI
 
+LOGIN_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Penny · Sign In</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#fff8eb; --cream2:#fdf6e9; --ink:#1a1a1a; --ink2:#444;
+    --lime:#84cc16; --lime2:#6aaa0e; --orange:#ff9f56; --line:#eaddc4;
+    --red:#e53e3e; --green:#38a169;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;font-family:'Poppins',system-ui,Arial}
+  body{
+    background:var(--cream);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100vh;padding:24px;
+  }
+  .brand{text-align:center;margin-bottom:32px}
+  .brand .logo{font-size:36px;font-weight:700;color:var(--ink);letter-spacing:-1px}
+  .brand .logo span{color:var(--lime)}
+  .brand .tagline{font-size:13px;color:var(--ink2);margin-top:4px}
+  .pill{display:inline-block;background:var(--lime);color:#143;padding:2px 10px;
+        border-radius:99px;font-size:11px;font-weight:600;margin-top:6px}
+  .card{
+    background:#fff;border:1px solid var(--line);border-radius:20px;
+    padding:36px 40px;width:100%;max-width:400px;
+    box-shadow:0 4px 24px rgba(0,0,0,.07);
+  }
+  .tabs{display:flex;gap:0;margin-bottom:28px;border:1px solid var(--line);
+        border-radius:10px;overflow:hidden}
+  .tab{flex:1;padding:10px;font-size:14px;font-weight:600;cursor:pointer;
+       border:none;background:#fff;color:var(--ink2);transition:all .2s}
+  .tab.active{background:var(--lime);color:#143}
+  label{display:block;font-size:13px;font-weight:500;color:var(--ink2);margin-bottom:5px}
+  input[type=text],input[type=password]{
+    width:100%;padding:12px 14px;border:1.5px solid var(--line);
+    border-radius:10px;font-size:15px;font-family:inherit;
+    background:var(--cream);outline:none;transition:border .2s;
+    margin-bottom:16px;
+  }
+  input:focus{border-color:var(--lime)}
+  .btn{
+    width:100%;padding:13px;background:var(--lime);border:none;border-radius:10px;
+    font-size:15px;font-weight:700;color:#143;cursor:pointer;
+    transition:background .2s,transform .1s;margin-top:4px;
+  }
+  .btn:hover{background:var(--lime2)}
+  .btn:active{transform:scale(.98)}
+  .btn:disabled{opacity:.55;cursor:default}
+  .msg{margin-top:14px;font-size:13px;text-align:center;min-height:18px;font-weight:500}
+  .msg.err{color:var(--red)} .msg.ok{color:var(--green)}
+  .footer{margin-top:28px;font-size:12px;color:#b08a4a;text-align:center}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid #143;
+        border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;
+        vertical-align:middle;margin-right:6px}
+</style>
+</head><body>
+<div class="brand">
+  <div class="logo">Penny<span>·</span></div>
+  <div class="tagline">Your offline bank-statement intelligence</div>
+  <span class="pill">SQL · offline · private</span>
+</div>
+
+<div class="card">
+  <div class="tabs">
+    <button class="tab active" id="loginTab" onclick="showTab('login')">Sign In</button>
+    <button class="tab" id="signupTab" onclick="showTab('signup')">Create Account</button>
+  </div>
+
+  <!-- LOGIN FORM -->
+  <div id="loginForm">
+    <label for="lu">Username</label>
+    <input type="text" id="lu" placeholder="your username" autocomplete="username">
+    <label for="lp">Password</label>
+    <input type="password" id="lp" placeholder="••••••••" autocomplete="current-password">
+    <button class="btn" id="loginBtn" onclick="doLogin()">Sign In</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- SIGNUP FORM -->
+  <div id="signupForm" style="display:none">
+    <label for="su">Choose a username</label>
+    <input type="text" id="su" placeholder="min. 3 characters" autocomplete="username">
+    <label for="sp">Choose a password</label>
+    <input type="password" id="sp" placeholder="min. 6 characters" autocomplete="new-password">
+    <label for="sp2">Confirm password</label>
+    <input type="password" id="sp2" placeholder="repeat password" autocomplete="new-password">
+    <button class="btn" id="signupBtn" onclick="doSignup()">Create Account</button>
+    <div class="msg" id="signupMsg"></div>
+  </div>
+</div>
+
+<div class="footer">Your data stays on your device. Nothing is sent to any server.</div>
+
+<script>
+function showTab(t){
+  document.getElementById('loginForm').style.display = t==='login'?'':'none';
+  document.getElementById('signupForm').style.display = t==='signup'?'':'none';
+  document.getElementById('loginTab').className = 'tab'+(t==='login'?' active':'');
+  document.getElementById('signupTab').className = 'tab'+(t==='signup'?' active':'');
+}
+
+function setMsg(id, txt, ok){
+  const el=document.getElementById(id);
+  el.textContent=txt; el.className='msg '+(ok?'ok':'err');
+}
+function setLoading(btnId, loading){
+  const b=document.getElementById(btnId);
+  if(loading){ b.disabled=true; b.innerHTML='<span class="spin"></span>Please wait…'; }
+  else { b.disabled=false; b.innerHTML = btnId==='loginBtn'?'Sign In':'Create Account'; }
+}
+
+async function doLogin(){
+  const u=document.getElementById('lu').value.trim();
+  const p=document.getElementById('lp').value;
+  if(!u||!p){ setMsg('loginMsg','Please enter username and password.'); return; }
+  setLoading('loginBtn',true);
+  try{
+    const r=await fetch('/auth/login',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p})});
+    const j=await r.json();
+    if(!r.ok){ setMsg('loginMsg', j.detail||'Login failed.'); return; }
+    localStorage.setItem('penny_token', j.token);
+    localStorage.setItem('penny_user', j.username);
+    setMsg('loginMsg','Welcome back, '+j.username+'! Redirecting…', true);
+    setTimeout(()=>location.href='/app', 700);
+  }catch(e){ setMsg('loginMsg','Server error. Is Penny running?'); }
+  finally{ setLoading('loginBtn',false); }
+}
+
+async function doSignup(){
+  const u=document.getElementById('su').value.trim();
+  const p=document.getElementById('sp').value;
+  const p2=document.getElementById('sp2').value;
+  if(!u||!p){ setMsg('signupMsg','Please fill in all fields.'); return; }
+  if(p!==p2){ setMsg('signupMsg','Passwords do not match.'); return; }
+  setLoading('signupBtn',true);
+  try{
+    const r=await fetch('/auth/signup',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p})});
+    const j=await r.json();
+    if(!r.ok){ setMsg('signupMsg', j.detail||'Signup failed.'); return; }
+    localStorage.setItem('penny_token', j.token);
+    localStorage.setItem('penny_user', j.username);
+    setMsg('signupMsg','Account created! Welcome, '+j.username+'!', true);
+    setTimeout(()=>location.href='/app', 700);
+  }catch(e){ setMsg('signupMsg','Server error. Is Penny running?'); }
+  finally{ setLoading('signupBtn',false); }
+}
+
+// If already logged in, redirect immediately
+const tok=localStorage.getItem('penny_token');
+if(tok){
+  fetch('/auth/me',{headers:{Authorization:'Bearer '+tok}})
+    .then(r=>{ if(r.ok) location.href='/app'; })
+    .catch(()=>{});
+}
+
+// Enter key support
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter'){
+    if(document.getElementById('loginForm').style.display!=='none') doLogin();
+    else doSignup();
+  }
+});
+</script>
+</body></html>"""
+
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
-<title>Penny · SQL layer test</title>
+<title>Penny ┬╖ SQL layer test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{ --cream:#fff8eb; --cream2:#fdf6e9; --ink:#1a1a1a; --ink2:#2a2a2a;
@@ -43,27 +215,36 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
   .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
   @keyframes penny-blink{0%,80%,100%{opacity:.25;transform:translateY(0)}
                          40%{opacity:1;transform:translateY(-4px)}}
+  .user-pill{background:var(--cream2);border:1px solid var(--line);border-radius:99px;
+             padding:4px 12px;font-size:12px;font-weight:600;color:var(--ink2)}
+  .logout-btn{background:#fff;border:1px solid var(--line);border-radius:99px;
+              padding:4px 12px;font-size:12px;font-weight:600;color:#c53030;
+              cursor:pointer;margin-left:6px;transition:background .2s}
+  .logout-btn:hover{background:#fff5f5}
 </style></head><body>
-<header><b>Penny</b><span class="pill">SQL layer · offline test</span>
-  <span class="muted" style="margin-left:auto;font-size:12px">numbers come from SQL, never the LLM</span></header>
+<header><b>Penny</b><span class="pill">SQL layer ┬╖ offline test</span>
+  <span class="muted" style="margin-left:auto;font-size:12px">numbers come from SQL, never the LLM</span>
+  <span class="user-pill" id="userPill" style="display:none"></span>
+  <button class="logout-btn" id="logoutBtn" style="display:none" onclick="doLogout()">Sign out</button>
+</header>
 <div class="wrap">
   <div class="card">
     <label class="drop" id="drop">
       <input type="file" id="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed">
-      <div><b>Click to upload a statement — PDF or ZIP</b></div>
-      <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one — the chat unlocks once it's parsed.</div>
+      <div><b>Click to upload a statement ΓÇö PDF or ZIP</b></div>
+      <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one ΓÇö the chat unlocks once it's parsed.</div>
     </label>
     <div id="stats"></div>
     <div class="row" style="margin-top:12px;align-items:center;gap:10px">
-      <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">🏦 Sync from Plaid (Sandbox)</button>
-      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank — replaces the loaded statement.</span>
+      <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">≡ƒÅª Sync from Plaid (Sandbox)</button>
+      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank ΓÇö replaces the loaded statement.</span>
     </div>
   </div>
   <div class="card hidden" id="chatcard">
     <div class="row" style="margin:0 0 8px 0;align-items:center">
       <b style="font-size:13px">Chat</b>
-      <span class="muted" id="threadnote" style="font-size:11px;flex:1">context carries within this thread · tap New chat to reset</span>
-      <button id="newchat" style="padding:7px 13px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">↻ New chat</button>
+      <span class="muted" id="threadnote" style="font-size:11px;flex:1">context carries within this thread ┬╖ tap New chat to reset</span>
+      <button id="newchat" style="padding:7px 13px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Γå╗ New chat</button>
     </div>
     <div id="chat"><div class="muted">Upload a statement, then ask away.</div></div>
     <div class="row">
@@ -91,9 +272,9 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
     </div>
     <div id="txntable" style="max-height:430px;overflow:auto;margin-top:8px"></div>
     <div class="row" style="justify-content:center;gap:14px;margin-top:6px;align-items:center">
-      <button id="tprev" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">‹ Prev</button>
+      <button id="tprev" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">ΓÇ╣ Prev</button>
       <span id="tpage" class="muted" style="font-size:12px"></span>
-      <button id="tnext" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Next ›</button>
+      <button id="tnext" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Next ΓÇ║</button>
     </div>
   </div>
 </div>
@@ -115,7 +296,7 @@ const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList
   if(s.rows>0){
     $("#stats").innerHTML=`<span class="stat"><b>${s.rows.toLocaleString()}</b> txns loaded</span>
       <span class="stat">spend <b>${s.spend}</b></span><span class="stat">income <b>${s.income}</b></span>`;
-    $("#dropsub").textContent="A statement is loaded — ask away, or upload another (PDF/ZIP) to replace it.";
+    $("#dropsub").textContent="A statement is loaded ΓÇö ask away, or upload another (PDF/ZIP) to replace it.";
     $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
     reveal(); loadTxns(true); $("#q").focus();
   } else { gate(); }
@@ -141,20 +322,20 @@ $("#file").onchange=async e=>{
   const f=e.target.files[0]; if(!f)return;
   gate();                                        // keep the chat hidden while parsing
   $("#drop").classList.add("busy");
-  $("#dropsub").innerHTML="⏳ Parsing <b>"+f.name+"</b> — finding &amp; reading transactions…";
+  $("#dropsub").innerHTML="ΓÅ│ Parsing <b>"+f.name+"</b> ΓÇö finding &amp; reading transactionsΓÇª";
   $("#stats").innerHTML="";
   let j;
   try{
     const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
     j=await r.json();
   }catch(err){ $("#drop").classList.remove("busy"); e.target.value="";
-    $("#dropsub").textContent="Upload failed — please try again."; return; }
+    $("#dropsub").textContent="Upload failed ΓÇö please try again."; return; }
   $("#drop").classList.remove("busy"); e.target.value="";
   if(j.error){                                   // no statement found -> stay locked
-    $("#dropsub").innerHTML="⚠️ "+j.error+' <span class="muted">— the chat stays locked until a statement is parsed.</span>';
+    $("#dropsub").innerHTML="ΓÜá∩╕Å "+j.error+' <span class="muted">ΓÇö the chat stays locked until a statement is parsed.</span>';
     gate(); return;
   }
-  const more=(j.parsed&&j.parsed.length>1)?(" · "+j.parsed.length+" statements"):"";
+  const more=(j.parsed&&j.parsed.length>1)?(" ┬╖ "+j.parsed.length+" statements"):"";
   $("#dropsub").textContent=j.filename+" loaded";
   $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns${more}</span>
     <span class="stat">parsed in <b>${j.seconds}s</b></span>
@@ -173,18 +354,18 @@ $("#plaidbtn").onclick=async()=>{
   const setnote=t=>{ note.innerHTML=t; };
   btn.disabled=true; gate(); $("#drop").classList.add("busy"); $("#stats").innerHTML="";
   try{
-    setnote("⏳ Linking a Plaid Sandbox bank…");
+    setnote("ΓÅ│ Linking a Plaid Sandbox bankΓÇª");
     let r=await fetch("/plaid/sandbox/link",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     let j=await r.json().catch(()=>({}));
     if(!r.ok && r.status!==409) throw new Error(j.error||("link failed ("+r.status+")"));  // 409 = already linked, fine
-    setnote("🔄 Syncing from Plaid… a fresh sandbox item can take up to ~2 minutes to generate data.");
+    setnote("≡ƒöä Syncing from PlaidΓÇª a fresh sandbox item can take up to ~2 minutes to generate data.");
     r=await fetch("/plaid/sandbox/sync",{method:"POST"});
     j=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error||("sync failed ("+r.status+")"));
-    if(!j.rows) throw new Error("Plaid returned no transactions yet — tap Sync again in a few seconds.");
+    if(!j.rows) throw new Error("Plaid returned no transactions yet ΓÇö tap Sync again in a few seconds.");
     $("#drop").classList.remove("busy"); btn.disabled=false;
-    $("#dropsub").textContent="Plaid Sandbox data loaded — ask away, or upload a statement to replace it.";
-    setnote("✅ Synced <b>"+j.synced.toLocaleString()+"</b> transactions from Plaid Sandbox.");
+    $("#dropsub").textContent="Plaid Sandbox data loaded ΓÇö ask away, or upload a statement to replace it.";
+    setnote("Γ£à Synced <b>"+j.synced.toLocaleString()+"</b> transactions from Plaid Sandbox.");
     $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns (Plaid Sandbox)</span>
       <span class="stat">spend <b>${j.spend}</b></span>
       <span class="stat">income <b>${j.income}</b></span>`+
@@ -194,7 +375,7 @@ $("#plaidbtn").onclick=async()=>{
     reveal(); loadTxns(true); $("#q").focus();
   }catch(err){
     $("#drop").classList.remove("busy"); btn.disabled=false;
-    setnote("⚠️ "+err.message);
+    setnote("ΓÜá∩╕Å "+err.message);
     try{ const s=await (await fetch("/status")).json(); if(s.rows>0) reveal(); }catch(_){}
   }
 };
@@ -203,7 +384,7 @@ function newBubble(path){
   const d=document.createElement("div"); d.className="msg bot";
   const tag=TAG[path]||"chat";
   d.innerHTML=`<span class="tag ${tag}">${tag}</span>`
-    +(path==="advice"?`<span class="who">Penny · __MODEL__</span>`:"")
+    +(path==="advice"?`<span class="who">Penny ┬╖ __MODEL__</span>`:"")
     +`<div class="md"></div>`;
   $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"});
   return d.querySelector(".md");
@@ -219,14 +400,14 @@ function thinkingBubble(){
 }
 
 // chat-thread: a STABLE id (persisted in localStorage) so a page refresh keeps the
-// same thread — context survives reloads (and, server-side, restarts). "New chat"
+// same thread ΓÇö context survives reloads (and, server-side, restarts). "New chat"
 // rotates to a fresh id.
 const newThreadId=()=>"t"+Math.random().toString(36).slice(2)+Date.now();
 let THREAD = localStorage.getItem("penny_thread") || newThreadId();
 localStorage.setItem("penny_thread", THREAD);
 $("#newchat").onclick=()=>{
   THREAD=newThreadId(); localStorage.setItem("penny_thread", THREAD);
-  $("#chat").innerHTML='<div class="muted">New chat — context cleared. Ask away.</div>';
+  $("#chat").innerHTML='<div class="muted">New chat ΓÇö context cleared. Ask away.</div>';
   $("#q").focus();
 };
 
@@ -260,11 +441,48 @@ async function ask(){
   }catch(e){
     clearThink();
     const md=newBubble("chat");
-    md.innerHTML="⚠️ Couldn't reach the server. Please try again.";
+    md.innerHTML="ΓÜá∩╕Å Couldn't reach the server. Please try again.";
     $("#send").disabled=false;
   }
 }
 $("#send").onclick=ask; $("#q").addEventListener("keydown",e=>{if(e.key==="Enter")ask();});
+
+// ---- Authentication -------------------------------------------------------
+// All API fetch calls include the JWT token automatically.
+const TOKEN_KEY='penny_token', USER_KEY='penny_user';
+function _authHdr(){ const t=localStorage.getItem(TOKEN_KEY); return t?{Authorization:'Bearer '+t}:{}; }
+
+// Intercept all fetch calls to /api routes and inject the Authorization header.
+// We do it by wrapping the endpoints we control (status, query, upload, transactions, etc.)
+const _origFetch=window.fetch.bind(window);
+window.fetch=function(url,...args){
+  if(typeof url==='string' && url.startsWith('/') && !url.startsWith('/auth')){
+    args[0]=args[0]||{};
+    args[0].headers=Object.assign({},args[0].headers||{},_authHdr());
+  }
+  return _origFetch(url,...args);
+};
+
+// Show username in header + verify token on load
+(async()=>{
+  const tok=localStorage.getItem(TOKEN_KEY);
+  const uname=localStorage.getItem(USER_KEY);
+  if(!tok){ location.href='/'; return; }
+  try{
+    const r=await _origFetch('/auth/me',{headers:{Authorization:'Bearer '+tok}});
+    if(!r.ok){ localStorage.removeItem(TOKEN_KEY); location.href='/'; return; }
+    const name=(await r.json()).username||uname||'';
+    const pill=$("#userPill"), btn=$("#logoutBtn");
+    if(pill){ pill.textContent='👤 '+name; pill.style.display=''; }
+    if(btn) btn.style.display='';
+  }catch(e){ /* server offline — let them keep using it */ }
+})();
+
+function doLogout(){
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  location.href='/';
+}
 
 // ---- Transactions: filterable table over /transactions (numbers from SQL) -----
 let tOffset=0; const tLimit=50; let tTotal=0;
@@ -293,8 +511,8 @@ async function loadTxns(reset){
   }
   h+="</tbody></table>";
   $("#txntable").innerHTML = d.rows.length? h : '<div class="muted" style="padding:16px">No matching transactions.</div>';
-  $("#txnsummary").innerHTML = tTotal? `<b>${tTotal.toLocaleString()}</b> matched · out <b>${d.out_total}</b> · in <b>${d.in_total}</b>` : "";
-  $("#tpage").textContent = tTotal? `${tOffset+1}–${Math.min(tOffset+tLimit,tTotal)} of ${tTotal.toLocaleString()}` : "";
+  $("#txnsummary").innerHTML = tTotal? `<b>${tTotal.toLocaleString()}</b> matched ┬╖ out <b>${d.out_total}</b> ┬╖ in <b>${d.in_total}</b>` : "";
+  $("#tpage").textContent = tTotal? `${tOffset+1}ΓÇô${Math.min(tOffset+tLimit,tTotal)} of ${tTotal.toLocaleString()}` : "";
   $("#tprev").disabled = tOffset<=0; $("#tnext").disabled = tOffset+tLimit>=tTotal;
 }
 $("#tgo").onclick=()=>loadTxns(true);
@@ -330,6 +548,6 @@ _DOC_SHELL = """<!doctype html><html><head><meta charset="utf-8">
  hr{border:0;border-top:1px solid var(--line);margin:2em 0}
  ul,ol{margin:.6em 0 .6em 1.2em} li{margin:.25em 0}
 </style></head><body><div class="wrap">
-<div class="top">Penny · <a href="/">app</a> · <a href="/roadmap">Roadmap</a> · <a href="/hld">HLD</a> · <a href="/lld">LLD</a> · <a href="__RAW__">raw</a></div>
+<div class="top">Penny ┬╖ <a href="/">app</a> ┬╖ <a href="/roadmap">Roadmap</a> ┬╖ <a href="/hld">HLD</a> ┬╖ <a href="/lld">LLD</a> ┬╖ <a href="__RAW__">raw</a></div>
 __BODY__
 </div></body></html>"""

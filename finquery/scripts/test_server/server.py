@@ -1,26 +1,27 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
-import html as _htmlmod
-import json, os, re, sys, threading, urllib.request
+import json, os, re, sys, threading, urllib.request, html as _htmlmod
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from src.services import txn_store as ts
 from src.services import ml_insights as ml
 
 from .prompts import ADVICE_SYSTEM, GROUNDED_ADVICE_SYSTEM, ROUTER_SYSTEM
-from .ui import PAGE, _DOC_SHELL
+from .ui import PAGE, _DOC_SHELL, LOGIN_PAGE
+from .auth import get_current_user, get_user_db_path, router as auth_router
 from .router import (
-    _GUARD_STOP, _log_lock, _SAVINGS_RE, _TABLE_RE, _INCOME_RE, _COUNTQ_RE, _ML_CACHE, CHAT_LOG, _parse_period, _FACTUAL, _DOCS_DIR,
+    _reset_vocab, UPLOAD_DIR, CONVO_RE, _log_conv, HELP_RE, _sub_clarify, _REASON_RE, _PROJ_RE, _FCAST_RE, _clarify_choice, _capabilities, _fmt_date, _FIN_RE, _ANOM_RE, _ADVICE_RE, _WHY_RE,
     _resolve_conversation, ConversationState, _resolve_factual,
     _extract_slots, _save_ctx, _special_factual,
     # Regexes and guards needed by server
-    _SPECIAL_INTENTS, _FUP_ATTR, _REFS_RE, _CONT_RE
+    _SPECIAL_INTENTS, _FUP_ATTR, _REFS_RE, _CONT_RE,
+    _GUARD_STOP, _log_lock, _SAVINGS_RE, _TABLE_RE, _INCOME_RE, _COUNTQ_RE, _ML_CACHE, CHAT_LOG, _parse_period, _FACTUAL, _DOCS_DIR
 )
 from .analytics import (
-    _llm_complete,
+    _ml, months_which_answer,
     analytics_answer, concept_answer, intelligence_answer, ml_answer,
-    followup_sql_answer, followup_response, grounded_advice
+    followup_sql_answer, followup_response, grounded_advice, _llm_complete
 )
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
@@ -44,13 +45,20 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "chat_sessions.jsonl")
 
 app = FastAPI(title="Penny Local Server")
+app.include_router(auth_router)
 
-_PINNED_DB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "live_txn.db"))
+_DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+_PINNED_DB = os.path.join(_DATA_DIR, "live_txn.db")
 _env_db = os.environ.get("FINQ_DB")
 ts.DB_PATH = _env_db if (_env_db and os.path.exists(_env_db)) else _PINNED_DB
 print(f"[db] using {ts.DB_PATH}" + ("" if os.path.exists(ts.DB_PATH) else "  (WARNING: not found!)"), flush=True)
 ts.init_db()
 
+def _switch_db(user: str):
+    """Switch txn_store to this user's personal DB (creates it if needed)."""
+    db = get_user_db_path(user)
+    ts.DB_PATH = db
+    ts.init_db()
 
 def _thread(tid):
     # Rehydrate from the persisted log on a cold thread so context (slot memory +
@@ -149,6 +157,218 @@ def llm_route(question, history=None):
         print(f"[router] LLM unavailable: {e}")
         return None
 
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    """Root: serve the login page. The JS redirects to /app if already authed."""
+    return HTMLResponse(LOGIN_PAGE)
+
+@app.get("/app", response_class=HTMLResponse)
+async def app_page():
+    """Main Penny UI — auth is enforced by the frontend JWT check."""
+    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+
+@app.get("/status")
+async def status(user: str = Depends(get_current_user)):
+    """Lets the page detect data already in the DB on load (so the input works
+    without re-uploading after a refresh/restart)."""
+    _switch_db(user)
+    o = ts.overview(user)
+    return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
+                         "income": ts.inr(o["credit"])})
+
+@app.get("/dashboard")
+async def dashboard(user: str = Depends(get_current_user)):
+    """Structured figures for the Penny Today / Patterns / Bills views.
+    Amounts are signed: spend negative, income positive (the UI styles by sign).
+    Every number is straight from SQL."""
+    _switch_db(user)
+    o = ts.overview(user)
+    if o["count"] == 0:
+        return JSONResponse({"ready": False})
+    con = ts.connect()
+    cats = [{"name": r[0], "amount": r[1], "count": r[2]} for r in con.execute(
+        "SELECT category,SUM(debit),COUNT(*) FROM transactions "
+        "WHERE user_id=? AND debit>0 GROUP BY category ORDER BY 2 DESC", (user,))]
+    months = [{"ym": r[0], "spending": r[1], "income": r[2]} for r in con.execute(
+        "SELECT month,SUM(debit),SUM(credit) FROM transactions "
+        "WHERE user_id=? GROUP BY month ORDER BY month", (user,))]
+    recent = [{"date": _fmt_date(r[0]), "payee": r[1], "category": r[2],
+               "amount": (r[4] - r[3])} for r in con.execute(
+        "SELECT txn_date,merchant,category,debit,credit FROM transactions "
+        "WHERE user_id=? ORDER BY seq DESC LIMIT 12", (user,))]
+    lg = con.execute("SELECT txn_date,merchant,debit FROM transactions "
+                     "WHERE user_id=? AND debit>0 ORDER BY debit DESC LIMIT 1", (user,)).fetchone()
+    largest = {"date": _fmt_date(lg[0]), "payee": lg[1], "amount": lg[2]} if lg else None
+    payees = [{"name": r[0], "amount": r[1]} for r in con.execute(
+        "SELECT merchant,SUM(debit) FROM transactions WHERE user_id=? AND debit>0 "
+        "GROUP BY merchant ORDER BY 2 DESC LIMIT 6", (user,))]
+    subs = []
+    subset = sorted(ts.SUBSCRIPTION_MERCHANTS)
+    if subset:
+        qs = ",".join("?" * len(subset))
+        for r in con.execute(
+            f"SELECT merchant,COUNT(*),SUM(debit),MAX(txn_date) FROM transactions "
+            f"WHERE user_id=? AND debit>0 AND merchant IN ({qs}) "
+            f"GROUP BY merchant ORDER BY 3 DESC", (user, *subset)):
+            subs.append({"name": r[0], "count": r[1], "total": r[2], "last": _fmt_date(r[3])})
+    con.close()
+    return JSONResponse({
+        "ready": True, "currency": ts.CURRENCY,
+        "totals": {"spending": o["debit"], "income": o["credit"],
+                   "net": o["credit"] - o["debit"], "count": o["count"]},
+        "balance": ts.latest_balance(user),
+        "categories": cats, "months": months, "recent": recent,
+        "largest": largest, "topPayees": payees, "subscriptions": subs,
+    })
+
+@app.get("/transactions")
+async def transactions(offset: int = 0, limit: int = 50, q: str = "",
+                       start: str = "", end: str = "", minamt: float = 0.0,
+                       maxamt: float = 0.0, dir: str = "",
+                       user: str = Depends(get_current_user)):
+    """Paged + filtered raw transactions for the search-table view: keyword (q),
+    date range (start/end as YYYY-MM-DD), amount band (minamt/maxamt on the txn size),
+    and direction (dir = 'in' | 'out')."""
+    _switch_db(user)
+    con = ts.connect()
+    where, params = "user_id=?", [user]
+    if q:
+        where += " AND (LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ? OR LOWER(category) LIKE ?)"
+        like = f"%{q.lower()}%"; params += [like, like, like]
+    if start:
+        where += " AND txn_date >= ?"; params.append(start)
+    if end:
+        where += " AND txn_date <= ?"; params.append(end)
+    amt = "(CASE WHEN debit>0 THEN debit ELSE credit END)"
+    if minamt:
+        where += f" AND {amt} >= ?"; params.append(minamt)
+    if maxamt:
+        where += f" AND {amt} <= ?"; params.append(maxamt)
+    if dir == "out":
+        where += " AND debit>0"
+    elif dir == "in":
+        where += " AND credit>0"
+    total = con.execute(f"SELECT COUNT(*) FROM transactions WHERE {where}", params).fetchone()[0]
+    s = con.execute(f"SELECT COALESCE(SUM(debit),0),COALESCE(SUM(credit),0) FROM transactions WHERE {where}",
+                    params).fetchone()
+    rows = [{"date": _fmt_date(r[0]), "payee": r[1], "category": r[2],
+             "out": ts.inr(r[3]) if r[3] else "", "in": ts.inr(r[4]) if r[4] else "",
+             "balance": ts.inr(r[5]) if r[5] is not None else "", "descr": r[6]} for r in con.execute(
+        f"SELECT txn_date,merchant,category,debit,credit,balance,descr FROM transactions WHERE {where} "
+        f"ORDER BY txn_date DESC, seq DESC LIMIT ? OFFSET ?", params + [limit, offset])]
+    con.close()
+    return JSONResponse({"rows": rows, "total": total,
+                         "out_total": ts.inr(s[0]), "in_total": ts.inr(s[1])})
+
+@app.get("/ml/anomalies")
+async def ml_anomalies(user: str = Depends(get_current_user)):
+    _switch_db(user)
+    return JSONResponse(_ml("anom", lambda: ml.anomalies(user)))
+
+@app.get("/ml/forecast")
+async def ml_forecast(user: str = Depends(get_current_user)):
+    _switch_db(user)
+    return JSONResponse(_ml("fc", lambda: ml.forecast(user)))
+
+@app.get("/ml/recurring")
+async def ml_recurring(user: str = Depends(get_current_user)):
+    _switch_db(user)
+    return JSONResponse(_ml("rec", lambda: ml.recurring(user)))
+
+@app.get("/ml/categorize")
+async def ml_categorize(user: str = Depends(get_current_user)):
+    _switch_db(user)
+    return JSONResponse(_ml("cat", lambda: ml.categorizer_report(user)))
+
+@app.get("/insights")
+async def insights_endpoint(user: str = Depends(get_current_user)):
+    """Pre-computed Insight Engine output (stored on upload; live-computed if absent)."""
+    _switch_db(user)
+    items = ts.get_insights(user) or ts.compute_insights(user)
+    return JSONResponse({
+        "insights": items,
+        "health": ts.health_score(user),
+        "risk": ts.risk_assessment(user),
+    })
+
+@app.post("/upload")
+async def upload(request: Request, user: str = Depends(get_current_user)):
+    """Accept a statement PDF **or a ZIP**. A ZIP is unpacked and scanned for bank-statement
+    PDFs (any non-statement files are ignored); the statement(s) found are parsed. A new
+    upload is a fresh analysis (prior data is replaced)."""
+    _switch_db(user)
+    import time, zipfile, tempfile, shutil
+    name = request.query_params.get("name", "upload")
+    data = await request.body()
+    t0 = time.time()
+    is_zip = data[:2] == b"PK" or name.lower().endswith(".zip")
+
+    pdfs = []          # (path, label) candidates
+    workdir = None
+    try:
+        if is_zip:
+            workdir = tempfile.mkdtemp(prefix="penny_zip_")
+            zpath = os.path.join(workdir, "u.zip")
+            with open(zpath, "wb") as f:
+                f.write(data)
+            try:
+                with zipfile.ZipFile(zpath) as z:
+                    for info in z.infolist():
+                        fn = info.filename
+                        if info.is_dir() or fn.startswith("__MACOSX") or not fn.lower().endswith(".pdf"):
+                            continue
+                        out = os.path.join(workdir, f"{len(pdfs):02d}_{os.path.basename(fn)}")
+                        with z.open(info) as src, open(out, "wb") as dst:
+                            dst.write(src.read())
+                        pdfs.append((out, os.path.basename(fn)))
+            except zipfile.BadZipFile:
+                return JSONResponse({"error": "That file isn't a valid ZIP archive."}, status_code=400)
+            if not pdfs:
+                return JSONResponse({"error": "No PDF files were found inside the ZIP."}, status_code=422)
+        else:
+            out = os.path.join(UPLOAD_DIR, os.path.basename(name) or "statement.pdf")
+            with open(out, "wb") as f:
+                f.write(data)
+            pdfs.append((out, os.path.basename(name) or "statement.pdf"))
+
+        # keep only the PDFs that actually look like bank statements
+        statements = [(p, lbl) for p, lbl in pdfs if ts.is_statement_pdf(p)]
+        if not statements:
+            msg = (f"No bank statement found in the ZIP (scanned {len(pdfs)} PDF"
+                   f"{'s' if len(pdfs) != 1 else ''})." if is_zip
+                   else "That PDF doesn't look like a bank statement.")
+            return JSONResponse({"error": msg, "scanned": len(pdfs)}, status_code=422)
+
+        # fresh analysis: replace prior data, then ingest the statement(s) found
+        _c = ts.connect(); _c.execute("DELETE FROM transactions WHERE user_id=?", (user,))
+        _c.commit(); _c.close()
+        # Clear chat thread state for this user only
+        for k in list(THREADS.keys()):
+            if k.startswith(user + ":"):
+                del THREADS[k]
+        total, parsed = 0, []
+        for p, lbl in statements:
+            n = ts.ingest_pdf(p, lbl, user)
+            total += n; parsed.append({"file": lbl, "rows": n})
+    finally:
+        if workdir:
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    dt = time.time() - t0
+    ts.set_currency(ts.detect_currency(user))      # display currency follows the data
+    _reset_vocab()                                 # merchant/category vocab follows it too
+    ov = ts.overview(user)
+    try:
+        ts.save_insights(user, ts.compute_insights(user))
+    except Exception as e:
+        print("[insights] compute on upload failed:", e, flush=True)
+    return JSONResponse({
+        "filename": (parsed[0]["file"] if len(parsed) == 1
+                     else f"{len(parsed)} statements from {name}"),
+        "parsed": parsed, "rows": total, "seconds": round(dt, 2), "currency": ts.CURRENCY,
+        "spend": ts.inr(ov["debit"]), "income": ts.inr(ov["credit"]),
+    })
+
 def _apply_guards(intent, q):
     """Override the LLM where regex is more reliable: period parsing, the
     income/count keywords it flubs, and whether a table was actually asked for.
@@ -173,12 +393,12 @@ def _apply_guards(intent, q):
     if det:
         intent["start"], intent["end"] = det
     # savings / net-position phrasings are the account summary (the Net row), never a spend
-    # total — the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
+    # total ΓÇö the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
     # intelligence gate's job and are handled before this point, so they never reach here.
     if _SAVINGS_RE.search(low):
         intent["type"] = "summary"
         return intent
-    # single biggest/smallest expense — the keyword decides direction (the LLM flips
+    # single biggest/smallest expense ΓÇö the keyword decides direction (the LLM flips
     # "smallest in 2024" to largest). Skip when it's a top-N list.
     if "expense" in low and "top" not in low:
         if re.search(r"\b(smallest|lowest|cheapest|minimum)\b", low):
@@ -209,7 +429,7 @@ def _apply_guards(intent, q):
         elif _COUNTQ_RE.search(q):
             t = "count"
         elif re.search(r"how much.*(spend|spent|spending)|total spend", low) and not has_cat and not has_merch:
-            t = "spend"                       # clear "how much did I spend" — not count/breakdown
+            t = "spend"                       # clear "how much did I spend" ΓÇö not count/breakdown
         elif t == "breakdown" and not wants_table:
             t = "spend"                       # a range/period TOTAL, not a monthly table
     intent["type"] = t
@@ -244,6 +464,221 @@ def stream_text(path, text):
         yield from stream_markdown(text)
         yield _nd({"type": "done"})
     return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+@app.get("/chats")
+async def chats():
+    """Return all saved chat threads from data/chats.json."""
+    try:
+        with open(CHAT_LOG, encoding="utf-8") as f:
+            return JSONResponse(json.load(f))
+    except Exception:
+        return JSONResponse({})
+
+@app.post("/query")
+async def query(request: Request, user: str = Depends(get_current_user)):
+    _switch_db(user)
+    body = await request.json()
+    q = (body.get("question") or "").strip()
+    # Chat-thread model: state is scoped to a thread id from the client. "reset"
+    # (New chat) starts the thread fresh. No thread id -> a single default thread.
+    tid = (body.get("thread") or "default")
+    if body.get("reset"):
+        THREADS[tid] = {"ctx": {}, "history": []}
+    st = _thread(tid)
+    ctx, history = st["ctx"], st["history"]
+
+    if not q:
+        return stream_text("chat", GREETING)
+    if ts.overview(user)["count"] == 0:
+        return stream_text("chat", "_Upload a statement first._")
+
+    # Punctuation-only / no-letters input ("...", "???", "!!!") can never be a real
+    # question -> short nudge, never the insights dump. (αñÇ-αÑ┐ = Devanagari,
+    # so Hindi-script input still passes through to the router.)
+    if not re.search(r"[A-Za-z0-9αñÇ-αÑ┐]", q):
+        _append_log(tid, q, DIDNT_CATCH, "chat")
+        return stream_text("chat", DIDNT_CATCH)
+
+    # ---- resolve a PENDING clarification --------------------------------------------
+    # Last turn we asked "which X did you mean?". If THIS turn is a pick (a name, "the
+    # first", "2"), rewrite it back into the ORIGINAL question with the chosen entity and
+    # let the normal pipeline answer it. If it isn't a pick, drop the pending state and
+    # treat this as a fresh question.
+    _pend = ctx.pop("pending_clarify", None)
+    if _pend:
+        _choice = _clarify_choice(q, _pend.get("options") or [])
+        if _choice:
+            q = _sub_clarify(_pend.get("orig", q), _pend.get("phrase", ""), _choice)
+
+    # ---- CONVERSATIONAL RESOLUTION ---------------------------------------------------
+    # Rewrite an elliptical follow-up ("average transaction", "compare with swiggy") into a
+    # fully-resolved STANDALONE query by injecting the thread's carried scope, so EVERY
+    # downstream engine (analytics / factual / ML / advice) receives an unambiguous
+    # question. No-op on a fresh thread, so single-turn suites are unaffected.
+    before = dict(ctx)
+    state = ConversationState.from_ctx(ctx)
+    rinfo = _resolve_conversation(q, state)
+    if rinfo["reset"]:
+        THREADS[tid] = {"ctx": {}, "history": []}
+        _append_log(tid, q, CONTEXT_RESET_MSG, "chat")
+        return stream_text("chat", CONTEXT_RESET_MSG)
+    rq = rinfo["resolved"]
+    # Persist the merged scope NOW so context carries regardless of which engine answers
+    # (analytics/ML/advice never call _save_ctx).
+    sc = rinfo["scope"]
+    state.merchant, state.category = sc.get("merchant", ""), sc.get("category", "")
+    state.start, state.end = sc.get("start", ""), sc.get("end", "")
+    if sc.get("metric"):     state.metric = sc["metric"]
+    if sc.get("txn_type"):   state.txn_type = sc["txn_type"]
+    if sc.get("comparison"): state.comparison = sc["comparison"]
+    state.prev_query = q
+    state.to_ctx(ctx)
+    _log_conv(tid, q, rq, rinfo, state, before)
+
+    # 0-mon) "which months?" enumeration of the carried merchant/category (deterministic).
+    #        Runs before the generic follow-up gate so it lists the months, not an LLM guess.
+    mwa = months_which_answer(q, ctx)
+    if mwa is not None:
+        remember(history, q, mwa)
+        _append_log(tid, q, mwa, "SQL")
+        return stream_text("SQL", mwa)
+
+    # 0) follow-up ABOUT the previous answer ("which merchant was that?", "why?")
+    #    -> SQL-first: try to ground the referential follow-up in the carried scope and show
+    #    the real data; only a genuinely narrative ask ("why?") falls to the LLM.
+    if ctx and _FUP_ATTR.search(q) and _REFS_RE.search(q) and not _resolve_factual(q, ctx) \
+            and not analytics_answer(q):
+        fsa = followup_sql_answer(q, ctx)
+        if fsa is not None:
+            remember(history, q, fsa)
+            _append_log(tid, q, fsa, "SQL")
+            return stream_text("SQL", fsa)
+        remember(history, q, "(answered from conversation)")
+        return followup_response(q, history, tid)
+
+    # 0a-ML) anomaly / forecast -> the sklearn models (deterministic figures from the
+    #        data). Runs before the advice gate so these get the model, not a narrative.
+    if _ANOM_RE.search(rq) or _FCAST_RE.search(rq) or _PROJ_RE.search(rq):
+        mlans = ml_answer(rq)
+        if mlans is not None:
+            remember(history, q, mlans)
+            _append_log(tid, q, mlans, "ML")
+            return stream_text("ML", mlans)
+
+    # 0a-INT) financial-intelligence engines (health / risk / recurring / impact /
+    #         category-trend / behaviour / pattern digest) ΓÇö deterministic, every
+    #         number from SQL. Runs before the advice gate so these get the precise
+    #         scored answer, not an LLM narrative.
+    intans = intelligence_answer(rq)
+    if intans is not None:
+        remember(history, q, intans)
+        _append_log(tid, q, intans, "SQL")
+        return stream_text("SQL", intans)
+
+    # 0b) advice / judgment / open-ended reasoning ("roast my spending", "should I cut
+    #     back", "how dependent am I on one income source", "why was I charged overdraft
+    #     fees") -> a real LLM answer reasoned over the SQL fact sheet (numbers verified).
+    if _ADVICE_RE.search(rq) or _REASON_RE.search(rq) or _WHY_RE.search(rq):
+        remember(history, q, "(financial advice given)")
+        return grounded_advice(rq, tid, ctx)
+
+    # 0c-CONCEPT) semantic spend concepts (gambling / loans / bank fees) grounded to
+    #     real ledger merchants ΓÇö deterministic, honest "not found" when nothing matches.
+    ca = concept_answer(rq)
+    if ca is not None:
+        remember(history, q, ca)
+        _append_log(tid, q, ca, "SQL")
+        return stream_text("SQL", ca)
+
+    # 0c) ANALYTICS (compare / average / % / argmax / amount filter / multi-entity /
+    #     exclusion) ΓÇö deterministic, numbers from SQL.
+    aa = analytics_answer(rq)
+    if aa is not None:
+        remember(history, q, aa)
+        _append_log(tid, q, aa, "SQL")
+        return stream_text("SQL", aa)
+
+    # 1) DETERMINISTIC factual resolution (standalone + thread context carry).
+    det = _resolve_factual(rq, ctx)
+    if det and det.get("type") == "clarify":
+        # low-confidence entity: several stored merchants match ΓÇö ask which, and REMEMBER the
+        # question so next turn's reply ("the first" / "2" / a name) resolves and answers it.
+        opts = det.get("options") or []
+        ctx["pending_clarify"] = {"options": opts, "phrase": det.get("phrase", ""), "orig": rq}
+        numbered = ", ".join(f"**{i + 1}. {o}**" for i, o in enumerate(opts))
+        msg = (f"I found {len(opts)} matches for **{det.get('phrase', '')}**: {numbered}. "
+               f"Which did you mean? (reply with a name or a number)")
+        _append_log(tid, q, msg, "chat")
+        return stream_text("chat", msg)
+    if det and det.get("type"):
+        ans = ts.dispatch_intent(det, user)
+        if ans is not None:
+            if ans.lstrip("* ").lower().startswith("no transactions found"):
+                # a name with ZERO transactions is not a usable thread scope — carrying
+                # it pins later questions to a merchant that provably has no data.
+                det = {**det, "merchant": "", "category": ""}
+            _save_ctx(ctx, det)
+            remember(history, q, ans)
+            _append_log(tid, q, ans, "SQL")
+            return stream_text("SQL", ans)
+
+    # 2) LLM router for everything else: smalltalk / help / advice / summary /
+    #    coverage / subscriptions / breakdown / genuine follow-ups.
+    intent = llm_route(rq, history)
+    if intent:
+        intent = _apply_guards(intent, rq)
+        t = (intent.get("type") or "").lower()
+        if t == "smalltalk":
+            _append_log(tid, q, GREETING, "chat")
+            return stream_text("chat", GREETING)
+        if t == "help":
+            cap = _capabilities()
+            _append_log(tid, q, cap, "chat")
+            return stream_text("chat", cap)
+        if t == "followup" and history:
+            fsa = followup_sql_answer(rq, ctx)     # SQL-first: real data before the LLM narrates
+            if fsa is not None:
+                remember(history, q, fsa)
+                _append_log(tid, q, fsa, "SQL")
+                return stream_text("SQL", fsa)
+            remember(history, q, "(answered from conversation)")
+            return followup_response(q, history, tid)
+        if t in ("unknown", ""):
+            _append_log(tid, q, DIDNT_CATCH, "chat")
+            return stream_text("chat", DIDNT_CATCH)
+        if t == "advice" and (_FIN_RE.search(rq) or _ADVICE_RE.search(rq) or _REASON_RE.search(rq)):
+            remember(history, q, "(financial advice given)")
+            return grounded_advice(rq, tid, ctx)
+        # router said "advice" but the question has zero finance content (e.g. "should i
+        # text my ex") -> don't lecture about money; fall through to a clean nudge below.
+        ans = ts.dispatch_intent(intent, user)            # SQL produces every number
+        if ans is not None:
+            if ans.lstrip("* ").lower().startswith("no transactions found"):
+                intent = {**intent, "merchant": "", "category": ""}  # zero-result → scope
+            _save_ctx(ctx, intent)
+            remember(history, q, ans)
+            _append_log(tid, q, ans, "SQL")
+            return stream_text("SQL", ans)
+        # known type but no data, or off-topic -> honest nudge, never a parroted advice dump
+        _append_log(tid, q, DIDNT_CATCH, "chat")
+        return stream_text("chat", DIDNT_CATCH)
+
+    # 3) Fallback when the LLM router is unavailable: regex path.
+    if HELP_RE.match(q):
+        cap = _capabilities()
+        _append_log(tid, q, cap, "chat")
+        return stream_text("chat", cap)
+    if CONVO_RE.match(q):
+        _append_log(tid, q, GREETING, "chat")
+        return stream_text("chat", GREETING)
+    ans = ts.answer(q, user)
+    if ans is not None:
+        remember(history, q, ans)
+        _append_log(tid, q, ans, "SQL")
+        return stream_text("SQL", ans)
+    # last resort: an honest nudge ΓÇö NOT a recycled advice dump (avoids parroting)
+    _append_log(tid, q, DIDNT_CATCH, "chat")
+    return stream_text("chat", DIDNT_CATCH)
 
 def _md_inline(t):
     t = _htmlmod.escape(t)
@@ -322,10 +757,34 @@ def _raw_md(filename):
     except Exception as e:
         return HTMLResponse(f"not found: {e}", status_code=404)
 
+@app.get("/hld")
+async def hld_page():
+    return _render_doc("Penny_HLD_Technical.md", "Penny ΓÇö Technical HLD", "/hld.md")
+
+@app.get("/lld")
+async def lld_page():
+    return _render_doc("Penny_LLD.md", "Penny ΓÇö Low-Level Design", "/lld.md")
+
+@app.get("/roadmap")
+async def roadmap_page():
+    return _render_doc("Penny_Roadmap_Status.md", "Penny ΓÇö Roadmap & Status", "/roadmap.md")
+
+@app.get("/roadmap.md")
+async def roadmap_md():
+    return _raw_md("Penny_Roadmap_Status.md")
+
+@app.get("/hld.md")
+async def hld_md():
+    return _raw_md("Penny_HLD_Technical.md")
+
+@app.get("/lld.md")
+async def lld_md():
+    return _raw_md("Penny_LLD.md")
+
 def _warmup():
     """Pre-load the model so the first advisory answer isn't a cold start (which is what
     made earlier replies show '(... unavailable)')."""
     if _llm_complete("Reply with the single word: ok.", "ok", num_predict=5):
         print(f"[warmup] {LLM_MODEL} ready")
     else:
-        print(f"[warmup] {LLM_MODEL} not reachable yet — will retry on first question")
+        print(f"[warmup] {LLM_MODEL} not reachable yet ΓÇö will retry on first question")

@@ -6,5 +6,9 @@ scikit-learn>=1.3.0
 numpy>=1.24.0
 python-dotenv>=1.0.0
 
+# Authentication
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
 # Plaid Sandbox integration (plaid_integration/)
 plaid-python>=15.0.0
