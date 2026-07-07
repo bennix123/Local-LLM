@@ -1,4 +1,4 @@
-﻿"""
+"""
 nl_sql_engine.py -- Universal Bank Statement AI: Text-to-SQL Layer
 
 Implements the manager System Prompt spec:
@@ -332,7 +332,7 @@ _DEBIT_RE = re.compile(
     r"\b(spend|spent|expense|expenditure|payment|paid|purchase|withdrawal|debit|money\s+out)\b", re.I
 )
 _COUNT_RE = re.compile(
-    r"\b(how\s+many|number\s+of|no\.?\s+of|count|how\s+much\s+time|how\s+many\s+times)\b", re.I
+    r"\b(how\s+many|number\s+of|no\.?\s+of|count|how\s+much\s+time|how\s+many\s+times|trans[ac]*tion[s]?|txns?)\b", re.I
 )
 _BAL_RE = re.compile(r"\b(current\s+balance|balance|remaining|left|kitna\s+bacha)\b", re.I)
 _TOP_N_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
@@ -340,7 +340,7 @@ _TOP_N_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 _DATE_PAT = (
     r"\d{4}-\d{2}-\d{2}"
     r"|\d{1,2}[/-]\d{1,2}[/-]\d{4}"
-    r"|\d{1,2}\s+(?:" + _MON_PAT + r")\s+\d{4}"
+    r"|\d{1,2}(?:st|nd|rd|th)?\s+(?:" + _MON_PAT + r")\s+\d{4}"
 )
 _DATE_RANGE_RE = re.compile(
     rf"({_DATE_PAT})\s*(?:to|till|until|through|[-])\s*({_DATE_PAT})", re.I
@@ -358,7 +358,7 @@ def _parse_date_str(s: str) -> Optional[str]:
     m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", s)
     if m:
         return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-    m = re.match(r"^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$", s)
+    m = re.match(r"^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})$", s)
     if m:
         mon = _MON_MAP.get(m.group(2).lower()[:3])
         if mon:
@@ -384,6 +384,12 @@ def _extract_period(question: str):
         if a and b:
             return (a, b) if a <= b else (b, a)
 
+    m = _SINGLE_DATE_RE.search(question)
+    if m:
+        d = _parse_date_str(m.group(1))
+        if d:
+            return d, d
+
     m = _MON_YEAR_RE.search(low)
     if m:
         mon = _MON_MAP.get(m.group(1).lower()[:3])
@@ -397,12 +403,6 @@ def _extract_period(question: str):
     if yr_m:
         yr = yr_m.group(1)
         return f"{yr}-01-01", f"{yr}-12-31"
-
-    m = _SINGLE_DATE_RE.search(question)
-    if m:
-        d = _parse_date_str(m.group(1))
-        if d:
-            return d, d
 
     return None, None
 
