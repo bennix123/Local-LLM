@@ -773,6 +773,39 @@ def _strip_cmp_amounts(q):
     return _AMT_CMP_RE.sub(" ", q)
 
 
+def _bare_day_month_period(q):
+    """Handle 'D MMM' / 'MMM D' (day+month, no year) e.g. '1 jan', 'jan 1st', '15 june'.
+    Resolves to a full YYYY-MM-DD single-day period using the statement's year for that month.
+    Returns (date, date) so downstream code treats it as a date-range."""
+    low = q.lower()
+    # Skip if a 4-digit year is present — year-qualified paths handle those.
+    if re.search(r"\b20\d{2}\b", low):
+        return None
+    # Skip if this looks like a day-range ("1 jan to 5 jan") — _day_range_period owns it.
+    _SEP_PAT = r"(?:to|till|until|through|thru|[-\u2013\u2014]|and)"
+    if re.search(rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MON_RE})\b.{{0,10}}{_SEP_PAT}", low):
+        return None
+    # Match: DD MMM  or  MMM DD (with optional ordinal)
+    m = re.search(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON_RE})\b", low) \
+        or re.search(rf"\b({_MON_RE})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", low)
+    if not m:
+        return None
+    g = m.groups()
+    if g[0].isdigit():
+        day_s, mon_s = g[0], g[1]   # DD MMM
+    else:
+        day_s, mon_s = g[1], g[0]   # MMM DD
+    day = int(day_s)
+    if not (1 <= day <= 31):
+        return None
+    mm = _mon_num(mon_s)
+    y = _year_for_month(mm)
+    if not y:
+        return None
+    date_str = f"{y}-{mm}-{day:02d}"
+    return date_str, date_str
+
+
 def _bare_month_period(q):
     """A bare month name (no year) in a clear period context -> the statement's year for that
     month, e.g. 'in May' / 'May spending' -> ('2026-05', ''). Conservative: skips a bare
@@ -781,7 +814,7 @@ def _bare_month_period(q):
     This makes bare months resolve on EVERY path (factual, analytics, LLM guards), not just
     the factual slot extractor."""
     low = q.lower()
-    if re.search(rf"\b(?:{_MON_RE})\b\s*(?:to|till|until|through|thru|[-–—]|and)\s*\b(?:{_MON_RE})\b", low):
+    if re.search(rf"\b(?:{_MON_RE})\b\s*(?:to|till|until|through|thru|[-\u2013\u2014]|and)\s*\b(?:{_MON_RE})\b", low):
         return None                                   # a range -> handled as a range elsewhere
     m = re.search(rf"\b(?:in|for|during|of|within|month of)\s+({_MON_RE})\b", low) \
         or re.search(rf"\b({_MON_RE})\s+(?:month\b|spend\w*|spent|expenses?|expenditure|"
@@ -878,11 +911,15 @@ def _week_of_month_period(q):
     return f"{yy}-{mm}-{days[0]:02d}", f"{yy}-{mm}-{days[1]:02d}"
 
 
+# Matches "YYYY MONTH" order e.g. "in 2026 june" / "2026 January"
+_YEAR_MONTH_RE = re.compile(rf"\b(20\d{{2}})\s+({_MON_RE})\b", re.I)
+
+
 def _parse_period(q, bare_month=True):
     """Deterministic period from the question text: (start, end) or None.
     Handles explicit dates, word-years, and relative dates (this/last month/year).
     bare_month=False skips the bare-month-name resolution — the slot extractor wants
-    the raw month so a thread's carried YEAR can scope it ('in 2024' → 'and in May?'
+    the raw month so a thread's carried YEAR can scope it ('in 2024' -> 'and in May?'
     must be May 2024, not the statement's latest May)."""
     q = _strip_cmp_amounts(_sub_word_years(q))
     rel = _relative_period(q)
@@ -904,7 +941,18 @@ def _parse_period(q, bare_month=True):
         one = _norm_one(m.group(0))
         if one:
             return one, ""
+    # Fix: handle YEAR MONTH order — e.g. "in 2026 june" -> 2026-06
+    m = _YEAR_MONTH_RE.search(q)
+    if m:
+        yr, mon = m.group(1), _mon_num(m.group(2))
+        if yr and mon:
+            ld = {"01":"31","02":"28","03":"31","04":"30","05":"31","06":"30",
+                  "07":"31","08":"31","09":"30","10":"31","11":"30","12":"31"}
+            return f"{yr}-{mon}-01", f"{yr}-{mon}-{ld.get(mon,'30')}"
     if bare_month:
+        bdm = _bare_day_month_period(q)                # e.g. "1 jan", "jan 1st" -> single day
+        if bdm:
+            return bdm
         bm = _bare_month_period(q)                     # bare month name, no year
         if bm:
             return bm
