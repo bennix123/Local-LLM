@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
+import html as _htmlmod
 import json, os, re, sys, threading, urllib.request
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request

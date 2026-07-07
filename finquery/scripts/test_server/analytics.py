@@ -1,3 +1,5 @@
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
 import re, sqlite3, json, urllib.request
 from src.services import txn_store as ts
 from src.services.txn_store import (
