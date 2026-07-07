@@ -960,12 +960,40 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
 
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
+    
+    txns = list(parser(pdf_path))
+    if not txns:
+        con.close()
+        return 0
+
+    # Detect reverse-chronological order and reverse the list if needed
+    is_rev = False
+    if len(txns) >= 2:
+        first_date = txns[0]["txn_date"]
+        last_date = txns[-1]["txn_date"]
+        if first_date > last_date:
+            is_rev = True
+        elif first_date == last_date:
+            bal_curr = txns[0]["balance"]
+            bal_next = txns[1]["balance"]
+            amt_curr = (txns[0]["credit"] or 0.0) - (txns[0]["debit"] or 0.0)
+            if bal_curr is not None and bal_next is not None:
+                if abs((bal_next + amt_curr) - bal_curr) < 0.01:
+                    is_rev = True
+
+    if is_rev:
+        txns.reverse()
+
+    # Re-assign seq numbers in strict chronological order
+    for idx, t in enumerate(txns, 1):
+        t["seq"] = idx
+
     buf, n = [], 0
     sql = ("INSERT INTO transactions"
            "(user_id,doc_name,txn_date,month,year,month_no,day,descr,merchant,category,"
            "debit,credit,balance,currency,seq)"
            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-    for t in parser(pdf_path):
+    for t in txns:
         cur = t.get("currency", "INR")
         # Override default INR if a different currency or RAW was detected in the header
         if cur == "INR" and detected_cur != "INR":
