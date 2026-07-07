@@ -1022,6 +1022,8 @@ def _scope(user_id, doc_name, period=None):
     params = [user_id]
     if doc_name:
         where += " AND doc_name=?"; params.append(doc_name)
+    elif CURRENCY:
+        where += " AND currency=?"; params.append(CURRENCY)
     if period:
         if isinstance(period, (tuple, list)):
             # Pad partial bounds so a 'YYYY' / 'YYYY-MM' tuple can't silently drop

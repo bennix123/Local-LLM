@@ -386,15 +386,15 @@ _TOP_N_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 _DATE_PAT = (
     r"\d{4}-\d{2}-\d{2}"
     r"|\d{1,2}[/-]\d{1,2}[/-]\d{4}"
-    r"|\d{1,2}(?:st|nd|rd|th)?\s+(?:" + _MON_PAT + r")\s+\d{4}"
+    r"|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:" + _MON_PAT + r")\s+\d{4}"
 )
 _DATE_RANGE_RE = re.compile(
     rf"({_DATE_PAT})\s*(?:to|till|until|through|[-])\s*({_DATE_PAT})", re.I
 )
 _SINGLE_DATE_RE = re.compile(rf"\b({_DATE_PAT})\b", re.I)
-_YEAR_RE = re.compile(r"\b(20\d{{2}})\b")
-_MON_YEAR_RE = re.compile(rf"\b({_MON_PAT})\s+(20\d{{2}})\b", re.I)
-_FIRST_WEEK_RE = re.compile(rf"\bfirst\s+week\s+(?:of\s+)?({_MON_PAT})(?:\s+(20\d{{2}}))?\b", re.I)
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+_MON_YEAR_RE = re.compile(rf"\b({_MON_PAT})\s+(20\d{2})\b", re.I)
+_FIRST_WEEK_RE = re.compile(rf"\bfirst\s+week\s+(?:of\s+)?({_MON_PAT})(?:\s+(20\d{2}))?\b", re.I)
 
 
 def _parse_date_str(s: str) -> Optional[str]:
@@ -404,7 +404,7 @@ def _parse_date_str(s: str) -> Optional[str]:
     m = re.match(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$", s)
     if m:
         return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-    m = re.match(r"^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})$", s)
+    m = re.match(r"^(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]+)\s+(\d{4})$", s)
     if m:
         mon = _MON_MAP.get(m.group(2).lower()[:3])
         if mon:
@@ -529,6 +529,14 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
     currency = (profile["currency"] if profile else None) or "INR"
     low = question.lower().strip()
 
+    # Strip any date patterns from the query for clean merchant extraction
+    q_clean = question
+    q_clean = _DATE_RANGE_RE.sub("", q_clean)
+    q_clean = _SINGLE_DATE_RE.sub("", q_clean)
+    q_clean = _MON_YEAR_RE.sub("", q_clean)
+    q_clean = _FIRST_WEEK_RE.sub("", q_clean)
+    q_clean = _YEAR_RE.sub("", q_clean)
+
     # ---- Step 1 + 2: Detect intent and build SQL ----------------------------
 
     # 1a. Profile field query (IFSC, account number, bank name, etc.)
@@ -565,7 +573,7 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
 
     # 1b. Check transactions exist
     txn_count = con.execute(
-        "SELECT COUNT(*) FROM transactions WHERE user_id=?", (user_id,)
+        "SELECT COUNT(*) FROM transactions WHERE user_id=? AND currency=?", (user_id, currency)
     ).fetchone()[0]
     if txn_count == 0:
         con.close()
@@ -573,8 +581,8 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
 
     # 1c. Current/latest balance
     if _BAL_RE.search(low) and not any(w in low for w in ("opening","closing","spent","spend","income","earn")):
-        sql = "SELECT balance FROM transactions WHERE user_id=? ORDER BY seq DESC LIMIT 1"
-        params = [user_id]
+        sql = "SELECT balance FROM transactions WHERE user_id=? AND currency=? ORDER BY seq DESC LIMIT 1"
+        params = [user_id, currency]
         rows = con.execute(sql, params).fetchall()
         con.close()
         if not rows:
@@ -589,8 +597,8 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
         period_start, period_end = _extract_period(question)
         if period_start and _is_outside(period_start, period_end or period_start, stmt_start, stmt_end):
             con.close(); return _outside_period()
-        merchant = _extract_merchant(question)
-        where, params = "user_id=?", [user_id]
+        merchant = _extract_merchant(q_clean)
+        where, params = "user_id=? AND currency=?", [user_id, currency]
         if merchant:
             where += " AND LOWER(merchant) LIKE ?"; params.append(f"%{merchant.lower()}%")
         if period_start and period_end and period_start != period_end:
@@ -614,7 +622,7 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
         period_start, period_end = _extract_period(question)
         if period_start and _is_outside(period_start, period_end or period_start, stmt_start, stmt_end):
             con.close(); return _outside_period()
-        where, params = "user_id=? AND debit>0", [user_id]
+        where, params = "user_id=? AND debit>0 AND currency=?", [user_id, currency]
         if period_start and period_end and period_start != period_end:
             where += " AND txn_date BETWEEN ? AND ?"; params += [period_start, period_end]
         elif period_start:
@@ -637,8 +645,8 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
         period_start, period_end = _extract_period(question)
         if period_start and _is_outside(period_start, period_end or period_start, stmt_start, stmt_end):
             con.close(); return _outside_period()
-        merchant = _extract_merchant(question)
-        where, params = "user_id=? AND credit>0", [user_id]
+        merchant = _extract_merchant(q_clean)
+        where, params = "user_id=? AND credit>0 AND currency=?", [user_id, currency]
         if merchant:
             where += " AND LOWER(merchant) LIKE ?"; params.append(f"%{merchant.lower()}%")
         if period_start and period_end and period_start != period_end:
@@ -660,8 +668,8 @@ def nl_to_sql(question: str, user_id: str, db_path: str = DB_PATH) -> dict:
     period_start, period_end = _extract_period(question)
     if period_start and _is_outside(period_start, period_end or period_start, stmt_start, stmt_end):
         con.close(); return _outside_period()
-    merchant = _extract_merchant(question)
-    where, params = "user_id=? AND debit>0", [user_id]
+    merchant = _extract_merchant(q_clean)
+    where, params = "user_id=? AND debit>0 AND currency=?", [user_id, currency]
     if merchant:
         where += " AND LOWER(merchant) LIKE ?"; params.append(f"%{merchant.lower()}%")
     if period_start and period_end and period_start != period_end:
