@@ -2219,7 +2219,11 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "spend":
         o = overview(user_id, doc_name, period)
         dc = txn_count(user_id, "debit", doc_name, period)   # debit rows only, not income
-        return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(dc)} transactions"
+        extra = ""
+        if o.get("credit", 0) > 0:
+            cc = txn_count(user_id, "credit", doc_name, period)
+            extra = f" (You also received {inr(o['credit'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
+        return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(dc)} transactions{extra}"
 
     if t == "income":
         o = overview(user_id, doc_name, period)
