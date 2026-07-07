@@ -173,7 +173,7 @@ document.addEventListener('keydown', e=>{
 </body></html>"""
 
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
-<title>Penny ┬╖ SQL layer test</title>
+<title>Penny  |  SQL layer test</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root{ --cream:#fff8eb; --cream2:#fdf6e9; --ink:#1a1a1a; --ink2:#2a2a2a;
@@ -222,7 +222,7 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
               cursor:pointer;margin-left:6px;transition:background .2s}
   .logout-btn:hover{background:#fff5f5}
 </style></head><body>
-<header><b>Penny</b><span class="pill">SQL layer ┬╖ offline test</span>
+<header><b>Penny</b><span class="pill">SQL layer  |  offline test</span>
   <span class="muted" style="margin-left:auto;font-size:12px">numbers come from SQL, never the LLM</span>
   <span class="user-pill" id="userPill" style="display:none"></span>
   <button class="logout-btn" id="logoutBtn" style="display:none" onclick="doLogout()">Sign out</button>
@@ -231,20 +231,20 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
   <div class="card">
     <label class="drop" id="drop">
       <input type="file" id="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed">
-      <div><b>Click to upload a statement ΓÇö PDF or ZIP</b></div>
-      <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one ΓÇö the chat unlocks once it's parsed.</div>
+      <div><b>Click to upload a statement  -  PDF or ZIP</b></div>
+      <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one  -  the chat unlocks once it's parsed.</div>
     </label>
     <div id="stats"></div>
     <div class="row" style="margin-top:12px;align-items:center;gap:10px">
-      <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">≡ƒÅª Sync from Plaid (Sandbox)</button>
-      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank ΓÇö replaces the loaded statement.</span>
+      <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">Bank Sync from Plaid (Sandbox)</button>
+      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank  -  replaces the loaded statement.</span>
     </div>
   </div>
   <div class="card hidden" id="chatcard">
     <div class="row" style="margin:0 0 8px 0;align-items:center">
       <b style="font-size:13px">Chat</b>
-      <span class="muted" id="threadnote" style="font-size:11px;flex:1">context carries within this thread ┬╖ tap New chat to reset</span>
-      <button id="newchat" style="padding:7px 13px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Γå╗ New chat</button>
+      <span class="muted" id="threadnote" style="font-size:11px;flex:1">context carries within this thread  |  tap New chat to reset</span>
+      <button id="newchat" style="padding:7px 13px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Reset New chat</button>
     </div>
     <div id="chat"><div class="muted">Upload a statement, then ask away.</div></div>
     <div class="row">
@@ -272,9 +272,9 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
     </div>
     <div id="txntable" style="max-height:430px;overflow:auto;margin-top:8px"></div>
     <div class="row" style="justify-content:center;gap:14px;margin-top:6px;align-items:center">
-      <button id="tprev" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">ΓÇ╣ Prev</button>
+      <button id="tprev" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">< Prev</button>
       <span id="tpage" class="muted" style="font-size:12px"></span>
-      <button id="tnext" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Next ΓÇ║</button>
+      <button id="tnext" style="padding:6px 12px;font-size:12.5px;background:#fff;border:1px solid var(--line);color:var(--ink)">Next ></button>
     </div>
   </div>
 </div>
@@ -296,7 +296,7 @@ const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList
   if(s.rows>0){
     $("#stats").innerHTML=`<span class="stat"><b>${s.rows.toLocaleString()}</b> txns loaded</span>
       <span class="stat">spend <b>${s.spend}</b></span><span class="stat">income <b>${s.income}</b></span>`;
-    $("#dropsub").textContent="A statement is loaded ΓÇö ask away, or upload another (PDF/ZIP) to replace it.";
+    $("#dropsub").textContent="A statement is loaded  -  ask away, or upload another (PDF/ZIP) to replace it.";
     $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';
     reveal(); loadTxns(true); $("#q").focus();
   } else { gate(); }
@@ -322,20 +322,20 @@ $("#file").onchange=async e=>{
   const f=e.target.files[0]; if(!f)return;
   gate();                                        // keep the chat hidden while parsing
   $("#drop").classList.add("busy");
-  $("#dropsub").innerHTML="ΓÅ│ Parsing <b>"+f.name+"</b> ΓÇö finding &amp; reading transactionsΓÇª";
+  $("#dropsub").innerHTML="Loading... Parsing <b>"+f.name+"</b>  -  finding &amp; reading transactions...";
   $("#stats").innerHTML="";
   let j;
   try{
     const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
     j=await r.json();
   }catch(err){ $("#drop").classList.remove("busy"); e.target.value="";
-    $("#dropsub").textContent="Upload failed ΓÇö please try again."; return; }
+    $("#dropsub").textContent="Upload failed  -  please try again."; return; }
   $("#drop").classList.remove("busy"); e.target.value="";
   if(j.error){                                   // no statement found -> stay locked
-    $("#dropsub").innerHTML="ΓÜá∩╕Å "+j.error+' <span class="muted">ΓÇö the chat stays locked until a statement is parsed.</span>';
+    $("#dropsub").innerHTML="Warning:  "+j.error+' <span class="muted"> -  the chat stays locked until a statement is parsed.</span>';
     gate(); return;
   }
-  const more=(j.parsed&&j.parsed.length>1)?(" ┬╖ "+j.parsed.length+" statements"):"";
+  const more=(j.parsed&&j.parsed.length>1)?("  |  "+j.parsed.length+" statements"):"";
   $("#dropsub").textContent=j.filename+" loaded";
   $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns${more}</span>
     <span class="stat">parsed in <b>${j.seconds}s</b></span>
@@ -354,18 +354,18 @@ $("#plaidbtn").onclick=async()=>{
   const setnote=t=>{ note.innerHTML=t; };
   btn.disabled=true; gate(); $("#drop").classList.add("busy"); $("#stats").innerHTML="";
   try{
-    setnote("ΓÅ│ Linking a Plaid Sandbox bankΓÇª");
+    setnote("Loading... Linking a Plaid Sandbox bank...");
     let r=await fetch("/plaid/sandbox/link",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     let j=await r.json().catch(()=>({}));
     if(!r.ok && r.status!==409) throw new Error(j.error||("link failed ("+r.status+")"));  // 409 = already linked, fine
-    setnote("≡ƒöä Syncing from PlaidΓÇª a fresh sandbox item can take up to ~2 minutes to generate data.");
+    setnote("Syncing Syncing from Plaid... a fresh sandbox item can take up to ~2 minutes to generate data.");
     r=await fetch("/plaid/sandbox/sync",{method:"POST"});
     j=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error||("sync failed ("+r.status+")"));
-    if(!j.rows) throw new Error("Plaid returned no transactions yet ΓÇö tap Sync again in a few seconds.");
+    if(!j.rows) throw new Error("Plaid returned no transactions yet  -  tap Sync again in a few seconds.");
     $("#drop").classList.remove("busy"); btn.disabled=false;
-    $("#dropsub").textContent="Plaid Sandbox data loaded ΓÇö ask away, or upload a statement to replace it.";
-    setnote("Γ£à Synced <b>"+j.synced.toLocaleString()+"</b> transactions from Plaid Sandbox.");
+    $("#dropsub").textContent="Plaid Sandbox data loaded  -  ask away, or upload a statement to replace it.";
+    setnote("Success:  Synced <b>"+j.synced.toLocaleString()+"</b> transactions from Plaid Sandbox.");
     $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns (Plaid Sandbox)</span>
       <span class="stat">spend <b>${j.spend}</b></span>
       <span class="stat">income <b>${j.income}</b></span>`+
@@ -375,7 +375,7 @@ $("#plaidbtn").onclick=async()=>{
     reveal(); loadTxns(true); $("#q").focus();
   }catch(err){
     $("#drop").classList.remove("busy"); btn.disabled=false;
-    setnote("ΓÜá∩╕Å "+err.message);
+    setnote("Warning:  "+err.message);
     try{ const s=await (await fetch("/status")).json(); if(s.rows>0) reveal(); }catch(_){}
   }
 };
@@ -384,7 +384,7 @@ function newBubble(path){
   const d=document.createElement("div"); d.className="msg bot";
   const tag=TAG[path]||"chat";
   d.innerHTML=`<span class="tag ${tag}">${tag}</span>`
-    +(path==="advice"?`<span class="who">Penny ┬╖ __MODEL__</span>`:"")
+    +(path==="advice"?`<span class="who">Penny  |  __MODEL__</span>`:"")
     +`<div class="md"></div>`;
   $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"});
   return d.querySelector(".md");
@@ -400,14 +400,14 @@ function thinkingBubble(){
 }
 
 // chat-thread: a STABLE id (persisted in localStorage) so a page refresh keeps the
-// same thread ΓÇö context survives reloads (and, server-side, restarts). "New chat"
+// same thread  -  context survives reloads (and, server-side, restarts). "New chat"
 // rotates to a fresh id.
 const newThreadId=()=>"t"+Math.random().toString(36).slice(2)+Date.now();
 let THREAD = localStorage.getItem("penny_thread") || newThreadId();
 localStorage.setItem("penny_thread", THREAD);
 $("#newchat").onclick=()=>{
   THREAD=newThreadId(); localStorage.setItem("penny_thread", THREAD);
-  $("#chat").innerHTML='<div class="muted">New chat ΓÇö context cleared. Ask away.</div>';
+  $("#chat").innerHTML='<div class="muted">New chat  -  context cleared. Ask away.</div>';
   $("#q").focus();
 };
 
@@ -441,7 +441,7 @@ async function ask(){
   }catch(e){
     clearThink();
     const md=newBubble("chat");
-    md.innerHTML="ΓÜá∩╕Å Couldn't reach the server. Please try again.";
+    md.innerHTML="Warning:  Couldn't reach the server. Please try again.";
     $("#send").disabled=false;
   }
 }
@@ -473,7 +473,7 @@ window.fetch=function(url,...args){
     if(!r.ok){ localStorage.removeItem(TOKEN_KEY); location.href='/'; return; }
     const name=(await r.json()).username||uname||'';
     const pill=$("#userPill"), btn=$("#logoutBtn");
-    if(pill){ pill.textContent='👤 '+name; pill.style.display=''; }
+    if(pill){ pill.textContent='User:  '+name; pill.style.display=''; }
     if(btn) btn.style.display='';
   }catch(e){ /* server offline — let them keep using it */ }
 })();
@@ -511,8 +511,8 @@ async function loadTxns(reset){
   }
   h+="</tbody></table>";
   $("#txntable").innerHTML = d.rows.length? h : '<div class="muted" style="padding:16px">No matching transactions.</div>';
-  $("#txnsummary").innerHTML = tTotal? `<b>${tTotal.toLocaleString()}</b> matched ┬╖ out <b>${d.out_total}</b> ┬╖ in <b>${d.in_total}</b>` : "";
-  $("#tpage").textContent = tTotal? `${tOffset+1}ΓÇô${Math.min(tOffset+tLimit,tTotal)} of ${tTotal.toLocaleString()}` : "";
+  $("#txnsummary").innerHTML = tTotal? `<b>${tTotal.toLocaleString()}</b> matched  |  out <b>${d.out_total}</b>  |  in <b>${d.in_total}</b>` : "";
+  $("#tpage").textContent = tTotal? `${tOffset+1}-${Math.min(tOffset+tLimit,tTotal)} of ${tTotal.toLocaleString()}` : "";
   $("#tprev").disabled = tOffset<=0; $("#tnext").disabled = tOffset+tLimit>=tTotal;
 }
 $("#tgo").onclick=()=>loadTxns(true);
@@ -548,6 +548,6 @@ _DOC_SHELL = """<!doctype html><html><head><meta charset="utf-8">
  hr{border:0;border-top:1px solid var(--line);margin:2em 0}
  ul,ol{margin:.6em 0 .6em 1.2em} li{margin:.25em 0}
 </style></head><body><div class="wrap">
-<div class="top">Penny ┬╖ <a href="/">app</a> ┬╖ <a href="/roadmap">Roadmap</a> ┬╖ <a href="/hld">HLD</a> ┬╖ <a href="/lld">LLD</a> ┬╖ <a href="__RAW__">raw</a></div>
+<div class="top">Penny  |  <a href="/">app</a>  |  <a href="/roadmap">Roadmap</a>  |  <a href="/hld">HLD</a>  |  <a href="/lld">LLD</a>  |  <a href="__RAW__">raw</a></div>
 __BODY__
 </div></body></html>"""

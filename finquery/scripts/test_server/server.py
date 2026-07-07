@@ -393,12 +393,12 @@ def _apply_guards(intent, q):
     if det:
         intent["start"], intent["end"] = det
     # savings / net-position phrasings are the account summary (the Net row), never a spend
-    # total ΓÇö the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
+    # total  -  the LLM sometimes flips "total savings" to "spend". Savings RATE/target are the
     # intelligence gate's job and are handled before this point, so they never reach here.
     if _SAVINGS_RE.search(low):
         intent["type"] = "summary"
         return intent
-    # single biggest/smallest expense ΓÇö the keyword decides direction (the LLM flips
+    # single biggest/smallest expense  -  the keyword decides direction (the LLM flips
     # "smallest in 2024" to largest). Skip when it's a top-N list.
     if "expense" in low and "top" not in low:
         if re.search(r"\b(smallest|lowest|cheapest|minimum)\b", low):
@@ -429,7 +429,7 @@ def _apply_guards(intent, q):
         elif _COUNTQ_RE.search(q):
             t = "count"
         elif re.search(r"how much.*(spend|spent|spending)|total spend", low) and not has_cat and not has_merch:
-            t = "spend"                       # clear "how much did I spend" ΓÇö not count/breakdown
+            t = "spend"                       # clear "how much did I spend"  -  not count/breakdown
         elif t == "breakdown" and not wants_table:
             t = "spend"                       # a range/period TOTAL, not a monthly table
     intent["type"] = t
@@ -566,7 +566,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
             return stream_text("ML", mlans)
 
     # 0a-INT) financial-intelligence engines (health / risk / recurring / impact /
-    #         category-trend / behaviour / pattern digest) ΓÇö deterministic, every
+    #         category-trend / behaviour / pattern digest)  -  deterministic, every
     #         number from SQL. Runs before the advice gate so these get the precise
     #         scored answer, not an LLM narrative.
     intans = intelligence_answer(rq)
@@ -583,7 +583,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         return grounded_advice(rq, tid, ctx)
 
     # 0c-CONCEPT) semantic spend concepts (gambling / loans / bank fees) grounded to
-    #     real ledger merchants ΓÇö deterministic, honest "not found" when nothing matches.
+    #     real ledger merchants  -  deterministic, honest "not found" when nothing matches.
     ca = concept_answer(rq)
     if ca is not None:
         remember(history, q, ca)
@@ -591,7 +591,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         return stream_text("SQL", ca)
 
     # 0c) ANALYTICS (compare / average / % / argmax / amount filter / multi-entity /
-    #     exclusion) ΓÇö deterministic, numbers from SQL.
+    #     exclusion)  -  deterministic, numbers from SQL.
     aa = analytics_answer(rq)
     if aa is not None:
         remember(history, q, aa)
@@ -601,7 +601,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     # 1) DETERMINISTIC factual resolution (standalone + thread context carry).
     det = _resolve_factual(rq, ctx)
     if det and det.get("type") == "clarify":
-        # low-confidence entity: several stored merchants match ΓÇö ask which, and REMEMBER the
+        # low-confidence entity: several stored merchants match  -  ask which, and REMEMBER the
         # question so next turn's reply ("the first" / "2" / a name) resolves and answers it.
         opts = det.get("options") or []
         ctx["pending_clarify"] = {"options": opts, "phrase": det.get("phrase", ""), "orig": rq}
@@ -676,7 +676,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         remember(history, q, ans)
         _append_log(tid, q, ans, "SQL")
         return stream_text("SQL", ans)
-    # last resort: an honest nudge ΓÇö NOT a recycled advice dump (avoids parroting)
+    # last resort: an honest nudge  -  NOT a recycled advice dump (avoids parroting)
     _append_log(tid, q, DIDNT_CATCH, "chat")
     return stream_text("chat", DIDNT_CATCH)
 
@@ -759,15 +759,15 @@ def _raw_md(filename):
 
 @app.get("/hld")
 async def hld_page():
-    return _render_doc("Penny_HLD_Technical.md", "Penny ΓÇö Technical HLD", "/hld.md")
+    return _render_doc("Penny_HLD_Technical.md", "Penny  -  Technical HLD", "/hld.md")
 
 @app.get("/lld")
 async def lld_page():
-    return _render_doc("Penny_LLD.md", "Penny ΓÇö Low-Level Design", "/lld.md")
+    return _render_doc("Penny_LLD.md", "Penny  -  Low-Level Design", "/lld.md")
 
 @app.get("/roadmap")
 async def roadmap_page():
-    return _render_doc("Penny_Roadmap_Status.md", "Penny ΓÇö Roadmap & Status", "/roadmap.md")
+    return _render_doc("Penny_Roadmap_Status.md", "Penny  -  Roadmap & Status", "/roadmap.md")
 
 @app.get("/roadmap.md")
 async def roadmap_md():
@@ -787,4 +787,4 @@ def _warmup():
     if _llm_complete("Reply with the single word: ok.", "ok", num_predict=5):
         print(f"[warmup] {LLM_MODEL} ready")
     else:
-        print(f"[warmup] {LLM_MODEL} not reachable yet ΓÇö will retry on first question")
+        print(f"[warmup] {LLM_MODEL} not reachable yet  -  will retry on first question")
