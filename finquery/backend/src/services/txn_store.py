@@ -125,6 +125,7 @@ def init_db():
             id        INTEGER PRIMARY KEY,
             user_id   TEXT,
             doc_name  TEXT,
+            bank_name TEXT,
             txn_date  TEXT,    -- YYYY-MM-DD
             month     TEXT,    -- YYYY-MM
             year      INTEGER, -- YYYY
@@ -146,6 +147,8 @@ def init_db():
             con.execute(f"ALTER TABLE transactions ADD COLUMN {col} INTEGER")
     if "currency" not in cols:
         con.execute("ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT 'INR'")
+    if "bank_name" not in cols:
+        con.execute("ALTER TABLE transactions ADD COLUMN bank_name TEXT")
     # Backfill the split parts from txn_date for any rows that lack them.
     con.execute("""UPDATE transactions
                       SET year     = CAST(substr(txn_date,1,4) AS INTEGER),
@@ -958,6 +961,11 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
         # Check if transaction statement format (HDFC) is matched, else fallback to generic parser
         parser = parse_pdf if is_transaction_statement(head) else parse_generic_statement
 
+    # Local import to avoid circular dependencies
+    from src.services.nl_sql_engine import extract_account_profile
+    profile = extract_account_profile(pdf_path, user_id)
+    bank_name = profile.get("bank_name")
+
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
     
@@ -990,16 +998,16 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
 
     buf, n = [], 0
     sql = ("INSERT INTO transactions"
-           "(user_id,doc_name,txn_date,month,year,month_no,day,descr,merchant,category,"
+           "(user_id,doc_name,bank_name,txn_date,month,year,month_no,day,descr,merchant,category,"
            "debit,credit,balance,currency,seq)"
-           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     for t in txns:
         cur = t.get("currency", "INR")
         # Override default INR if a different currency or RAW was detected in the header
         if cur == "INR" and detected_cur != "INR":
             cur = detected_cur
 
-        buf.append((user_id, doc_name, t["txn_date"], t["month"], t["year"], t["month_no"], t["day"],
+        buf.append((user_id, doc_name, bank_name, t["txn_date"], t["month"], t["year"], t["month_no"], t["day"],
                     t["descr"], t["merchant"], t["category"], t["debit"], t["credit"], t["balance"],
                     cur, t["seq"]))
         if len(buf) >= batch:
@@ -1357,7 +1365,7 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
     base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
     con = connect()
     total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
-    rows = con.execute(f"""SELECT txn_date, merchant, descr, debit, credit {base}
+    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit {base}
                            ORDER BY txn_date, seq LIMIT ?""", p + params + [limit]).fetchall()
     con.close()
     return rows, total
@@ -2242,14 +2250,15 @@ def dispatch_intent(intent, user_id, doc_name=None):
         if not rows:
             return f"**No transactions found{who}{sfx}.**"
         body = []
-        for d, mer, descr, deb, cr in rows:
+        for d, bank, mer, descr, deb, cr in rows:
             name = (mer or descr or "").strip() or "-"
-            body.append((_dlabel(d), _mname(name[:34]),
+            bank_label = bank or "Unknown Bank"
+            body.append((_dlabel(d), bank_label, _mname(name[:34]),
                          inr(deb) if (deb or 0) > 0 else inr(cr),
                          "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
         tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
-        return head + "\n\n" + _table(["Date", "Merchant", "Amount", "Type"], body) + tail
+        return head + "\n\n" + _table(["Date", "Bank", "Merchant", "Amount", "Type"], body) + tail
 
     if t == "spend":
         o = overview(user_id, doc_name, period)
