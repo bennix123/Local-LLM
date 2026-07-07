@@ -200,7 +200,7 @@ def _relative_period(q):
 _AMT_CMP_RE = re.compile(
     r"\b(?:over|above|under|below|more than|less than|greater than|bigger than|smaller than|"
     r"exceed\w*|cheaper than|higher than|lower than|at\s?least|atleast|min(?:imum)?|max(?:imum)?)"
-    r"\s+(?:Γé╣|┬ú|\$|Γé¼|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*\d[\d,]*(?:\.\d+)?", re.I)
+    r"\s+(?:Γé╣|₹|┬ú|£|\$|Γé¼|€|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*\d[\d,]*(?:\.\d+)?", re.I)
 
 def _strip_cmp_amounts(q):
     """Blank out 'under 2000' / 'over 2024' style amounts so a year-range number used in an
@@ -327,7 +327,8 @@ def _week_of_month_period(q):
     mm = _mon_num(mon_str)
     if not mm:
         return None
-    yy = _year_for_month(mm)
+    ym = re.search(r"\b(20\d\d)\b", low)
+    yy = ym.group(1) if ym else _year_for_month(mm)
     if not yy:
         yy = _anchor_month()[:4] if _anchor_month() else "2024"
     if ord_str.lower() == "last":
@@ -353,12 +354,12 @@ def _parse_period(q, bare_month=True):
     the raw month so a thread's carried YEAR can scope it ('in 2024' -> 'and in May?'
     must be May 2024, not the statement's latest May)."""
     q = _strip_cmp_amounts(_sub_word_years(q))
-    rel = _relative_period(q)
-    if rel:
-        return rel
     wom = _week_of_month_period(q)
     if wom:
         return wom
+    rel = _relative_period(q)
+    if rel:
+        return rel
     dr = _day_range_period(q)                          # yearless day range ("1 Jul to 3 Jul")
     if dr:
         return dr
@@ -408,7 +409,7 @@ _NUM_MULT = {"crore": 1e7, "crores": 1e7, "cr": 1e7, "lakh": 1e5, "lakhs": 1e5,
              "lac": 1e5, "lacs": 1e5, "thousand": 1e3, "k": 1e3, "million": 1e6, "mn": 1e6}
 
 _AMT_RE = re.compile(
-    r"Γé╣\s*([\d,]+(?:\.\d+)?)|\b(\d[\d,]*(?:\.\d+)?)\s*(crores?|cr|lakhs?|lacs?|lac|thousand|million|mn|k)\b",
+    r"(?:Γé╣|₹)\s*([\d,]+(?:\.\d+)?)|\b(\d[\d,]*(?:\.\d+)?)\s*(crores?|cr|lakhs?|lacs?|lac|thousand|million|mn|k)\b",
     re.I)
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -565,7 +566,7 @@ _INTERVAL_RE = re.compile(
 _WHOSENT_RE = re.compile(
     r"\bwho\s+(?:sent|paid|gave|deposited|credited|transferred|wired|remitted)\b|"
     r"\bwho\s+(?:is|are|was|were)\s+(?:my\s+)?(?:the\s+)?(?:payer|sender|income source)|"
-    r"\bwhere\s+did\s+(?:the\s+|my\s+)?(?:┬ú|\$|Γé¼|Γé╣|\d).*\bcome\s+from\b", re.I)
+    r"\bwhere\s+did\s+(?:the\s+|my\s+)?(?:┬ú|£|\$|Γé¼|€|Γé╣|₹|\d).*\bcome\s+from\b", re.I)
 
 _BAL_DELTA_RE = re.compile(
     r"\bbalance\b[^?]*\b(?:chang|delta|move|increas|decreas|grow|grew|differ|rise|risen|rose|fell|fall|drop)\w*\b|"
@@ -584,7 +585,7 @@ _MONTHS_RE = re.compile(
 
 def _amount_in(low):
     """A currency/number amount in the text, ignoring 4-digit years. None if absent."""
-    m = re.search(r"(?:┬ú|\$|Γé¼|Γé╣|rs\.?|inr|gbp|usd|eur|rupees?)\s*(\d[\d,]*(?:\.\d+)?)", low)
+    m = re.search(r"(?:┬ú|£|\$|Γé¼|€|Γé╣|₹|rs\.?|inr|gbp|usd|eur|rupees?)\s*(\d[\d,]*(?:\.\d+)?)", low)
     if m:
         return float(m.group(1).replace(",", ""))
     m = re.search(r"\b(\d[\d,]*(?:\.\d+)?)\b", low)
@@ -1482,7 +1483,7 @@ _REASON_RE = re.compile(
 
 _FIN_RE = re.compile(
     r"money|cash|spen[dt]|saving|\bsave\b|\bsaved\b|invest|budget|income|salary|earn|afford|"
-    r"expense|\bcost|financ|categor|merchant|transaction|\btxn|rupee|Γé╣|debt|loan|\bemi\b|"
+    r"expense|\bcost|financ|categor|merchant|transaction|\btxn|rupee|Γé╣|₹|debt|loan|\bemi\b|"
     r"subscription|\bbill|balance|net worth|\brich\b|broke|overspend|\bpay\b|paying|purchase|"
     r"shopping|grocer|deposit|withdraw|\baccount|statement|cut back|cut down|fund|wealth|"
     r"portfolio|retire|\btax|afford|spend less|monthly|per month", re.I)
@@ -1550,7 +1551,7 @@ def _parse_amount(low):
     m = re.search(
         r"(?:over|above|under|below|more than|less than|greater than|bigger than|smaller than|"
         r"exceed\w*|cheaper than|higher than|lower than|at\s?least|atleast|min(?:imum)?|max(?:imum)?)"
-        r"\s+(?:Γé╣|┬ú|\$|Γé¼|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*(\d[\d,]*(?:\.\d+)?)"
+        r"\s+(?:Γé╣|₹|┬ú|£|\$|Γé¼|€|rs\.?|inr|gbp|usd|eur|rupees?|rupess|pounds?|quid)?\s*(\d[\d,]*(?:\.\d+)?)"
         r"(?!\s*(?:months?|days?|years?|yrs?|weeks?|wks?|hours?|%|percent|transactions?|txns?|times|orders?))",
         low)
     if m:

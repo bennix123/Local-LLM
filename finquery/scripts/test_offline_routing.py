@@ -55,7 +55,8 @@ class FastAPI:
     get = post = delete = put = _deco
 
 
-fapi = _mod("fastapi", FastAPI=FastAPI, Request=object, APIRouter=_Dummy)
+fapi = _mod("fastapi", FastAPI=FastAPI, Request=object, APIRouter=_Dummy, Depends=lambda *a, **k: _Dummy(), HTTPException=_Dummy, status=_Dummy())
+_mod("fastapi.security", HTTPBearer=_Dummy, HTTPAuthorizationCredentials=_Dummy)
 
 
 class _Resp:

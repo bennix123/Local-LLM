@@ -47,13 +47,16 @@ if not os.environ.get("JWT_SECRET"):
 # ---------------------------------------------------------------------------
 # Password hashing
 # ---------------------------------------------------------------------------
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
 
 def _hash(pw: str) -> str:
-    return _pwd.hash(pw)
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
 def _verify(plain: str, hashed: str) -> bool:
-    return _pwd.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except Exception:
+        return False
 
 # ---------------------------------------------------------------------------
 # Users DB

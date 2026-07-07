@@ -58,6 +58,9 @@ def _switch_db(user: str):
     """Switch txn_store to this user's personal DB (creates it if needed)."""
     db = get_user_db_path(user)
     ts.DB_PATH = db
+    ts.USER = user
+    from . import router
+    router.USER = user
     ts.init_db()
 
 def _thread(tid):

@@ -77,6 +77,10 @@ LOGIN_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
     <input type="text" id="lu" placeholder="your username" autocomplete="username">
     <label for="lp">Password</label>
     <input type="password" id="lp" placeholder="••••••••" autocomplete="current-password">
+    <div style="display:flex;align-items:center;margin-bottom:16px;gap:8px;font-size:13px;color:var(--ink2);">
+      <input type="checkbox" id="showPasswordLogin" onclick="togglePasswordVisibility('showPasswordLogin', ['lp'])" style="cursor:pointer;width:16px;height:16px;">
+      <label for="showPasswordLogin" style="margin-bottom:0;cursor:pointer;user-select:none;">Show Password</label>
+    </div>
     <button class="btn" id="loginBtn" onclick="doLogin()">Sign In</button>
     <div class="msg" id="loginMsg"></div>
   </div>
@@ -89,6 +93,10 @@ LOGIN_PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
     <input type="password" id="sp" placeholder="min. 6 characters" autocomplete="new-password">
     <label for="sp2">Confirm password</label>
     <input type="password" id="sp2" placeholder="repeat password" autocomplete="new-password">
+    <div style="display:flex;align-items:center;margin-bottom:16px;gap:8px;font-size:13px;color:var(--ink2);">
+      <input type="checkbox" id="showPasswordSignup" onclick="togglePasswordVisibility('showPasswordSignup', ['sp', 'sp2'])" style="cursor:pointer;width:16px;height:16px;">
+      <label for="showPasswordSignup" style="margin-bottom:0;cursor:pointer;user-select:none;">Show Password</label>
+    </div>
     <button class="btn" id="signupBtn" onclick="doSignup()">Create Account</button>
     <div class="msg" id="signupMsg"></div>
   </div>
@@ -102,6 +110,13 @@ function showTab(t){
   document.getElementById('signupForm').style.display = t==='signup'?'':'none';
   document.getElementById('loginTab').className = 'tab'+(t==='login'?' active':'');
   document.getElementById('signupTab').className = 'tab'+(t==='signup'?' active':'');
+}
+
+function togglePasswordVisibility(checkboxId, inputIds){
+  const show = document.getElementById(checkboxId).checked;
+  inputIds.forEach(id => {
+    document.getElementById(id).type = show ? 'text' : 'password';
+  });
 }
 
 function setMsg(id, txt, ok){
