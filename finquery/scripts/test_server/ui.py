@@ -403,6 +403,15 @@ function mdToHtml(md){
       const parsedData = dataRows.map(r => parseRow(r));
       const headersEscaped = encodeURIComponent(JSON.stringify(headers));
       const dataEscaped = encodeURIComponent(JSON.stringify(parsedData));
+      const initialRows = parsedData.slice(0, 25);
+      const initialRowsHtml = initialRows.map(row => {
+        return "<tr>" + row.map((cell, idx) => {
+          let clean = String(cell || "").replace(/[₹$,\s]/g, "");
+          const isNumeric = !isNaN(parseFloat(clean)) && cell !== undefined && cell !== null && String(cell).trim() !== "" && !/^\d{2}\s[A-Za-z]{3}\s\d{4}$/.test(String(cell));
+          const style = isNumeric ? 'text-align:right;font-variant-numeric:tabular-nums;' : '';
+          return `<td style="${style}padding:6px 10px;font-size:13px;border-bottom:1px solid var(--line);">${cell || ""}</td>`;
+        }).join('') + "</tr>";
+      }).join('');
       
       html += `
         <div class="dynamic-table-container" id="${tableId}-container" data-table-id="${tableId}" data-headers="${headersEscaped}" data-rows="${dataEscaped}" style="margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
@@ -414,7 +423,7 @@ function mdToHtml(md){
                 </tr>
               </thead>
               <tbody>
-                <!-- populated by JS -->
+                ${initialRowsHtml}
               </tbody>
             </table>
           </div>
@@ -705,10 +714,13 @@ async function submitClarification(btn, originalQuery){
       if(queue.length){
         full+=queue.shift();
         md.innerHTML=mdToHtml(full);
-        initDynamicTables(md);
         md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
         setTimeout(reveal,18);
-      } else if(streamDone){ revealing=false; $("#send").disabled=false; }
+      } else if(streamDone){
+        revealing=false;
+        $("#send").disabled=false;
+        initDynamicTables(md);
+      }
       else setTimeout(reveal,18);
     };
     while(true){ const {done,value}=await reader.read(); if(done)break;
@@ -755,10 +767,13 @@ async function ask(){
       if(queue.length){
         full+=queue.shift();
         md.innerHTML=mdToHtml(full);
-        initDynamicTables(md);
         md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
         setTimeout(reveal,18);                       // ~18ms per word -> typewriter
-      } else if(streamDone){ revealing=false; $("#send").disabled=false; }
+      } else if(streamDone){
+        revealing=false;
+        $("#send").disabled=false;
+        initDynamicTables(md);
+      }
       else setTimeout(reveal,18);                     // wait for more network
     };
     while(true){ const {done,value}=await reader.read(); if(done)break;
