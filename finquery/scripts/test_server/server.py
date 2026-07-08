@@ -309,6 +309,10 @@ async def select_bank(request: Request, user: str = Depends(get_current_user)):
         for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
             ctx.pop(k, None)
     ctx["default_doc_name"] = doc_name
+    if doc_name:
+        ctx["pinned_doc_name"] = doc_name
+    else:
+        ctx.pop("pinned_doc_name", None)
     return JSONResponse({"status": "ok", "active_doc_name": doc_name})
 
 @app.get("/insights")
@@ -504,6 +508,16 @@ async def chats():
     except Exception:
         return JSONResponse({})
 
+def is_followup_query(q):
+    low = q.lower().strip()
+    if len(low.split()) <= 3:
+        return True
+    if any(low.startswith(w) for w in ("show", "give", "list", "why", "what about", "and ", "how about", "explain", "detail")):
+        return True
+    if any(re.search(rf"\b{w}\b", low) for w in ("it", "them", "that", "this", "those", "list", "category", "details")):
+        return True
+    return False
+
 def needs_bank_clarification(user_id, q, ctx):
     low = q.lower()
     from src.services.txn_store.queries import list_user_documents, overall_balance, latest_balance
@@ -603,6 +617,12 @@ async def query(request: Request, user: str = Depends(get_current_user)):
                 ctx.pop(k, None)
         ctx["default_doc_name"] = resolved_doc_name
     else:
+        # Clear filters and transient defaults for new standalone questions to prevent context pollution
+        if not is_followup_query(q):
+            for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
+                ctx.pop(k, None)
+            if not ctx.get("pinned_doc_name"):
+                ctx.pop("default_doc_name", None)
         # Check if query needs a clarification prompt
         resolved_doc_name, payload = needs_bank_clarification(user, q, ctx)
         if payload:
