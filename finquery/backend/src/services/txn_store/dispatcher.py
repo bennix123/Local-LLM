@@ -315,6 +315,18 @@ def answer(question, user_id, doc_name=None):
     if overview(user_id, doc_name)["count"] == 0:
         return None
 
+    # ---- loaded bank statements / history of banks ----
+    if re.search(r"\blist bank|\bshow.*bank|\bwhat bank|\bwhich bank|\buploaded statement|\bmy statement|\blist document|\bwhat document|\bshow document|\bhistory of bank", q):
+        from src.services.txn_store.queries import list_user_documents
+        docs = list_user_documents(user_id)
+        if not docs:
+            return "No bank statements have been uploaded yet."
+        lines = ["**Loaded bank statements:**"]
+        for d in docs:
+            date_range = f"{d['from_date']} to {d['to_date']}" if d["from_date"] else "no dates"
+            lines.append(f"  - **{d['bank_name']}** (`{d['doc_name']}`): {d['txn_count']} transactions ({date_range})")
+        return "\n".join(lines)
+
     period, plabel, has_period = _period(q)
 
     # ---- data coverage (which months/years exist) ----

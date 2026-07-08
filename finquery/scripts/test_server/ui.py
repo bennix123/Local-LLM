@@ -250,6 +250,10 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
       <div class="muted" id="dropsub">Upload a bank-statement PDF, or a ZIP containing one  -  the chat unlocks once it's parsed.</div>
     </label>
     <div id="stats"></div>
+    <div id="loaded-files" style="margin-top:12px;font-size:12.5px;border-top:1px solid var(--line);padding-top:12px;display:none;">
+      <strong>Loaded Statements:</strong>
+      <ul style="margin:4px 0 0 0;padding-left:16px;list-style-type:disc;" id="filelist"></ul>
+    </div>
     <div class="row" style="margin-top:12px;align-items:center;gap:10px">
       <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">Bank Sync from Plaid (Sandbox)</button>
       <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank  -  replaces the loaded statement.</span>
@@ -303,8 +307,28 @@ const SUG=["what is my total spending?","give me an account summary","show me sp
 $("#chips").innerHTML=SUG.map(s=>`<span class="chip">${s}</span>`).join("");
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{$("#q").value=c.textContent;ask();});
 
+async function refreshDocuments(){
+  try{
+    const r=await fetch("/documents");
+    if(!r.ok)return;
+    const docs=await r.json();
+    const list=$("#filelist");
+    if(docs.length>0){
+      $("#loaded-files").style.display="block";
+      list.innerHTML=docs.map(d=>`
+        <li style="margin-top:4px;">
+          <strong>${d.bank_name}</strong> (<span class="muted" style="font-size:11.5px;">${d.doc_name}</span>) - <b>${d.txn_count}</b> txns
+          <span class="muted" style="font-size:11.5px;">[${d.from_date || ''} to ${d.to_date || ''}]</span>
+        </li>
+      `).join('');
+    } else {
+      $("#loaded-files").style.display="none";
+    }
+  }catch(e){}
+}
+
 // GATE: the chat + transactions stay hidden until a statement has been parsed.
-const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); };
+const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); refreshDocuments(); };
 const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList.add("hidden"); };
 (async()=>{ try{
   const s=await (await fetch("/status")).json();

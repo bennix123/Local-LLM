@@ -283,6 +283,13 @@ async def ml_categorize(user: str = Depends(get_current_user)):
     _switch_db(user)
     return JSONResponse(_ml("cat", lambda: ml.categorizer_report(user)))
 
+@app.get("/documents")
+async def get_documents(user: str = Depends(get_current_user)):
+    _switch_db(user)
+    from src.services.txn_store.queries import list_user_documents
+    docs = list_user_documents(user)
+    return JSONResponse(docs)
+
 @app.get("/insights")
 async def insights_endpoint(user: str = Depends(get_current_user)):
     """Pre-computed Insight Engine output (stored on upload; live-computed if absent)."""
@@ -342,9 +349,8 @@ async def upload(request: Request, user: str = Depends(get_current_user)):
                    else "That PDF doesn't look like a bank statement.")
             return JSONResponse({"error": msg, "scanned": len(pdfs)}, status_code=422)
 
-        # fresh analysis: replace prior data, then ingest the statement(s) found
-        _c = ts.connect(); _c.execute("DELETE FROM transactions WHERE user_id=?", (user,))
-        _c.commit(); _c.close()
+        # multi-document support: do not delete prior transactions globally.
+        # ingest_pdf will delete only the transactions matching the same document name to prevent duplicates.
         # Clear chat thread state for this user only
         for k in list(THREADS.keys()):
             if k.startswith(user + ":"):
