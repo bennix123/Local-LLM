@@ -152,20 +152,31 @@ def _clean_money(s: str) -> Optional[float]:
 
 
 def _norm_date(s: str) -> Optional[str]:
-    """Normalise various date formats -> YYYY-MM-DD."""
+    """Normalise many date formats -> YYYY-MM-DD (numeric dates are read day-first)."""
     if not s:
         return None
-    s = s.strip()
-    m = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$", s)
+    s = s.strip().strip(".,")
+    # ISO: 2024-01-01
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        return s
+    # dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy  (2- or 4-digit year)
+    m = re.match(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$", s)
     if m:
-        return f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
-    m = re.match(r"^(\d{1,2})-([A-Za-z]{3,9})-(\d{4})$", s)
+        y = int(m.group(3)); y += 2000 if y < 100 else 0
+        return f"{y:04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    # dd Mon yyyy / dd-Mon-yyyy  (space- or dash-separated, 2- or 4-digit year)
+    m = re.match(r"^(\d{1,2})[-\s]([A-Za-z]{3,9})[-\s](\d{2,4})$", s)
     if m:
         mon = _MON_MAP.get(m.group(2).lower()[:3])
         if mon:
-            return f"{m.group(3)}-{mon}-{int(m.group(1)):02d}"
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-        return s
+            y = int(m.group(3)); y += 2000 if y < 100 else 0
+            return f"{y:04d}-{mon}-{int(m.group(1)):02d}"
+    # Mon dd, yyyy / Mon dd yyyy
+    m = re.match(r"^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})$", s)
+    if m:
+        mon = _MON_MAP.get(m.group(1).lower()[:3])
+        if mon:
+            return f"{int(m.group(3)):04d}-{mon}-{int(m.group(2)):02d}"
     return None
 
 
@@ -246,6 +257,15 @@ def extract_account_profile(pdf_path: str, user_id: str) -> dict:
         if not bank_name:
             bank_name = name_spaced.title()
 
+    # Clean a derived bank name (steps 3/4): drop a possessive lead-in ("Your ...",
+    # "Welcome to ...") and a trailing product word ("... Account"/"... Statement") so
+    # "Your Castlemere Bank Account" -> "Castlemere Bank".
+    if bank_name:
+        bank_name = re.sub(r"^(?:your|welcome\s+to|about)\s+", "", bank_name, flags=re.I)
+        bank_name = re.sub(r"\s+(?:current\s+account|savings?\s+account|account|statement)\b.*$",
+                           "", bank_name, flags=re.I)
+        bank_name = bank_name.strip() or None
+
     data["bank_name"] = bank_name
 
     # Close document safely
@@ -268,15 +288,18 @@ def extract_account_profile(pdf_path: str, user_id: str) -> dict:
     if m:
         data["ifsc"] = m.group(1).strip()
 
-    # Account number
+    # Account number (allow internal spaces/dashes, e.g. "3041 5567 8899"; never cross a
+    # line break -- the capture class excludes \n so it can't run into the next field).
     for pat in [
-        r"Account\s+No(?:\.?|mber)?\s*[:\-]?\s*(\d{8,20})",
-        r"A/C\s+No\.?\s*[\n\r\s:]+(\d{8,20})",
+        r"Account\s+No(?:\.?|mber)?\s*[:\-]?\s*([\d][\d \-]{6,22}\d)",
+        r"A/C\s+No\.?\s*[:\-\s]*([\d][\d \-]{6,22}\d)",
     ]:
         m = re.search(pat, text, re.I)
         if m:
-            data["account_number"] = m.group(1).strip()
-            break
+            digits = re.sub(r"\D", "", m.group(1))
+            if 8 <= len(digits) <= 20:
+                data["account_number"] = digits
+                break
 
     # Customer ID / CIF
     m = re.search(r"(?:Cust(?:omer)?\s+ID|CIF(?:\s+(?:ID|No|Number))?)\s*[:\-]?\s*([A-Z0-9]{4,20})", text, re.I)
@@ -298,8 +321,10 @@ def extract_account_profile(pdf_path: str, user_id: str) -> dict:
     if m:
         data["branch"] = m.group(1).strip()
 
-    # Account holder name
-    m = re.search(r"(?:Account\s+Holder|Name\s*:)\s*([A-Z][A-Z\s]{2,40}?)(?:\n|\r|$)", text)
+    # Account holder name (stop at a column gap of 2+ spaces so "Name: TEST USER   Branch:.."
+    # doesn't swallow the following field).
+    m = re.search(r"(?:Account\s+Holder|Customer\s+Name|Name)\s*[:\-]\s*"
+                  r"([A-Z][A-Za-z.]+(?:\s[A-Z][A-Za-z.]+){0,4})(?:\s{2,}|\n|\r|$)", text)
     if m:
         data["account_holder"] = m.group(1).strip()
 
@@ -313,22 +338,66 @@ def extract_account_profile(pdf_path: str, user_id: str) -> dict:
     if m:
         data["phone"] = m.group(1).strip()
 
-    # Statement period
+    # Statement period ---------------------------------------------------------
+    # A single date token in any of the formats _norm_date() understands.
+    _PDATE = (r"\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}"      # dd/mm/yy(yy)
+              r"|\d{1,2}[-\s][A-Za-z]{3,9}[-\s]\d{2,4}"  # dd Mon yy(yy)
+              r"|\d{4}-\d{2}-\d{2}")                   # ISO
+    # A stricter token (4-digit year only) for the UNLABELLED range branch, so a sort code
+    # like "20-25-38" (which reads as dd-mm-yy) can never be mistaken for a date.
+    _PDATE4 = (r"\d{1,2}[-/.]\d{1,2}[-/.]\d{4}"
+               r"|\d{1,2}[-\s][A-Za-z]{3,9}[-\s]\d{4}"
+               r"|\d{4}-\d{2}-\d{2}")
+
+    # (a) labelled range: "[Statement ]Period[:] <date> to/-/until <date>"  (most explicit)
     m = re.search(
-        r"Statement\s+Period\s*[:\-]?\s*"
-        r"(\d{1,2}[-/]\w{3,9}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4})"
-        r"\s+(?:to|till|[-])\s*"
-        r"(\d{1,2}[-/]\w{3,9}[-/]\d{4}|\d{1,2}[-/]\d{1,2}[-/]\d{4})",
-        text, re.I
-    )
+        rf"(?:statement\s+period|statement\s+dates?|period)\s*[:\-]?\s*"
+        rf"({_PDATE})\s*(?:to|till|until|through|[-–])\s*({_PDATE})",
+        text, re.I)
     if m:
         data["statement_start_date"] = _norm_date(m.group(1))
         data["statement_end_date"] = _norm_date(m.group(2))
-    else:
-        m = re.search(r"(\d{2}/\d{2}/\d{4})\s*[-]\s*(\d{2}/\d{2}/\d{4})", text)
+
+    # (b) explicit labels: "Last statement <date>" (start) .. "Statement date <date>" (end)
+    #     (Barclays / Castlemere). Runs before the loose bare-range so a stray transaction
+    #     date can't pre-empt the statement's official start.
+    if not data["statement_start_date"]:
+        m = re.search(rf"Last\s+statement\s+({_PDATE})", text, re.I)
+        if m:
+            data["statement_start_date"] = _norm_date(m.group(1))
+    if not data["statement_end_date"]:
+        m = re.search(rf"Statement\s+date\s+({_PDATE})", text, re.I)
+        if m:
+            data["statement_end_date"] = _norm_date(m.group(1))
+
+    # (c) bare same-line range as a textual last resort: "01/07/2025 - 30/06/2026" (Wrenfield).
+    #     Same-line only ([ \t], not \s) so it can't stitch two dates across intervening rows.
+    if not data["statement_start_date"] and not data["statement_end_date"]:
+        m = re.search(rf"({_PDATE4})[ \t]*[-–][ \t]*({_PDATE4})", text)
         if m:
             data["statement_start_date"] = _norm_date(m.group(1))
             data["statement_end_date"] = _norm_date(m.group(2))
+
+    # (d) Fallback: derive the period from the real transaction span already in the DB
+    # (covers statements with no period line at all, e.g. HDFC / ICICI history exports).
+    if not data["statement_start_date"] or not data["statement_end_date"]:
+        try:
+            con = connect(DB_PATH)
+            row = con.execute(
+                "SELECT MIN(txn_date), MAX(txn_date) FROM transactions "
+                "WHERE user_id=? AND txn_date IS NOT NULL AND txn_date<>''",
+                (user_id,)).fetchone()
+            con.close()
+            if row and row[0] and row[1]:
+                data["statement_start_date"] = data["statement_start_date"] or row[0]
+                data["statement_end_date"] = data["statement_end_date"] or row[1]
+        except Exception:
+            pass
+
+    # sanity: keep start <= end
+    s0, e0 = data["statement_start_date"], data["statement_end_date"]
+    if s0 and e0 and s0 > e0:
+        data["statement_start_date"], data["statement_end_date"] = e0, s0
 
     # Opening / closing balance
     m = re.search(r"Opening\s+Balance\s*[:\-]?\s*([\d,]+\.\d{2}(?:CR|DR)?\.?)", text, re.I)
