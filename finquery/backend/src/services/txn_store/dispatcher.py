@@ -341,10 +341,24 @@ def answer(question, user_id, doc_name=None):
 
     # ---- current balance ----
     if re.search(r"\bbalance\b|in my account|sitting in", q):
-        b = latest_balance(user_id, doc_name, period)
-        if b is not None:
-            lbl = "Closing balance" if has_period else "Current balance"
-            return f"**{lbl}{_suffix(plabel)}:** {inr(b)}"
+        if doc_name is None:
+            from src.services.txn_store.queries import overall_balance
+            ob = overall_balance(user_id)
+            if ob["mixed_currency"]:
+                lines = ["**Current balances (mixed currencies):**"]
+                for b in ob["breakdown"]:
+                    lines.append(f"  - **{b['bank_name']}**: {b['currency']} {b['balance']:,.2f}")
+                return "\n".join(lines)
+            else:
+                lines = [f"**Overall balance:** {ob['currency']} {ob['total']:,.2f}"]
+                for b in ob["breakdown"]:
+                    lines.append(f"  - **{b['bank_name']}**: {b['currency']} {b['balance']:,.2f}")
+                return "\n".join(lines)
+        else:
+            b = latest_balance(user_id, doc_name, period)
+            if b is not None:
+                lbl = "Closing balance" if has_period else "Current balance"
+                return f"**{lbl}{_suffix(plabel)}:** {inr(b)}"
 
     # ---- counts ----
     if re.search(r"how many (transactions|txns|entries)|number of transactions", q):
@@ -410,10 +424,20 @@ def answer(question, user_id, doc_name=None):
         return f"**Total income{_suffix(plabel)}:** {inr(o['credit'])}"
     if re.search(r"summary|overview|net position|net (gain|loss)|snapshot", q):
         o = overview(user_id, doc_name, period)
-        b = latest_balance(user_id, doc_name, period)
+        if doc_name is None:
+            from src.services.txn_store.queries import overall_balance
+            ob = overall_balance(user_id)
+            if ob["mixed_currency"]:
+                bal_str = "Mixed (see breakdown)"
+            else:
+                bal_str = f"{ob['currency']} {ob['total']:,.2f}"
+        else:
+            b = latest_balance(user_id, doc_name, period)
+            bal_str = inr(b) if b is not None else "-"
+            
         body = [("Transactions", grp(o["count"])), ("Total spending", inr(o["debit"])),
                 ("Total income", inr(o["credit"])), ("Net", inr(o["net"])),
-                ("Closing balance", inr(b) if b is not None else "-")]
+                ("Closing balance", bal_str)]
         return f"**Account summary{_suffix(plabel)}**\n\n" + _table(["Metric", "Value"], body)
 
     # if they named a period but we didn't match a known metric, answer the

@@ -237,7 +237,7 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
               cursor:pointer;margin-left:6px;transition:background .2s}
   .logout-btn:hover{background:#fff5f5}
 </style></head><body>
-<header><b>Penny</b><span class="pill">SQL layer  |  offline test</span>
+<header><b>Penny</b><span class="pill">SQL layer  |  offline test  |  model: __MODEL__</span>
   <span class="muted" style="margin-left:auto;font-size:12px">numbers come from SQL, never the LLM</span>
   <span class="user-pill" id="userPill" style="display:none"></span>
   <button class="logout-btn" id="logoutBtn" style="display:none" onclick="doLogout()">Sign out</button>
@@ -414,6 +414,67 @@ function thinkingBubble(){
   return d;
 }
 
+function renderClarification(p){
+  const d=document.createElement("div"); d.className="msg bot";
+  let buttons = p.options.map(opt => `
+    <button class="clarify-opt" onclick="sendClarification('${opt.id}', '${p.original_query.replace(/'/g, "\\'")}', this)" 
+            style="text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink);padding:10px;border-radius:8px;font-size:13.5px;cursor:pointer;display:block;width:100%;margin-top:6px;transition:background .2s;">
+      <strong>${opt.label}</strong><br/>
+      <span class="muted" style="font-size:11.5px;">${opt.sublabel}</span>
+    </button>
+  `).join('');
+  d.innerHTML=`<span class="tag chat">clarify</span><p style="margin:6px 0;">${p.question}</p>`
+    +`<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${buttons}</div>`;
+  $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"});
+}
+
+async function sendClarification(selectedId, originalQuery, btn){
+  btn.closest('div').querySelectorAll('button').forEach(b => b.disabled=true);
+  const label = btn.querySelector('strong').textContent;
+  add("me", label);
+  const think=thinkingBubble();
+  let cleared=false; const clearThink=()=>{ if(!cleared){cleared=true; think.remove();} };
+  try{
+    const r=await fetch("/query",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        clarification_response:true,
+        selected_id:selectedId,
+        question:originalQuery,
+        thread:THREAD
+      })
+    });
+    const reader=r.body.getReader(), dec=new TextDecoder();
+    let buf="", md=null, full="";
+    const queue=[]; let streamDone=false, revealing=false;
+    const reveal=()=>{ revealing=true;
+      if(queue.length){
+        full+=queue.shift();
+        md.innerHTML=mdToHtml(full);
+        md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
+        setTimeout(reveal,18);
+      } else if(streamDone){ revealing=false; $("#send").disabled=false; }
+      else setTimeout(reveal,18);
+    };
+    while(true){ const {done,value}=await reader.read(); if(done)break;
+      buf+=dec.decode(value,{stream:true}); const lines=buf.split("\n"); buf=lines.pop();
+      for(const ln of lines){ if(!ln.trim())continue; const m=JSON.parse(ln);
+        if(m.type==="meta"){ clearThink(); md=newBubble(m.path); }
+        else if(m.type==="chunk"){ queue.push(m.content); if(!revealing) reveal(); }
+        else if(m.type==="clarification"){ clearThink(); renderClarification(m.payload); }
+      }
+    }
+    streamDone=true; if(!revealing) $("#send").disabled=false;
+  }catch(e){
+    clearThink();
+    const md=newBubble("chat");
+    md.innerHTML="Warning:  Couldn't reach the server. Please try again.";
+    $("#send").disabled=false;
+  }
+}
+window.sendClarification = sendClarification;
+
 // chat-thread: a STABLE id (persisted in localStorage) so a page refresh keeps the
 // same thread  -  context survives reloads (and, server-side, restarts). "New chat"
 // rotates to a fresh id.
@@ -450,6 +511,7 @@ async function ask(){
       for(const ln of lines){ if(!ln.trim())continue; const m=JSON.parse(ln);
         if(m.type==="meta"){ clearThink(); md=newBubble(m.path); }   // loader -> real answer
         else if(m.type==="chunk"){ queue.push(m.content); if(!revealing) reveal(); }
+        else if(m.type==="clarification"){ clearThink(); renderClarification(m.payload); }
       }
     }
     streamDone=true; if(!revealing) $("#send").disabled=false;

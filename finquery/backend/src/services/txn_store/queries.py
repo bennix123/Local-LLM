@@ -6,6 +6,8 @@ from . import formatters
 DISCRETIONARY = {"Shopping", "Entertainment", "Food & Dining", "Other"}
 SUBSCRIPTION_MERCHANTS = {"netflix", "spotify", "jio", "airtel", "tata power", "amazon prime"}
 
+ACTIVE_DOC_NAME = None
+
 def _scope(user_id, doc_name, period=None):
     """period filter on txn_date (YYYY-MM-DD), so a prefix works at any granularity:
          None                          -> no filter
@@ -14,8 +16,12 @@ def _scope(user_id, doc_name, period=None):
     """
     where = "user_id=?"
     params = [user_id]
-    if doc_name:
-        where += " AND doc_name=?"; params.append(doc_name)
+    
+    # Use global active doc_name context if doc_name parameter is None
+    target_doc = doc_name if doc_name is not None else ACTIVE_DOC_NAME
+    
+    if target_doc:
+        where += " AND doc_name=?"; params.append(target_doc)
     elif formatters.CURRENCY:
         # Only apply currency filter if this user actually HAS rows with that currency.
         # This prevents 'Upload a statement first' when formatters.CURRENCY=INR but data is GBP.
@@ -71,6 +77,9 @@ def overview(user_id, doc_name=None, period=None):
 
 
 def latest_balance(user_id, doc_name=None, period=None):
+    # MULTI-DOCUMENT STRATEGY: Running balance is a per-account concept. Summing balance
+    # directly across multiple documents (doc_name=None) is semantically wrong.
+    # If doc_name is None, the dispatcher must intercept and call overall_balance(user_id) instead.
     w, p = _scope(user_id, doc_name, period)
     con = connect()
     r = con.execute(f"SELECT balance FROM transactions WHERE {w} ORDER BY seq DESC LIMIT 1", p).fetchone()
@@ -374,6 +383,9 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
 def balance_extreme(user_id, kind, doc_name=None, period=None):
     """Minimum or maximum RUNNING balance recorded (kind='min'|'max'). (txn_date, balance) | None.
     Distinct from latest_balance (the closing balance)."""
+    # MULTI-DOCUMENT STRATEGY: Extreme balance values are only meaningful per-account.
+    # If doc_name=None, this function returns the global min/max across all accounts, which
+    # is useful but the caller should specify which bank/doc the extreme value belongs to.
     w, p = _scope(user_id, doc_name, period)
     order = "ASC" if kind == "min" else "DESC"
     con = connect()
@@ -431,6 +443,9 @@ def who_paid(user_id, amount=None, doc_name=None, period=None, tol=0.02):
 
 def balance_at(user_id, date, doc_name=None):
     """Running balance as of `date` — the last non-null balance on/before it (year-0000 excluded)."""
+    # MULTI-DOCUMENT STRATEGY: Point-in-time balance must be queried per-document.
+    # Querying with doc_name=None would return the balance of whichever document had the
+    # latest sequence on/before that date, which is incorrect.
     w, p = _scope(user_id, doc_name)
     con = connect()
     r = con.execute(f"""SELECT balance FROM transactions WHERE {w} AND txn_date<=?
@@ -455,6 +470,9 @@ def _target_txn(user_id, keyword, doc_name=None, period=None):
 
 def balance_after(user_id, keyword, doc_name=None, period=None):
     """Running balance immediately AFTER a merchant's transaction (its own balance column)."""
+    # MULTI-DOCUMENT STRATEGY: Scoped to specific merchant transaction. If doc_name=None,
+    # the helper _target_txn will find the latest matching transaction across all accounts,
+    # which is semantically acceptable but results are clearest when scoped to a single bank.
     r = _target_txn(user_id, keyword, doc_name, period)
     if not r:
         return None
@@ -464,6 +482,8 @@ def balance_after(user_id, keyword, doc_name=None, period=None):
 def balance_before(user_id, keyword, doc_name=None, period=None):
     """Running balance immediately BEFORE a merchant's transaction. Reconstructed from the
     txn's own after-balance (after + debit − credit); falls back to the prior row's balance."""
+    # MULTI-DOCUMENT STRATEGY: Reconstructed per-account. If doc_name=None, it uses the
+    # sequence prefix of the matching document, keeping context scoped to that single bank.
     r = _target_txn(user_id, keyword, doc_name, period)
     if not r:
         return None
@@ -481,6 +501,8 @@ def balance_before(user_id, keyword, doc_name=None, period=None):
 
 def balance_delta(user_id, date1, date2, doc_name=None):
     """Change in running balance between two dates: {start, end, delta} or None."""
+    # MULTI-DOCUMENT STRATEGY: Computed by subtracting two point-in-time balance_at queries.
+    # If doc_name=None, this delta would mix accounts and be incorrect.
     b1, b2 = balance_at(user_id, date1, doc_name), balance_at(user_id, date2, doc_name)
     if b1 is None or b2 is None:
         return None
@@ -682,5 +704,87 @@ def advice_facts(user_id, doc_name=None, period=None):
              f"and annual net savings about {inr(mnet * 12)}; next month's spend is likely near the "
              f"{inr(msp)} monthly average and next month's saving near {inr(mnet)}.")
     return "\n".join(L)
+
+
+def list_user_documents(user_id):
+    """Returns every distinct document a user has uploaded, with bank name, date coverage,
+    and row count. Ordered by most-recently-uploaded first."""
+    con = connect()
+    # Check upload_ts in document_metadata. If missing, fall back to MAX(txn_date)
+    has_upload_ts = False
+    try:
+        r = con.execute("PRAGMA table_info(document_metadata)").fetchall()
+        has_upload_ts = any(col[1] == "upload_ts" for col in r)
+    except Exception:
+        pass
+
+    order_by = "m.upload_ts DESC" if has_upload_ts else "MAX(t.txn_date) DESC"
+    
+    query = f"""
+        SELECT t.doc_name, 
+               COALESCE(t.bank_name, t.doc_name) as bank, 
+               MIN(t.txn_date) as start_d, 
+               MAX(t.txn_date) as end_d, 
+               COUNT(*) as cnt, 
+               COALESCE(t.currency, 'INR') as curr
+        FROM transactions t
+        LEFT JOIN document_metadata m ON t.user_id = m.user_id AND t.doc_name = m.doc_name
+        WHERE t.user_id = ?
+        GROUP BY t.doc_name
+        ORDER BY {order_by}
+    """
+    
+    rows = con.execute(query, (user_id,)).fetchall()
+    con.close()
+    
+    return [
+        {
+            "doc_name": r[0],
+            "bank_name": r[1],
+            "from_date": r[2],
+            "to_date": r[3],
+            "txn_count": r[4],
+            "currency": r[5]
+        }
+        for r in rows
+    ]
+
+
+def user_bank_count(user_id):
+    """Returns the count of distinct accounts/banks for a user."""
+    docs = list_user_documents(user_id)
+    return len(docs)
+
+
+def overall_balance(user_id):
+    """Aggregates closing balance across all distinct user documents, with mixed currency safety."""
+    docs = list_user_documents(user_id)
+    if not docs:
+        return {"total": 0.0, "currency": "INR", "mixed_currency": False, "breakdown": []}
+    
+    breakdown = []
+    currencies = set()
+    total_val = 0.0
+    
+    for d in docs:
+        bal = latest_balance(user_id, d["doc_name"])
+        balance_val = bal if bal is not None else 0.0
+        breakdown.append({
+            "doc_name": d["doc_name"],
+            "bank_name": d["bank_name"],
+            "balance": balance_val,
+            "currency": d["currency"]
+        })
+        currencies.add(d["currency"])
+        total_val += balance_val
+        
+    mixed = len(currencies) > 1
+    return {
+        "total": total_val if not mixed else None,  # mixed currencies should not be summed blindly
+        "currency": list(currencies)[0] if len(currencies) == 1 else "MIXED",
+        "mixed_currency": mixed,
+        "breakdown": breakdown
+    }
+
 
 

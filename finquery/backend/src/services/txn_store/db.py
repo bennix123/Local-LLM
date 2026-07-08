@@ -60,6 +60,19 @@ def init_db():
             evidence    TEXT,    -- JSON blob of the supporting numbers
             created     TEXT DEFAULT CURRENT_TIMESTAMP
         )""")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS document_metadata (
+            user_id          TEXT,
+            doc_name         TEXT,
+            parse_confidence TEXT,
+            PRIMARY KEY (user_id, doc_name)
+        )""")
+    
+    # Migrate document_metadata to include upload_ts
+    cols_meta = {r[1] for r in con.execute("PRAGMA table_info(document_metadata)")}
+    if "upload_ts" not in cols_meta:
+        con.execute("ALTER TABLE document_metadata ADD COLUMN upload_ts TEXT DEFAULT CURRENT_TIMESTAMP")
+        
     con.execute("CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id)")
     con.commit()
     con.close()

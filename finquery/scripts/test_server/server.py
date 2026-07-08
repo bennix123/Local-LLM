@@ -477,6 +477,80 @@ async def chats():
     except Exception:
         return JSONResponse({})
 
+def is_account_scoped_query(q):
+    low = q.lower()
+    return bool(re.search(r"\bbalance\b|in my account|sitting in|summary|overview|net position|net (gain|loss)|snapshot", low))
+
+def needs_bank_clarification(user_id, q, ctx):
+    low = q.lower()
+    from src.services.txn_store.queries import list_user_documents, overall_balance, latest_balance
+    
+    docs = list_user_documents(user_id)
+    if len(docs) <= 1:
+        return None, None
+        
+    # Check if query names a bank explicitly
+    matched_doc = None
+    for d in docs:
+        bank = d["bank_name"].lower()
+        doc = d["doc_name"].lower()
+        doc_base = os.path.splitext(doc)[0]
+        if bank in low or doc_base in low or (len(bank) > 3 and bank[:4] in low):
+            matched_doc = d["doc_name"]
+            break
+            
+    if matched_doc:
+        return matched_doc, None
+        
+    # Check for combine-keywords
+    if any(w in low for w in ("overall", "combined", "all accounts", "all banks", "everything", "across all", "sum of all")):
+        return None, None
+        
+    # Check if account-scoped
+    if not is_account_scoped_query(q):
+        return None, None
+        
+    # Check in-session default
+    if "default_doc_name" in ctx:
+        if any(d["doc_name"] == ctx["default_doc_name"] for d in docs):
+            return ctx["default_doc_name"], None
+            
+    # Ambiguous! Build clarification payload
+    options = []
+    for d in docs:
+        bal = latest_balance(user_id, d["doc_name"])
+        curr = d["currency"]
+        bal_str = f"{curr} {bal:,.2f}" if bal is not None else "no transactions"
+        date_range = f"{d['from_date']} to {d['to_date']}" if d["from_date"] else "empty"
+        
+        options.append({
+            "id": f"doc:{d['doc_name']}",
+            "label": d["bank_name"],
+            "sublabel": f"{date_range} · balance: {bal_str}",
+            "doc_name": d["doc_name"]
+        })
+        
+    ob = overall_balance(user_id)
+    overall_sub = "Total across every bank"
+    if ob["mixed_currency"]:
+        overall_sub = "Note: accounts use different currencies — shown separately"
+        
+    options.append({
+        "id": "overall",
+        "label": "All accounts combined",
+        "sublabel": overall_sub,
+        "doc_name": None
+    })
+    
+    payload = {
+        "type": "clarification_needed",
+        "clarification_kind": "bank_selection",
+        "question": "You have statements from multiple banks. Which one would you like?",
+        "options": options,
+        "original_query": q
+    }
+    return None, payload
+
 @app.post("/query")
 async def query(request: Request, user: str = Depends(get_current_user)):
     _switch_db(user)
@@ -495,11 +569,31 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     if ts.overview(user)["count"] == 0:
         return stream_text("chat", "_Upload a statement first._")
 
+    # ---- AMBIGUITY / CLARIFICATION RESOLUTION ----
+    from src.services.txn_store import queries
+    resolved_doc_name = None
+    if body.get("clarification_response"):
+        selected_id = body.get("selected_id")
+        resolved_doc_name = None if selected_id == "overall" else selected_id[4:]
+        ctx["default_doc_name"] = resolved_doc_name
+    else:
+        # Check if query needs a clarification prompt
+        resolved_doc_name, payload = needs_bank_clarification(user, q, ctx)
+        if payload:
+            # Yield the clarification NDJSON stream immediately
+            def gen_clarify():
+                yield json.dumps({"type": "clarification", "payload": payload}) + "\n"
+            return StreamingResponse(gen_clarify(), media_type="application/x-ndjson")
+
+    # Bind the resolved doc name context globally for this query execution thread
+    queries.ACTIVE_DOC_NAME = resolved_doc_name
+
     # Punctuation-only / no-letters input ("...", "???", "!!!") can never be a real
     # question -> short nudge, never the insights dump. (αñÇ-αÑ┐ = Devanagari,
     # so Hindi-script input still passes through to the router.)
     if not re.search(r"[A-Za-z0-9αñÇ-αÑ┐]", q):
         _append_log(tid, q, DIDNT_CATCH, "chat")
+        queries.ACTIVE_DOC_NAME = None # Reset
         return stream_text("chat", DIDNT_CATCH)
 
     # ---- resolve a PENDING clarification --------------------------------------------
@@ -614,7 +708,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         _append_log(tid, q, msg, "chat")
         return stream_text("chat", msg)
     if det and det.get("type"):
-        ans = ts.dispatch_intent(det, user)
+        ans = ts.dispatch_intent(det, user, doc_name=resolved_doc_name)
         if ans is not None:
             if ans.lstrip("* ").lower().startswith("no transactions found"):
                 # a name with ZERO transactions is not a usable thread scope — carrying
@@ -654,7 +748,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
             return grounded_advice(rq, tid, ctx)
         # router said "advice" but the question has zero finance content (e.g. "should i
         # text my ex") -> don't lecture about money; fall through to a clean nudge below.
-        ans = ts.dispatch_intent(intent, user)            # SQL produces every number
+        ans = ts.dispatch_intent(intent, user, doc_name=resolved_doc_name)            # SQL produces every number
         if ans is not None:
             if ans.lstrip("* ").lower().startswith("no transactions found"):
                 intent = {**intent, "merchant": "", "category": ""}  # zero-result → scope

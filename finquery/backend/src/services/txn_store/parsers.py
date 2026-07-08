@@ -1,4 +1,4 @@
-import re, os, pymupdf
+import re, os, pymupdf, json, urllib.request
 from .db import connect, init_db
 from .formatters import set_currency, _money, inr, grp
 from . import formatters
@@ -411,8 +411,8 @@ def parse_wrenfield(pdf_path):
 DATE_PATTERNS = [
     re.compile(r"^(\d{4})[-/.](\d{2})[-/.](\d{2})$"),
     re.compile(r"^(\d{2})[-/.](\d{2})[-/.](\d{4})$"),
-    re.compile(r"^(\d{2})-([A-Za-z]{3,9})-(\d{4})$"),
-    re.compile(r"^(\d{2})\s+([A-Za-z]{3,9})\s+(\d{4})$"),
+    re.compile(r"^(\d{2})-([A-Za-z]{3,9})-(\d{2,4})$"),
+    re.compile(r"^(\d{2})\s+([A-Za-z]{3,9})\s+(\d{2,4})$"),
     re.compile(r"^(\d{2})/(\d{2})/(\d{2})$"),
 ]
 
@@ -438,6 +438,481 @@ def parse_date(t):
     return None
 
 
+TABLE_START_MIN_DATE_LINES = 4
+RULE_BASED_MAX_VIOLATION_RATIO = 0.10
+SCHEMA_MIN_MATCH_RATE = 0.15
+SCHEMA_MIN_ROW_COUNT = 3
+SCHEMA_MAX_VIOLATION_RATIO = 0.20
+MAX_LLM_FALLBACK_PAGES = 10
+
+def _find_table_start(doc) -> int:
+    """Finds the page index where the transaction table likely starts by scanning for dates."""
+    date_patterns = [
+        re.compile(r"\b\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4}\b", re.I),
+        re.compile(r"\b\d{2}[-/]\d{2}[-/]\d{2,4}\b"),
+        re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
+        re.compile(r"\b\d{1,2}\s+[A-Za-z]{3}\s+\d{2,4}\b", re.I),
+        re.compile(r"\b[A-Za-z]{3}\s+\d{1,2}\b", re.I)
+    ]
+    for page_idx in range(len(doc)):
+        text = doc[page_idx].get_text("text")
+        lines = text.splitlines()
+        date_lines = 0
+        for line in lines:
+            prefix = line[:25].strip()
+            if any(pat.search(prefix) for pat in date_patterns):
+                date_lines += 1
+        if date_lines >= TABLE_START_MIN_DATE_LINES:
+            return page_idx
+    return 0
+
+def detect_schema(sample_lines: list[str]) -> dict | None:
+    """Send sample lines to Ollama to infer the row structure. Returns dict or None."""
+    lines_str = "\n".join(sample_lines)
+    prompt = f"""You are analyzing a bank statement text to find the transaction table row structure.
+Analyze the following lines from the transaction table and identify the schema pattern:
+{lines_str}
+
+Return a JSON object with the following fields:
+- "date_format": Description of date format (e.g. "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YY", "DD/MM/YYYY")
+- "column_order": Array of column roles in order. Valid roles are: "date", "description", "debit", "credit", "balance", "amount" (if debit/credit are combined).
+- "debit_credit_style": One of "separate_columns", "dr_cr_suffix", "sign"
+- "sample_regex": A Python regular expression string matching a single row. Use named groups: (?P<date>...), (?P<desc>...), (?P<debit>...), (?P<credit>...), (?P<balance>...), or (?P<amount>...) if combined. The regex should match typical transaction lines.
+- "backup_columns": A JSON object mapping column role to its 0-indexed column position (e.g. {{"date_col": 0, "desc_col": 1, "debit_col": 2, "credit_col": 3, "balance_col": 4}}).
+
+Return ONLY the raw JSON object. Do not include any explanations, introduction, markdown blocks, or code fences."""
+
+    payload = json.dumps({
+        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
+        "stream": False,
+        "keep_alive": "10m",
+        "options": {"temperature": 0.0, "num_ctx": 2048},
+        "prompt": prompt
+    }).encode("utf-8")
+    
+    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            content = res_data.get("response", "").strip()
+            raw_content = content  # keep for debug logging
+
+            # Strip markdown code fences (```json ... ```)
+            if "```" in content:
+                first_fence = content.find("```")
+                last_fence = content.rfind("```")
+                if first_fence != last_fence:
+                    content = content[first_fence+3:last_fence]
+                    content = re.sub(r"^[a-zA-Z0-9]*\s*", "", content).strip()
+
+            # Extract the outermost {...} block
+            start = content.find("{")
+            end = content.rfind("}")
+            if start == -1 or end == -1:
+                print(f"[parser-L2] No JSON object found in LLM response. Raw: {raw_content[:200]!r}")
+                return None
+            content = content[start:end+1]
+
+            # Sanitize non-standard JSON values Mistral sometimes emits
+            content = re.sub(r'\bNaN\b', '"NaN"', content)
+            content = re.sub(r'\bNone\b', 'null', content)
+            content = re.sub(r'\bTrue\b', 'true', content)
+            content = re.sub(r'\bFalse\b', 'false', content)
+            # Remove trailing commas before } or ]
+            content = re.sub(r',\s*([}\]])', r'\1', content)
+            # Fix Python raw-string literals: r"..." -> "..." (Mistral emits these in JSON)
+            # Convert r"<content>" to "<content>" by stripping the r prefix.
+            # This must handle both r"..." and r'...' variants.
+            content = re.sub(r'\br("(?:[^"\\]|\\.)*")', r'\1', content)
+            content = re.sub(r"\br('(?:[^'\\]|\\.)*')", r'\1', content)
+
+            # Doubling single backslashes in JSON string literals
+            def _double_slashes(m):
+                s = m.group(0)
+                quote_char = s[0]
+                inner = s[1:-1]
+                fixed = []
+                i = 0
+                while i < len(inner):
+                    if inner[i] == '\\':
+                        if i + 1 < len(inner):
+                            next_c = inner[i+1]
+                            if next_c in ('"', "'", '\\', '/', 'b', 'f', 'n', 'r', 't'):
+                                fixed.append('\\' + next_c)
+                                i += 2
+                                continue
+                            elif next_c == 'u' and i + 5 < len(inner) and all(c in '0123456789abcdefABCDEF' for c in inner[i+2:i+6]):
+                                fixed.append('\\' + inner[i+1:i+6])
+                                i += 6
+                                continue
+                        fixed.append('\\\\')
+                        i += 1
+                    else:
+                        fixed.append(inner[i])
+                        i += 1
+                return quote_char + "".join(fixed) + quote_char
+
+            # Double backslashes inside any single or double quoted strings in JSON
+            content = re.sub(r'"(?:[^"\\]|\\.)*"', _double_slashes, content)
+            content = re.sub(r"'(?:[^'\\]|\\.)*'", _double_slashes, content)
+
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as jde:
+                print(f"[parser-L2] JSON parse error: {jde}. Cleaned content: {content[:300]!r}")
+                return None
+
+            print(f"[parser-L2] LLM schema response: regex={parsed.get('sample_regex','<none>')!r} style={parsed.get('debit_credit_style','?')!r} cols={parsed.get('backup_columns','?')}")
+            return parsed
+    except Exception as e:
+        print(f"[parser-L2] Schema detection failed: {e}")
+        return None
+
+def _apply_schema_regex(pattern: re.Pattern, all_lines: list[str]) -> tuple[list[dict], float]:
+    matched = []
+    candidates = [line for line in all_lines if len(line.strip()) > 5]
+    if not candidates:
+        return [], 0.0
+    for line in candidates:
+        m = pattern.search(line)
+        if m:
+            matched.append(m.groupdict())
+    match_rate = len(matched) / len(candidates)
+    return matched, match_rate
+
+def _apply_schema_positional(all_lines: list[str], backup_cols: dict) -> tuple[list[dict], float]:
+    matched = []
+    candidates = [line for line in all_lines if len(line.strip()) > 5]
+    if not candidates:
+        return [], 0.0
+    
+    key_mapping = {
+        "date_col": "date",
+        "desc_col": "desc",
+        "debit_col": "debit",
+        "credit_col": "credit",
+        "balance_col": "balance",
+        "amount_col": "amount"
+    }
+    
+    valid_indices = [val for val in backup_cols.values() if isinstance(val, int)]
+    max_idx = max(valid_indices, default=0)
+    
+    for line in candidates:
+        if '|' in line:
+            tokens = [t.strip() for t in line.split('|') if t.strip()]
+        else:
+            tokens = [t.strip() for t in re.split(r'\s{2,}', line.strip()) if t.strip()]
+            if len(tokens) <= max_idx:
+                tokens = [t.strip() for t in line.strip().split() if t.strip()]
+        
+        tokens = [t.strip().strip('|').strip() for t in tokens if t.strip()]
+        
+        row_dict = {}
+        for col_name, idx in backup_cols.items():
+            if idx is not None and idx < len(tokens):
+                target_key = key_mapping.get(col_name, col_name.replace("_col", ""))
+                row_dict[target_key] = tokens[idx]
+        
+        if "date" not in row_dict or not parse_date(row_dict["date"]):
+            for t in tokens:
+                if parse_date(t):
+                    row_dict["date"] = t
+                    break
+        
+        has_money_val = any(k in row_dict for k in ("debit", "credit", "amount"))
+        if not has_money_val:
+            money_candidates = []
+            for t in tokens:
+                t_clean = re.sub(r"[₹£$€]", "", t).strip()
+                t_clean_num = re.sub(r"(cr|dr)\.?$", "", t_clean, flags=re.I).strip()
+                if MONEY_PAT.match(t_clean_num) and not parse_date(t):
+                    money_candidates.append(t)
+            if len(money_candidates) >= 2:
+                row_dict["debit"] = money_candidates[0]
+                row_dict["credit"] = money_candidates[1]
+            elif len(money_candidates) == 1:
+                row_dict["amount"] = money_candidates[0]
+        
+        if "desc" not in row_dict or len(row_dict["desc"]) < 3:
+            non_desc_tokens = {row_dict.get("date"), row_dict.get("debit"), row_dict.get("credit"), row_dict.get("amount"), row_dict.get("balance")}
+            desc_candidates = [t for t in tokens if t not in non_desc_tokens]
+            if desc_candidates:
+                row_dict["desc"] = " ".join(desc_candidates)
+        
+        if "date" in row_dict and ("debit" in row_dict or "credit" in row_dict or "amount" in row_dict):
+            matched.append(row_dict)
+            
+    match_rate = len(matched) / len(candidates)
+    return matched, match_rate
+
+def _validate_and_convert_schema_rows(matched_rows: list[dict], schema: dict, local_cur: str) -> list[dict]:
+    converted = []
+    seq = 0
+    
+    for row in matched_rows:
+        date_raw = row.get("date", "").strip()
+        desc_raw = row.get("desc", row.get("description", "")).strip()
+        
+        parsed_d = parse_date(date_raw)
+        if not parsed_d:
+            continue
+            
+        yr, mon, day = parsed_d
+        iso = f"{yr:04d}-{mon:02d}-{day:02d}"
+        
+        style = schema.get("debit_credit_style", "separate_columns")
+        debit, credit, balance = 0.0, 0.0, 0.0
+        
+        try:
+            if style == "separate_columns":
+                deb_val = row.get("debit")
+                crd_val = row.get("credit")
+                debit = abs(_money(deb_val)) if deb_val else 0.0
+                credit = abs(_money(crd_val)) if crd_val else 0.0
+            elif style == "dr_cr_suffix":
+                amt_raw = row.get("amount") or row.get("debit") or row.get("credit") or ""
+                amt = abs(_money(amt_raw)) if amt_raw else 0.0
+                if "dr" in str(amt_raw).lower():
+                    debit = amt
+                else:
+                    credit = amt
+            elif style == "sign":
+                amt_raw = row.get("amount") or row.get("debit") or row.get("credit") or ""
+                amt = _money(amt_raw) if amt_raw else 0.0
+                if amt < 0:
+                    debit = abs(amt)
+                else:
+                    credit = amt
+            
+            bal_val = row.get("balance")
+            balance = _money(bal_val) if bal_val else 0.0
+        except Exception:
+            continue
+            
+        seq += 1
+        merchant, category = (_barclays_merchant(desc_raw, credit > 0) if local_cur == "GBP" else _classify(desc_raw))
+        
+        converted.append({
+            "txn_date": iso, "month": iso[:7],
+            "year": yr, "month_no": mon, "day": day,
+            "descr": desc_raw, "merchant": merchant, "category": category,
+            "debit": debit, "credit": credit, "balance": balance,
+            "currency": local_cur or "INR", "seq": seq
+        })
+        
+    return converted
+
+def try_schema_inference(pdf_path: str, local_cur: str) -> tuple[list[dict], str] | None:
+    """Orchestrates L2: detect_schema -> apply regex -> validate match rate and reconciliation."""
+    try:
+        doc = pymupdf.open(pdf_path)
+        start_page = _find_table_start(doc)
+        
+        sample_text = doc[start_page].get_text("text")
+        sample_lines = [line.strip() for line in sample_text.splitlines() if len(line.strip()) > 10][:15]
+        
+        if not sample_lines:
+            print("[parser-L2] No sample lines found on first table page.")
+            doc.close()
+            return None
+            
+        schema = detect_schema(sample_lines)
+        if not schema:
+            print("[parser-L2] LLM returned no schema. Aborting L2.")
+            doc.close()
+            return None
+            
+        print(f"[parser-L2] Schema detected: debit_credit_style={schema.get('debit_credit_style')} has_regex={'sample_regex' in schema} has_backup_cols={'backup_columns' in schema}")
+        
+        all_lines = []
+        for page_idx in range(start_page, len(doc)):
+            page_text = doc[page_idx].get_text("text")
+            all_lines.extend([line.strip() for line in page_text.splitlines() if line.strip()])
+            
+        matched_rows = []
+        match_rate = 0.0
+        used_path = "none"
+        
+        if "sample_regex" in schema:
+            try:
+                pattern = re.compile(schema["sample_regex"])
+                matched_rows, match_rate = _apply_schema_regex(pattern, all_lines)
+                used_path = "regex"
+                print(f"[parser-L2] Regex path: match_rate={match_rate:.3f} matched_rows={len(matched_rows)}")
+            except re.error as re_err:
+                print(f"[parser-L2] Regex compilation FAILED ({re_err}), trying positional fallback.")
+                
+        if (not matched_rows or match_rate < SCHEMA_MIN_MATCH_RATE) and "backup_columns" in schema:
+            matched_rows, match_rate = _apply_schema_positional(all_lines, schema["backup_columns"])
+            used_path = "positional"
+            print(f"[parser-L2] Positional path: match_rate={match_rate:.3f} matched_rows={len(matched_rows)}")
+            
+        if match_rate < SCHEMA_MIN_MATCH_RATE or len(matched_rows) < SCHEMA_MIN_ROW_COUNT:
+            print(f"[parser-L2] L2 REJECTED: match_rate={match_rate:.3f} < {SCHEMA_MIN_MATCH_RATE} or rows={len(matched_rows)} < {SCHEMA_MIN_ROW_COUNT}")
+            doc.close()
+            return None
+            
+        if matched_rows:
+            for idx, r in enumerate(matched_rows):
+                print(f"[parser-L2] DEBUG matched row {idx}: {r}")
+            
+        converted = _validate_and_convert_schema_rows(matched_rows, schema, local_cur)
+        if len(converted) < SCHEMA_MIN_ROW_COUNT:
+            print(f"[parser-L2] L2 REJECTED: only {len(converted)} rows survived date/money conversion.")
+            doc.close()
+            return None
+            
+        breaks = _generic_breaks(converted)
+        violation_ratio = breaks / len(converted)
+        print(f"[parser-L2] Balance check: breaks={breaks} violation_ratio={violation_ratio:.3f} (limit={SCHEMA_MAX_VIOLATION_RATIO}) via {used_path} path")
+        if violation_ratio > SCHEMA_MAX_VIOLATION_RATIO:
+            print(f"[parser-L2] L2 REJECTED: balance violation_ratio {violation_ratio:.3f} > {SCHEMA_MAX_VIOLATION_RATIO}. Falls through to L3.")
+            doc.close()
+            return None
+            
+        print(f"[parser-L2] >>> L2 ACCEPTED: {len(converted)} rows, {breaks} balance violations, via {used_path} path")
+        doc.close()
+        return converted, "medium"
+    except Exception as e:
+        print(f"[parser-L2] Schema inference failed: {e}")
+        return None
+
+def _chunk_text(lines: list[str], chunk_size: int = 18, overlap: int = 2) -> list[str]:
+    chunks = []
+    i = 0
+    while i < len(lines):
+        chunk = lines[i:i+chunk_size]
+        chunks.append("\n".join(chunk))
+        if i + chunk_size >= len(lines):
+            break
+        i += chunk_size - overlap
+    return chunks
+
+def parse_chunk_with_llm(chunk_text: str) -> list[dict]:
+    prompt = f"""You are a data extraction assistant. Extract transaction rows from the following bank statement text chunk.
+Text chunk:
+\"\"\"
+{chunk_text}
+\"\"\"
+
+Return a JSON array of objects. Each object represents a single transaction with the following keys:
+- "date": string in YYYY-MM-DD format (if year is missing, infer it from surrounding context or assume 2026)
+- "description": string (the merchant / payee name or transaction description)
+- "debit": number (amount spent/debited, 0 if it was a credit/deposit)
+- "credit": number (amount received/credited, 0 if it was a debit/withdrawal)
+- "balance": number or null (running balance after transaction)
+
+Do not include headers, footers, summary metrics, or page numbers. Only return transactions.
+Return ONLY the raw JSON array. Do not include markdown code fences, comments, or explanations."""
+
+    payload = json.dumps({
+        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
+        "stream": False,
+        "keep_alive": "10m",
+        "options": {"temperature": 0.0, "num_ctx": 2048},
+        "prompt": prompt
+    }).encode("utf-8")
+    
+    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            content = res_data.get("response", "").strip()
+            
+            if "```" in content:
+                first_fence = content.find("```")
+                last_fence = content.rfind("```")
+                if first_fence != last_fence:
+                    content = content[first_fence:last_fence]
+                    content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
+            
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1:
+                content = content[start:end+1]
+                
+            return json.loads(content)
+    except Exception as e:
+        print(f"[parser-L3] Chunk parsing failed: {e}")
+        return []
+
+def parse_with_llm_fallback(pdf_path: str, local_cur: str) -> tuple[list[dict], str]:
+    """Last resort: chunk the document and call LLM for full extraction."""
+    try:
+        doc = pymupdf.open(pdf_path)
+        start_page = _find_table_start(doc)
+        total_pages = len(doc)
+        
+        skipped_pages = max(0, total_pages - (start_page + MAX_LLM_FALLBACK_PAGES))
+        confidence = "partial" if skipped_pages > 0 else "low"
+        
+        all_lines = []
+        end_page = min(start_page + MAX_LLM_FALLBACK_PAGES, len(doc))
+        for page_idx in range(start_page, end_page):
+            page_text = doc[page_idx].get_text("text")
+            all_lines.extend([line.strip() for line in page_text.splitlines() if len(line.strip()) > 5])
+            
+        doc.close()
+        
+        print(f"[parser-L3] total_pages={total_pages} start_page={start_page} end_page={end_page} skipped_pages={skipped_pages} confidence={confidence!r}")
+        
+        chunks = _chunk_text(all_lines)
+        print(f"[parser-L3] Processing {len(chunks)} chunks from {len(all_lines)} lines...")
+        extracted = []
+        
+        for chunk_idx, chunk in enumerate(chunks):
+            chunk_rows = parse_chunk_with_llm(chunk)
+            if chunk_rows:
+                print(f"[parser-L3] Chunk {chunk_idx+1}/{len(chunks)}: extracted {len(chunk_rows)} rows")
+                extracted.extend(chunk_rows)
+            else:
+                print(f"[parser-L3] Chunk {chunk_idx+1}/{len(chunks)}: 0 rows")
+                
+        # Deduplicate rows by (date, description, debit, credit)
+        seen = set()
+        deduped = []
+        seq = 0
+        
+        for row in extracted:
+            date_str = row.get("date", "").strip()
+            desc = row.get("description", "").strip()
+            debit = float(row.get("debit") or 0.0)
+            credit = float(row.get("credit") or 0.0)
+            balance = float(row.get("balance") or 0.0) if row.get("balance") is not None else 0.0
+            
+            parsed_d = parse_date(date_str)
+            if not parsed_d:
+                continue
+                
+            yr, mon, day = parsed_d
+            iso = f"{yr:04d}-{mon:02d}-{day:02d}"
+            
+            key = (iso, desc, debit, credit)
+            if key not in seen:
+                seen.add(key)
+                seq += 1
+                merchant, category = (_barclays_merchant(desc, credit > 0) if local_cur == "GBP" else _classify(desc))
+                deduped.append({
+                    "txn_date": iso, "month": iso[:7],
+                    "year": yr, "month_no": mon, "day": day,
+                    "descr": desc, "merchant": merchant, "category": category,
+                    "debit": debit, "credit": credit, "balance": balance,
+                    "currency": local_cur or "INR", "seq": seq
+                })
+                
+        # Sort chronologically
+        deduped.sort(key=lambda r: (r["txn_date"], r["seq"]))
+        for idx, r in enumerate(deduped, 1):
+            r["seq"] = idx
+            
+        return deduped, confidence
+    except Exception as e:
+        print(f"[parser-L3] Full LLM extraction failed: {e}")
+        return [], "low"
+
 MONEY_PAT = re.compile(r"^-?[\d,]+\.\d{2}$")
 
 
@@ -446,11 +921,12 @@ def _parse_generic_columnar(pdf_path):
     row = one transaction. Great for column layouts with a date on every row; blind to layouts
     that print the date once per day (see _parse_generic_dateinherited)."""
     doc = pymupdf.open(pdf_path)
+    start_page = _find_table_start(doc)
     
     # Detect currency locally to avoid global NameError
     head = ""
     try:
-        head = "".join(doc[i].get_text("text") for i in range(min(3, len(doc))))
+        head = "".join(doc[i].get_text("text") for i in range(start_page, min(start_page + 3, len(doc))))
     except Exception:
         pass
     
@@ -470,6 +946,8 @@ def _parse_generic_columnar(pdf_path):
     raw_rows = []
     
     for page_idx, page in enumerate(doc):
+        if page_idx < start_page:
+            continue
         words = page.get_text("words")
         lines = {}
         for x0, y0, x1, y1, w, *_ in words:
@@ -665,7 +1143,8 @@ def _parse_generic_dateinherited(pdf_path):
     year rollover, continuation lines ('SO', 'Ref: …') are stitched into the description, and
     debit/credit is read from the BALANCE DIRECTION. Yields the standard row dict."""
     doc = pymupdf.open(pdf_path)
-    head = "".join(doc[i].get_text("text") for i in range(min(3, len(doc))))
+    start_page = _find_table_start(doc)
+    head = "".join(doc[i].get_text("text") for i in range(start_page, min(start_page + 3, len(doc))))
     low = head.lower()
     cur = ("GBP" if any(k in low for k in ("barclays", "sort code", "£", "iban gb", "castlemere", "wrenfield"))
            else "OMR" if any(k in low for k in ("oman", "muscat", "omr"))
@@ -674,7 +1153,9 @@ def _parse_generic_dateinherited(pdf_path):
     base_year = min(years) if years else 2000
 
     txns, cur_date, cur_txn = [], None, None
-    for page in doc:
+    for page_idx, page in enumerate(doc):
+        if page_idx < start_page:
+            continue
         for toks in _gen_rows(page):
             money = [t for t in toks if _GEN_MONEY_RE.match(t)]
             dt, used = _gen_row_date(toks)
@@ -742,20 +1223,126 @@ def _generic_breaks(rows):
     return min(chk(rows), chk(rows[::-1]))
 
 
-def parse_generic_statement(pdf_path):
-    """Generic fallback parser. Runs the columnar strategy first; if it doesn't reconcile
-    against the running balance, tries the date-inherited strategy and keeps whichever parse
-    RECONCILES BEST (fewest balance violations). Because the balance column picks the correct
-    parse, adding a strategy can never regress a statement the previous one already got right."""
-    columnar = list(_parse_generic_columnar(pdf_path))
-    if columnar and _generic_breaks(columnar) == 0:
-        yield from columnar
-        return
-    inherited = list(_parse_generic_dateinherited(pdf_path))
-    if inherited and (not columnar or _generic_breaks(inherited) < _generic_breaks(columnar)):
-        yield from inherited
+def _parse_generic_statement_list(pdf_path) -> tuple[list[dict], str]:
+    # Determine local_cur first
+    try:
+        doc = pymupdf.open(pdf_path)
+        start_page = _find_table_start(doc)
+        head = "".join(doc[i].get_text("text") for i in range(start_page, min(start_page + 3, len(doc))))
+        doc.close()
+    except Exception:
+        head = ""
+        
+    local_cur = "INR"
+    low_head = head.lower()
+    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb")):
+        local_cur = "INR"
+    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb", "wrenfield")):
+        local_cur = "GBP"
+    elif any(k in low_head for k in ("oman", "muscat", "omr")):
+        local_cur = "OMR"
+    elif any(k in low_head for k in ("chase", "routing", "$")):
+        local_cur = "USD"
     else:
-        yield from columnar
+        local_cur = ""
+
+    # Layer 1: Rule-based columnar / dateinherited
+    print("[cascade] Layer 1 (rule-based) running...")
+    columnar = list(_parse_generic_columnar(pdf_path))
+    inherited = list(_parse_generic_dateinherited(pdf_path))
+    
+    best_l1 = None
+    best_l1_breaks = 10**9
+    
+    if columnar:
+        best_l1 = columnar
+        best_l1_breaks = _generic_breaks(columnar)
+        print(f"[cascade] Layer 1 columnar: {len(columnar)} rows, {best_l1_breaks} balance violations")
+    if inherited:
+        inherited_breaks = _generic_breaks(inherited)
+        print(f"[cascade] Layer 1 dateinherited: {len(inherited)} rows, {inherited_breaks} balance violations")
+        if not best_l1 or inherited_breaks < best_l1_breaks:
+            best_l1 = inherited
+            best_l1_breaks = inherited_breaks
+            
+    if best_l1 and len(best_l1) >= 3:
+        violation_ratio = best_l1_breaks / len(best_l1)
+        if best_l1_breaks == 0:
+            print(f"[cascade] >>> Layer 1 ACCEPTED (0 violations, confidence=high)")
+            return best_l1, "high"
+        if violation_ratio <= RULE_BASED_MAX_VIOLATION_RATIO:
+            print(f"[cascade] >>> Layer 1 ACCEPTED (violation_ratio={violation_ratio:.3f} <= {RULE_BASED_MAX_VIOLATION_RATIO}, confidence=medium)")
+            return best_l1, "medium"
+        print(f"[cascade] Layer 1 REJECTED (violation_ratio={violation_ratio:.3f} > {RULE_BASED_MAX_VIOLATION_RATIO}), escalating to Layer 2")
+    else:
+        print(f"[cascade] Layer 1 produced insufficient rows (best_l1={len(best_l1) if best_l1 else 0}), escalating to Layer 2")
+
+    # Layer 2: Schema Inference
+    print("[cascade] Layer 2 (LLM schema inference) running...")
+    try:
+        l2_res = try_schema_inference(pdf_path, local_cur)
+        if l2_res:
+            l2_rows, l2_conf = l2_res
+            if len(l2_rows) >= SCHEMA_MIN_ROW_COUNT:
+                print(f"[cascade] >>> Layer 2 ACCEPTED ({len(l2_rows)} rows, confidence={l2_conf})")
+                return l2_rows, l2_conf
+            else:
+                print(f"[cascade] Layer 2 produced too few rows ({len(l2_rows)} < {SCHEMA_MIN_ROW_COUNT}), escalating to Layer 3")
+        else:
+            print("[cascade] Layer 2 returned None (regex/match-rate/balance validation failed), escalating to Layer 3")
+    except Exception as e:
+        print(f"[cascade] Layer 2 ERROR: {e} — escalating to Layer 3")
+
+    # Layer 3: Full LLM chunk extraction
+    print("[cascade] Layer 3 (full LLM chunk extraction) running...")
+    try:
+        l3_res = parse_with_llm_fallback(pdf_path, local_cur)
+        if l3_res:
+            l3_rows, l3_conf = l3_res
+            if len(l3_rows) >= 3:
+                l3_breaks = _generic_breaks(l3_rows)
+                if best_l1 and best_l1_breaks <= l3_breaks:
+                    print(f"[cascade] Layer 3 produced {len(l3_rows)} rows but L1 is better ({best_l1_breaks} vs {l3_breaks} breaks); returning L1 flagged medium")
+                    return best_l1, "medium"
+                print(f"[cascade] >>> Layer 3 ACCEPTED ({len(l3_rows)} rows, {l3_breaks} breaks, confidence={l3_conf})")
+                return l3_rows, l3_conf
+            else:
+                print(f"[cascade] Layer 3 produced too few rows ({len(l3_rows)})")
+    except Exception as e:
+        print(f"[cascade] Layer 3 ERROR: {e}")
+
+    # Final fallback: return best L1 or empty
+    # When ALL LLMs exhausted, grade the confidence honestly by L1 violation rate.
+    # If L1 itself was high-violation (exceeded RULE_BASED_MAX_VIOLATION_RATIO), flag as "low"
+    # not "medium" — so the caller can surface this to the user.
+    if best_l1:
+        if best_l1_breaks > 0:
+            final_violation_ratio = best_l1_breaks / len(best_l1)
+        else:
+            final_violation_ratio = 0.0
+        if final_violation_ratio > RULE_BASED_MAX_VIOLATION_RATIO:
+            fallback_conf = "low"
+            print(f"[cascade] All layers exhausted. Returning best Layer 1 result ({len(best_l1)} rows) with confidence='low' (L1 violation_ratio={final_violation_ratio:.3f} > {RULE_BASED_MAX_VIOLATION_RATIO})")
+        else:
+            fallback_conf = "medium"
+            print(f"[cascade] All layers exhausted. Returning best Layer 1 result ({len(best_l1)} rows, confidence=medium)")
+        return best_l1, fallback_conf
+    print("[cascade] All layers exhausted with no valid result.")
+    return [], "low"
+
+
+def parse_generic_statement(pdf_path):
+    """Generic fallback parser with 4-layer cascade."""
+    rows, confidence = _parse_generic_statement_list(pdf_path)
+    
+    class RowGenerator:
+        def __init__(self, rows, confidence):
+            self.rows = rows
+            self.parse_confidence = confidence
+        def __iter__(self):
+            return iter(self.rows)
+            
+    return RowGenerator(rows, confidence)
 
 
 def is_statement_pdf(path):
@@ -764,7 +1351,8 @@ def is_statement_pdf(path):
     a ZIP and to reject non-statement PDFs."""
     try:
         d = pymupdf.open(path)
-        head = "".join(d[i].get_text("text") for i in range(min(3, len(d))))
+        start_page = _find_table_start(d)
+        head = "".join(d[i].get_text("text") for i in range(start_page, min(start_page + 3, len(d))))
         d.close()
     except Exception:
         return False
@@ -784,7 +1372,8 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     head = ""
     try:
         d = pymupdf.open(pdf_path)
-        head = "".join(d[i].get_text("text") for i in range(min(3, len(d))))
+        start_page = _find_table_start(d)
+        head = "".join(d[i].get_text("text") for i in range(start_page, min(start_page + 3, len(d))))
         d.close()
     except Exception:
         pass
@@ -821,10 +1410,17 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
     
-    txns = list(parser(pdf_path))
+    txns_iterable = parser(pdf_path)
+    txns = list(txns_iterable)
+    confidence = getattr(txns_iterable, "parse_confidence", "high")
+    
     if not txns:
         con.close()
         return 0
+
+    con.execute("DELETE FROM document_metadata WHERE user_id=? AND doc_name=?", (user_id, doc_name))
+    con.execute("INSERT INTO document_metadata (user_id, doc_name, parse_confidence) VALUES (?, ?, ?)",
+                (user_id, doc_name, confidence))
 
     # Detect reverse-chronological order and reverse the list if needed
     is_rev = False
