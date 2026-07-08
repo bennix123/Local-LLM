@@ -1,6 +1,6 @@
 import re, sqlite3
 from .db import connect
-from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct
+from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, format_money
 from . import formatters
 from .parsers import MERCHANT_MAP
 from .queries import (
@@ -8,7 +8,7 @@ from .queries import (
     income_by_source, top_merchants, txn_count, amount_filter, filtered_summary,
     top_expenses, extreme, merchant_category, merchant_dates, list_transactions,
     balance_extreme, payment_interval, who_paid, balance_after, balance_before,
-    balance_delta, months_list, subscription_costs
+    balance_delta, months_list, subscription_costs, overall_overview
 )
 from .insights import save_insights, compute_insights
 
@@ -69,7 +69,7 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "list":                                    # "show me the transactions" -> the rows
         m = (intent.get("merchant") or "").strip()
         cat = (intent.get("category") or "").strip()
-        cap = int(intent.get("n") or 0) or 25
+        cap = int(intent.get("n") or 0) or 100
         ttype = intent.get("txn_type")
         rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap, ttype)
         who = ""
@@ -79,36 +79,64 @@ def dispatch_intent(intent, user_id, doc_name=None):
         if not rows:
             return f"**No transactions found{who}{sfx}.**"
         body = []
-        for d, bank, mer, descr, deb, cr in rows:
+        for d, bank, mer, descr, deb, cr, curr in rows:
             name = (mer or descr or "").strip() or "-"
             bank_label = bank or "Unknown Bank"
+            amt = format_money(deb, curr) if (deb or 0) > 0 else format_money(cr, curr)
             body.append((_dlabel(d), bank_label, _mname(name[:34]),
-                         inr(deb) if (deb or 0) > 0 else inr(cr),
-                         "Spent" if (deb or 0) > 0 else "Received"))
+                         amt, "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
         tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
         return head + "\n\n" + _table(["Date", "Bank", "Merchant", "Amount", "Type"], body) + tail
 
     if t == "spend":
-        o = overview(user_id, doc_name, period)
-        dc = txn_count(user_id, "debit", doc_name, period)   # debit rows only, not income
-        extra = ""
-        if o.get("credit", 0) > 0:
-            cc = txn_count(user_id, "credit", doc_name, period)
-            extra = f" (You also received {inr(o['credit'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
-        return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(dc)} transactions{extra}"
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Total spending{sfx} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                dc = txn_count(user_id, "debit", b["doc_name"], period)
+                cc = txn_count(user_id, "credit", b["doc_name"], period)
+                extra = ""
+                if b["credit"] > 0:
+                    extra = f" (You also received {format_money(b['credit'], b['currency'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
+                lines.append(f"  - **{b['bank_name']}**: {format_money(b['debit'], b['currency'])} across {grp(dc)} transactions{extra}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
+            dc = txn_count(user_id, "debit", doc_name, period)   # debit rows only, not income
+            extra = ""
+            if o.get("credit", 0) > 0:
+                cc = txn_count(user_id, "credit", doc_name, period)
+                extra = f" (You also received {inr(o['credit'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
+            return f"**Total spending{sfx}:** {inr(o['debit'])} across {grp(dc)} transactions{extra}"
 
     if t == "income":
-        o = overview(user_id, doc_name, period)
-        return f"**Total income{sfx}:** {inr(o['credit'])}"
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Total income{sfx} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                lines.append(f"  - **{b['bank_name']}**: {format_money(b['credit'], b['currency'])}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
+            return f"**Total income{sfx}:** {inr(o['credit'])}"
 
     if t == "summary":
-        o = overview(user_id, doc_name, period)
-        b = latest_balance(user_id, doc_name, period)
-        body = [("Transactions", grp(o["count"])), ("Total spending", inr(o["debit"])),
-                ("Total income", inr(o["credit"])), ("Net", inr(o["net"])),
-                ("Closing balance", inr(b) if b is not None else "-")]
-        return f"**Account summary{sfx}**\n\n" + _table(["Metric", "Value"], body)
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Account summary{sfx} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                bal = latest_balance(user_id, b["doc_name"], period)
+                bal_str = format_money(bal, b["currency"]) if bal is not None else "-"
+                lines.append(f"  - **{b['bank_name']}**: Spent {format_money(b['debit'], b['currency'])} | Received {format_money(b['credit'], b['currency'])} | Closing: {bal_str}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
+            b = latest_balance(user_id, doc_name, period)
+            body = [("Transactions", grp(o["count"])), ("Total spending", inr(o["debit"])),
+                    ("Total income", inr(o["credit"])), ("Net", inr(o["net"])),
+                    ("Closing balance", inr(b) if b is not None else "-")]
+            return f"**Account summary{sfx}**\n\n" + _table(["Metric", "Value"], body)
 
     if t == "balance":
         b = latest_balance(user_id, doc_name, period)
@@ -429,35 +457,67 @@ def answer(question, user_id, doc_name=None):
 
     # ---- totals / income / overview ----
     if re.search(r"total spend|total spent|total spending|how much.*(spend|spent)|overall spend", q):
-        o = overview(user_id, doc_name, period)
-        return f"**Total spending{_suffix(plabel)}:** {inr(o['debit'])} across {grp(o['count'])} transactions"
-    if re.search(r"total income|total credit|how much.*(income|earn|credit|receiv)", q):
-        o = overview(user_id, doc_name, period)
-        return f"**Total income{_suffix(plabel)}:** {inr(o['credit'])}"
-    if re.search(r"summary|overview|net position|net (gain|loss)|snapshot", q):
-        o = overview(user_id, doc_name, period)
-        if doc_name is None:
-            from src.services.txn_store.queries import overall_balance
-            ob = overall_balance(user_id)
-            if ob["mixed_currency"]:
-                bal_str = "Mixed (see breakdown)"
-            else:
-                bal_str = f"{ob['currency']} {ob['total']:,.2f}"
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Total spending{_suffix(plabel)} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                dc = txn_count(user_id, "debit", b["doc_name"], period)
+                cc = txn_count(user_id, "credit", b["doc_name"], period)
+                extra = ""
+                if b["credit"] > 0:
+                    extra = f" (You also received {format_money(b['credit'], b['currency'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
+                lines.append(f"  - **{b['bank_name']}**: {format_money(b['debit'], b['currency'])} across {grp(dc)} transactions{extra}")
+            return "\n".join(lines)
         else:
+            o = overview(user_id, doc_name, period)
+            dc = txn_count(user_id, "debit", doc_name, period)
+            extra = ""
+            if o.get("credit", 0) > 0:
+                cc = txn_count(user_id, "credit", doc_name, period)
+                extra = f" (You also received {inr(o['credit'])} across {grp(cc)} transaction{'s' if cc != 1 else ''})"
+            return f"**Total spending{_suffix(plabel)}:** {inr(o['debit'])} across {grp(dc)} transactions{extra}"
+
+    if re.search(r"total income|total credit|how much.*(income|earn|credit|receiv)", q):
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Total income{_suffix(plabel)} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                lines.append(f"  - **{b['bank_name']}**: {format_money(b['credit'], b['currency'])}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
+            return f"**Total income{_suffix(plabel)}:** {inr(o['credit'])}"
+
+    if re.search(r"summary|overview|net position|net (gain|loss)|snapshot", q):
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**Account summary{_suffix(plabel)} (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                bal = latest_balance(user_id, b["doc_name"], period)
+                bal_str = format_money(bal, b["currency"]) if bal is not None else "-"
+                lines.append(f"  - **{b['bank_name']}**: Spent {format_money(b['debit'], b['currency'])} | Received {format_money(b['credit'], b['currency'])} | Closing: {bal_str}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
             b = latest_balance(user_id, doc_name, period)
-            bal_str = inr(b) if b is not None else "-"
-            
-        body = [("Transactions", grp(o["count"])), ("Total spending", inr(o["debit"])),
-                ("Total income", inr(o["credit"])), ("Net", inr(o["net"])),
-                ("Closing balance", bal_str)]
-        return f"**Account summary{_suffix(plabel)}**\n\n" + _table(["Metric", "Value"], body)
+            body = [("Transactions", grp(o["count"])), ("Total spending", inr(o["debit"])),
+                    ("Total income", inr(o["credit"])), ("Net", inr(o["net"])),
+                    ("Closing balance", inr(b) if b is not None else "-")]
+            return f"**Account summary{_suffix(plabel)}**\n\n" + _table(["Metric", "Value"], body)
 
     # if they named a period but we didn't match a known metric, answer the
     # natural default (spend for that period) rather than dropping to advice.
     if has_period:
-        o = overview(user_id, doc_name, period)
-        return (f"**{plabel} summary** — spending {inr(o['debit'])}, income {inr(o['credit'])}, "
-                f"net {inr(o['net'])} over {grp(o['count'])} transactions")
+        oo = overall_overview(user_id, doc_name, period)
+        if oo["mixed_currency"]:
+            lines = [f"**{plabel} summary (mixed currencies):**"]
+            for b in oo["breakdown"]:
+                lines.append(f"  - **{b['bank_name']}**: Spent {format_money(b['debit'], b['currency'])} | Received {format_money(b['credit'], b['currency'])}")
+            return "\n".join(lines)
+        else:
+            o = overview(user_id, doc_name, period)
+            return (f"**{plabel} summary** — spending {inr(o['debit'])}, income {inr(o['credit'])}, "
+                    f"net {inr(o['net'])} over {grp(o['count'])} transactions")
 
     # not an aggregate question -> let RAG answer
     return None

@@ -610,8 +610,15 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     from src.services.txn_store import queries
     resolved_doc_name = None
     if body.get("clarification_response"):
-        selected_id = body.get("selected_id")
-        resolved_doc_name = None if selected_id == "overall" else selected_id[4:]
+        selected_ids = body.get("selected_ids") or []
+        if "overall" in selected_ids:
+            resolved_doc_name = None
+        else:
+            resolved_doc_name = [sid[4:] for sid in selected_ids if sid.startswith("doc:")]
+            if len(resolved_doc_name) == 1:
+                resolved_doc_name = resolved_doc_name[0]
+            elif len(resolved_doc_name) == 0:
+                resolved_doc_name = None
         if ctx.get("default_doc_name") != resolved_doc_name:
             for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
                 ctx.pop(k, None)
@@ -814,7 +821,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     if CONVO_RE.match(q):
         _append_log(tid, q, GREETING, "chat")
         return stream_text("chat", GREETING)
-    ans = ts.answer(q, user)
+    ans = ts.answer(q, user, doc_name=resolved_doc_name)
     if ans is not None:
         remember(history, q, ans)
         _append_log(tid, q, ans, "SQL")

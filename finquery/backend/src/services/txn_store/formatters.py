@@ -31,16 +31,23 @@ def _grouped(intpart):
     return _group_indian(intpart) if CURRENCY == "INR" else f"{int(intpart):,}"
 
 
-def inr(n):
-    """Money formatter for the ACTIVE currency (symbol + locale grouping, 2 or 3 decimals dynamically)."""
+def format_money(n, cur):
+    """Money formatter for a SPECIFIC currency (symbol + locale grouping, 2 or 3 decimals dynamically)."""
     neg = n < 0
-    dec_places = 3 if CURRENCY in ("OMR", "KWD", "BHD", "JOD", "IQD") else 2
+    currency = (cur or "").upper()
+    dec_places = 3 if currency in ("OMR", "KWD", "BHD", "JOD", "IQD") else 2
     n = abs(round(float(n), dec_places))
     fmt_str = f"{{:.{dec_places}f}}"
     intpart, dec = fmt_str.format(n).split(".")
-    # Avoid extra spaces for empty currency codes
-    prefix = _CUR_SYM.get(CURRENCY, CURRENCY + " " if CURRENCY else "")
-    return ("-" if neg else "") + prefix + f"{_grouped(intpart)}.{dec}"
+    def grouped(intpart):
+        return _group_indian(intpart) if currency == "INR" else f"{int(intpart):,}"
+    prefix = _CUR_SYM.get(currency, currency + " " if currency else "")
+    return ("-" if neg else "") + prefix + f"{grouped(intpart)}.{dec}"
+
+
+def inr(n):
+    """Money formatter for the ACTIVE currency (symbol + locale grouping, 2 or 3 decimals dynamically)."""
+    return format_money(n, CURRENCY)
 
 
 def grp(n):

@@ -17,11 +17,14 @@ def _scope(user_id, doc_name, period=None):
     where = "user_id=?"
     params = [user_id]
     
-    # Use global active doc_name context if doc_name parameter is None
-    target_doc = doc_name if doc_name is not None else ACTIVE_DOC_NAME
+    target_doc = doc_name
     
     if target_doc:
-        where += " AND doc_name=?"; params.append(target_doc)
+        if isinstance(target_doc, list):
+            where += f" AND doc_name IN ({','.join(['?']*len(target_doc))})"
+            params.extend(target_doc)
+        else:
+            where += " AND doc_name=?"; params.append(target_doc)
     elif formatters.CURRENCY:
         # Only apply currency filter if this user actually HAS rows with that currency.
         # This prevents 'Upload a statement first' when formatters.CURRENCY=INR but data is GBP.
@@ -34,7 +37,16 @@ def _scope(user_id, doc_name, period=None):
         except Exception:
             _cnt = 0
         if _cnt > 0:
-            where += " AND currency=?"; params.append(formatters.CURRENCY)
+            try:
+                _con = connect()
+                _uniq_curs = len(_con.execute(
+                    "SELECT DISTINCT currency FROM transactions WHERE user_id=? AND currency IS NOT NULL",
+                    (user_id,)).fetchall())
+                _con.close()
+            except Exception:
+                _uniq_curs = 1
+            if _uniq_curs <= 1:
+                where += " AND currency=?"; params.append(formatters.CURRENCY)
         # else: drop the currency filter — let all currencies through
     if period:
         if isinstance(period, (tuple, list)):
@@ -374,7 +386,7 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
     base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
     con = connect()
     total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
-    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit {base}
+    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency {base}
                            ORDER BY txn_date, seq LIMIT ?""", p + params + [limit]).fetchall()
     con.close()
     return rows, total
@@ -783,6 +795,52 @@ def overall_balance(user_id):
         "total": total_val if not mixed else None,  # mixed currencies should not be summed blindly
         "currency": list(currencies)[0] if len(currencies) == 1 else "MIXED",
         "mixed_currency": mixed,
+        "breakdown": breakdown
+    }
+
+
+def overall_overview(user_id, doc_name=None, period=None):
+    """Aggregates overview across distinct user documents, with mixed currency safety."""
+    docs = list_user_documents(user_id)
+    if not docs:
+        return {"mixed_currency": False, "count": 0, "debit": 0.0, "credit": 0.0, "net": 0.0, "breakdown": []}
+    
+    if doc_name:
+        if isinstance(doc_name, list):
+            docs = [d for d in docs if d["doc_name"] in doc_name]
+        else:
+            docs = [d for d in docs if d["doc_name"] == doc_name]
+            
+    breakdown = []
+    currencies = set()
+    total_debit = 0.0
+    total_credit = 0.0
+    total_count = 0
+    
+    for d in docs:
+        o = overview(user_id, d["doc_name"], period)
+        breakdown.append({
+            "doc_name": d["doc_name"],
+            "bank_name": d["bank_name"],
+            "count": o["count"],
+            "debit": o["debit"],
+            "credit": o["credit"],
+            "net": o["net"],
+            "currency": d["currency"]
+        })
+        currencies.add(d["currency"])
+        total_debit += o["debit"]
+        total_credit += o["credit"]
+        total_count += o["count"]
+        
+    mixed = len(currencies) > 1
+    return {
+        "mixed_currency": mixed,
+        "count": total_count,
+        "debit": total_debit if not mixed else None,
+        "credit": total_credit if not mixed else None,
+        "net": (total_credit - total_debit) if not mixed else None,
+        "currency": list(currencies)[0] if len(currencies) == 1 else "MIXED",
         "breakdown": breakdown
     }
 

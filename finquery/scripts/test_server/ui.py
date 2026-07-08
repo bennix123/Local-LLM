@@ -256,7 +256,8 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
     </div>
     <div class="row" style="margin-top:12px;align-items:center;gap:10px">
       <button id="plaidbtn" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">Bank Sync from Plaid (Sandbox)</button>
-      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from a Plaid Sandbox bank  -  replaces the loaded statement.</span>
+      <button id="historybtn" onclick="toggleHistory()" style="background:#fff;border:1px solid var(--line);color:var(--ink);padding:9px 14px;font-size:13px">📜 View History</button>
+      <span class="muted" id="plaidnote" style="font-size:12px;flex:1">Pull synthetic transactions from Plaid or toggle past history.</span>
     </div>
   </div>
   <div class="card hidden" id="chatcard">
@@ -307,7 +308,7 @@ const SUG=["what is my total spending?","give me an account summary","show me sp
 $("#chips").innerHTML=SUG.map(s=>`<span class="chip">${s}</span>`).join("");
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{$("#q").value=c.textContent;ask();});
 
-async function refreshDocuments(){
+async function refreshDocuments(forceShowEmpty = false){
   try{
     const r=await fetch("/documents?thread=" + THREAD);
     if(!r.ok)return;
@@ -318,7 +319,7 @@ async function refreshDocuments(){
     if(docs && docs.length>0){
       $("#loaded-files").style.display="block";
       list.innerHTML=docs.map(d=> {
-        const isActive = (d.doc_name === activeDoc);
+        const isActive = Array.isArray(activeDoc) ? activeDoc.includes(d.doc_name) : (d.doc_name === activeDoc);
         const activeIndicator = isActive ? `<span class="tag SQL" style="margin-left:6px;padding:2px 6px;font-size:10px;">Active</span>` : "";
         const style = isActive ? "background:var(--cream2);border-radius:6px;padding:6px 10px;margin-bottom:6px;" : "padding:6px 10px;margin-bottom:6px;";
         return `
@@ -331,10 +332,25 @@ async function refreshDocuments(){
         `;
       }).join('');
     } else {
-      $("#loaded-files").style.display="none";
+      if(forceShowEmpty){
+        $("#loaded-files").style.display="block";
+        list.innerHTML = `<li class="muted" style="list-style-type:none;margin-top:6px;">No history found. Please upload a statement.</li>`;
+      } else {
+        $("#loaded-files").style.display="none";
+      }
     }
   }catch(e){}
 }
+
+async function toggleHistory(){
+  const container = $("#loaded-files");
+  if(container.style.display === "block"){
+    container.style.display = "none";
+  } else {
+    await refreshDocuments(true);
+  }
+}
+window.toggleHistory = toggleHistory;
 
 async function selectActiveBank(docName, bankName){
   try{
@@ -344,6 +360,8 @@ async function selectActiveBank(docName, bankName){
       body:JSON.stringify({doc_name:docName,thread:THREAD})
     });
     if(r.ok){
+      reveal();
+      loadTxns(true);
       refreshDocuments();
       add("chat", `Switched active scope to **${bankName}**.`);
     }
@@ -365,21 +383,149 @@ const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList
   } else { gate(); }
 }catch(e){ gate(); } })();
 
+let tableCounter = 0;
 function mdToHtml(md){
   const lines=md.split("\n"); let html="",tbl=[];
   const flush=()=>{ if(!tbl.length)return;
     const rows=tbl.filter(r=>!/^\s*\|?\s*-{2,}/.test(r));
-    html+="<table>"+rows.map((r,i)=>{const cells=r.split("|").filter(c=>c.trim()!=="");
-      const tag=i==0?"th":"td";return "<tr>"+cells.map(c=>`<${tag}>${c.trim()}</${tag}>`).join("")+"</tr>";}).join("")+"</table>";
+    if (rows.length > 0) {
+      tableCounter++;
+      const tableId = `dyn-table-${tableCounter}`;
+      const headerRow = rows[0];
+      const dataRows = rows.slice(1);
+      const headers = headerRow.split("|").filter(c=>c.trim()!=="").map(c=>c.trim());
+      const parsedData = dataRows.map(r => {
+        return r.split("|").filter(c=>c.trim()!=="").map(c=>c.trim());
+      });
+      const headersEscaped = encodeURIComponent(JSON.stringify(headers));
+      const dataEscaped = encodeURIComponent(JSON.stringify(parsedData));
+      
+      html += `
+        <div class="dynamic-table-container" id="${tableId}-container" data-table-id="${tableId}" data-headers="${headersEscaped}" data-rows="${dataEscaped}" style="margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+          <div style="overflow-x:auto;">
+            <table style="margin:0;border:none;width:100%;">
+              <thead>
+                <tr>
+                  ${headers.map((h, idx) => `<th data-col-index="${idx}" style="cursor:pointer;position:relative;user-select:none;background:#f6fce0;padding:8px 10px;font-size:13px;border-bottom:1.5px solid var(--line);"><span>${h}</span><span class="sort-icon" style="font-size:10px;margin-left:4px;color:#8a8;">⇅</span></th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                <!-- populated by JS -->
+              </tbody>
+            </table>
+          </div>
+          <div class="table-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line);background:#fafafa;font-size:12px;">
+            <button class="table-prev-btn" style="padding:4px 10px;font-size:11px;background:#fff;border:1px solid var(--line);border-radius:6px;color:var(--ink);cursor:pointer;font-weight:600;">Prev</button>
+            <span class="table-pag-info" style="color:var(--ink2);font-weight:500;">Page 1 of 1</span>
+            <button class="table-next-btn" style="padding:4px 10px;font-size:11px;background:#fff;border:1px solid var(--line);border-radius:6px;color:var(--ink);cursor:pointer;font-weight:600;">Next</button>
+          </div>
+        </div>
+      `;
+    }
     tbl=[]; };
   for(const ln of lines){ if(ln.trim().startsWith("|")){tbl.push(ln);continue;} flush();
     let t=ln.replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/_(.+?)_/g,"<em>$1</em>");
     if(t.trim())html+=`<div>${t}</div>`; }
   flush(); return html;
 }
+
+function initDynamicTables(parent) {
+  parent.querySelectorAll(".dynamic-table-container").forEach(container => {
+    const tableId = container.getAttribute("data-table-id");
+    const headers = JSON.parse(decodeURIComponent(container.getAttribute("data-headers")));
+    const allRows = JSON.parse(decodeURIComponent(container.getAttribute("data-rows")));
+    
+    let currentPage = 1;
+    const pageSize = 25;
+    let sortCol = null;
+    let sortAsc = true;
+    
+    const tbody = container.querySelector("tbody");
+    const pagInfo = container.querySelector(".table-pag-info");
+    const prevBtn = container.querySelector(".table-prev-btn");
+    const nextBtn = container.querySelector(".table-next-btn");
+    const ths = container.querySelectorAll("thead th");
+    
+    function parseValue(val, colIndex) {
+      let clean = val.replace(/[₹$,\s]/g, "");
+      let num = parseFloat(clean);
+      if (!isNaN(num)) return num;
+      let dt = Date.parse(val);
+      if (!isNaN(dt)) return dt;
+      return val.toLowerCase();
+    }
+    
+    function renderTable() {
+      let displayRows = [...allRows];
+      if (sortCol !== null) {
+        displayRows.sort((a, b) => {
+          let valA = parseValue(a[sortCol] || "", sortCol);
+          let valB = parseValue(b[sortCol] || "", sortCol);
+          if (valA < valB) return sortAsc ? -1 : 1;
+          if (valA > valB) return sortAsc ? 1 : -1;
+          return 0;
+        });
+      }
+      
+      const totalPages = Math.max(1, Math.ceil(displayRows.length / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+      
+      const start = (currentPage - 1) * pageSize;
+      const end = start + pageSize;
+      const pageRows = displayRows.slice(start, end);
+      
+      tbody.innerHTML = pageRows.map(row => {
+        return "<tr>" + row.map((cell, idx) => {
+          const isNumeric = !isNaN(parseValue(cell, idx)) && cell.trim() !== "" && !/^\d{2}\s[A-Za-z]{3}\s\d{4}$/.test(cell);
+          const style = isNumeric ? 'text-align:right;font-variant-numeric:tabular-nums;' : '';
+          return `<td style="${style}padding:6px 10px;font-size:13px;border-bottom:1px solid var(--line);">${cell}</td>`;
+        }).join('') + "</tr>";
+      }).join('');
+      
+      pagInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+      prevBtn.disabled = currentPage === 1;
+      nextBtn.disabled = currentPage === totalPages;
+      prevBtn.style.opacity = currentPage === 1 ? "0.5" : "1";
+      nextBtn.style.opacity = currentPage === totalPages ? "0.5" : "1";
+      
+      ths.forEach((th, idx) => {
+        const icon = th.querySelector(".sort-icon");
+        if (idx === sortCol) {
+          icon.textContent = sortAsc ? " ▲" : " ▼";
+          icon.style.color = "var(--ink)";
+        } else {
+          icon.textContent = " ⇅";
+          icon.style.color = "#8a8";
+        }
+      });
+    }
+    
+    prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderTable(); } };
+    nextBtn.onclick = () => { if (currentPage < Math.ceil(allRows.length / pageSize)) { currentPage++; renderTable(); } };
+    
+    ths.forEach(th => {
+      th.onclick = () => {
+        const colIdx = parseInt(th.getAttribute("data-col-index"));
+        if (sortCol === colIdx) {
+          sortAsc = !sortAsc;
+        } else {
+          sortCol = colIdx;
+          sortAsc = true;
+        }
+        renderTable();
+      };
+    });
+    
+    renderTable();
+  });
+}
+
 function add(cls,html,tag){ const d=document.createElement("div"); d.className="msg "+cls;
   d.innerHTML=(tag?`<span class="tag ${tag}">${tag}</span>`:"")+html;
-  $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"}); }
+  $("#chat").appendChild(d);
+  initDynamicTables(d);
+  d.scrollIntoView({behavior:"smooth",block:"end"}); }
 
 $("#file").onchange=async e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -390,6 +536,10 @@ $("#file").onchange=async e=>{
   let j;
   try{
     const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
+    if(!r.ok){
+      if(r.status===401){ localStorage.removeItem(TOKEN_KEY); location.href='/'; return; }
+      throw new Error("upload failed");
+    }
     j=await r.json();
   }catch(err){ $("#drop").classList.remove("busy"); e.target.value="";
     $("#dropsub").textContent="Upload failed  -  please try again."; return; }
@@ -464,22 +614,62 @@ function thinkingBubble(){
 
 function renderClarification(p){
   const d=document.createElement("div"); d.className="msg bot";
-  let buttons = p.options.map(opt => `
-    <button class="clarify-opt" onclick="sendClarification('${opt.id}', '${p.original_query.replace(/'/g, "\\'")}', this)" 
-            style="text-align:left;background:#fff;border:1px solid var(--line);color:var(--ink);padding:10px;border-radius:8px;font-size:13.5px;cursor:pointer;display:block;width:100%;margin-top:6px;transition:background .2s;">
-      <strong>${opt.label}</strong><br/>
-      <span class="muted" style="font-size:11.5px;">${opt.sublabel}</span>
-    </button>
-  `).join('');
+  let optionsHtml = p.options.map(opt => {
+    const isOverall = opt.id === "overall";
+    const nameAttr = isOverall ? "clarify-overall" : "clarify-bank";
+    return `
+      <label style="display:flex;align-items:flex-start;gap:10px;background:#fff;border:1px solid var(--line);padding:10px;border-radius:8px;font-size:13.5px;cursor:pointer;margin-top:6px;transition:background .2s;user-select:none;">
+        <input type="checkbox" name="${nameAttr}" value="${opt.id}" class="clarify-chk" onchange="handleClarifyChange(this)" style="margin-top:3px;transform:scale(1.15);">
+        <div style="flex:1;">
+          <strong>${opt.label}</strong><br/>
+          <span class="muted" style="font-size:11.5px;">${opt.sublabel}</span>
+        </div>
+      </label>
+    `;
+  }).join('');
   d.innerHTML=`<span class="tag chat">clarify</span><p style="margin:6px 0;">${p.question}</p>`
-    +`<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">${buttons}</div>`;
+    + `<div class="clarification-container" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">`
+    + optionsHtml
+    + `<button class="btn clarify-submit" onclick="submitClarification(this, '${p.original_query.replace(/'/g, "\\'")}')" disabled `
+    + `style="margin-top:8px;background:var(--ink);color:#fff;border:none;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;align-self:flex-end;transition:opacity .2s;">`
+    + `Confirm Selection</button></div>`;
   $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"});
 }
 
-async function sendClarification(selectedId, originalQuery, btn){
-  btn.closest('div').querySelectorAll('button').forEach(b => b.disabled=true);
-  const label = btn.querySelector('strong').textContent;
-  add("me", label);
+function handleClarifyChange(chk) {
+  const container = chk.closest(".clarification-container");
+  const submitBtn = container.querySelector(".clarify-submit");
+  const overallChk = container.querySelector('input[name="clarify-overall"]');
+  const bankChks = container.querySelectorAll('input[name="clarify-bank"]');
+  
+  if (chk.name === "clarify-overall") {
+    if (chk.checked) {
+      bankChks.forEach(b => { b.checked = false; b.disabled = true; b.parentElement.style.opacity = "0.5"; });
+    } else {
+      bankChks.forEach(b => { b.disabled = false; b.parentElement.style.opacity = "1"; });
+    }
+  } else {
+    const anyBankChecked = Array.from(bankChks).some(b => b.checked);
+    if (anyBankChecked) {
+      if (overallChk) { overallChk.checked = false; overallChk.disabled = true; overallChk.parentElement.style.opacity = "0.5"; }
+    } else {
+      if (overallChk) { overallChk.disabled = false; overallChk.parentElement.style.opacity = "1"; }
+    }
+  }
+  const anyChecked = Array.from(container.querySelectorAll(".clarify-chk")).some(c => c.checked);
+  submitBtn.disabled = !anyChecked;
+  submitBtn.style.opacity = anyChecked ? "1" : "0.5";
+}
+window.handleClarifyChange = handleClarifyChange;
+
+async function submitClarification(btn, originalQuery){
+  const container = btn.closest(".clarification-container");
+  const checkedChks = Array.from(container.querySelectorAll(".clarify-chk:checked"));
+  const selectedIds = checkedChks.map(c => c.value);
+  container.querySelectorAll("input").forEach(i => i.disabled = true);
+  btn.disabled = true;
+  const selectedLabels = checkedChks.map(c => c.parentElement.querySelector("strong").textContent);
+  add("me", selectedLabels.join(", "));
   const think=thinkingBubble();
   let cleared=false; const clearThink=()=>{ if(!cleared){cleared=true; think.remove();} };
   try{
@@ -488,7 +678,7 @@ async function sendClarification(selectedId, originalQuery, btn){
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         clarification_response:true,
-        selected_id:selectedId,
+        selected_ids:selectedIds,
         question:originalQuery,
         thread:THREAD
       })
@@ -521,7 +711,6 @@ async function sendClarification(selectedId, originalQuery, btn){
     $("#send").disabled=false;
   }
 }
-window.sendClarification = sendClarification;
 
 // chat-thread: a STABLE id (persisted in localStorage) so a page refresh keeps the
 // same thread  -  context survives reloads (and, server-side, restarts). "New chat"
@@ -581,12 +770,17 @@ function _authHdr(){ const t=localStorage.getItem(TOKEN_KEY); return t?{Authoriz
 // Intercept all fetch calls to /api routes and inject the Authorization header.
 // We do it by wrapping the endpoints we control (status, query, upload, transactions, etc.)
 const _origFetch=window.fetch.bind(window);
-window.fetch=function(url,...args){
+window.fetch=async function(url,...args){
   if(typeof url==='string' && url.startsWith('/') && !url.startsWith('/auth')){
     args[0]=args[0]||{};
     args[0].headers=Object.assign({},args[0].headers||{},_authHdr());
   }
-  return _origFetch(url,...args);
+  const res=await _origFetch(url,...args);
+  if(res.status===401 && typeof url==='string' && url.startsWith('/') && !url.startsWith('/auth')){
+    localStorage.removeItem(TOKEN_KEY);
+    location.href='/';
+  }
+  return res;
 };
 
 // Show username in header + verify token on load
