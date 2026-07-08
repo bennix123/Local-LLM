@@ -434,95 +434,106 @@ function mdToHtml(md){
 }
 
 function initDynamicTables(parent) {
-  parent.querySelectorAll(".dynamic-table-container").forEach(container => {
-    const tableId = container.getAttribute("data-table-id");
-    const headers = JSON.parse(decodeURIComponent(container.getAttribute("data-headers")));
-    const allRows = JSON.parse(decodeURIComponent(container.getAttribute("data-rows")));
-    
-    let currentPage = 1;
-    const pageSize = 25;
-    let sortCol = null;
-    let sortAsc = true;
-    
-    const tbody = container.querySelector("tbody");
-    const pagInfo = container.querySelector(".table-pag-info");
-    const prevBtn = container.querySelector(".table-prev-btn");
-    const nextBtn = container.querySelector(".table-next-btn");
-    const ths = container.querySelectorAll("thead th");
-    
-    function parseValue(val, colIndex) {
-      let clean = val.replace(/[₹$,\s]/g, "");
-      let num = parseFloat(clean);
-      if (!isNaN(num)) return num;
-      let dt = Date.parse(val);
-      if (!isNaN(dt)) return dt;
-      return val.toLowerCase();
-    }
-    
-    function renderTable() {
-      let displayRows = [...allRows];
-      if (sortCol !== null) {
-        displayRows.sort((a, b) => {
-          let valA = parseValue(a[sortCol] || "", sortCol);
-          let valB = parseValue(b[sortCol] || "", sortCol);
-          if (valA < valB) return sortAsc ? -1 : 1;
-          if (valA > valB) return sortAsc ? 1 : -1;
-          return 0;
+  try {
+    parent.querySelectorAll(".dynamic-table-container").forEach(container => {
+      const tableId = container.getAttribute("data-table-id");
+      const headers = JSON.parse(decodeURIComponent(container.getAttribute("data-headers")));
+      const allRows = JSON.parse(decodeURIComponent(container.getAttribute("data-rows")));
+      
+      let currentPage = 1;
+      const pageSize = 25;
+      let sortCol = null;
+      let sortAsc = true;
+      
+      const tbody = container.querySelector("tbody");
+      const pagInfo = container.querySelector(".table-pag-info");
+      const prevBtn = container.querySelector(".table-prev-btn");
+      const nextBtn = container.querySelector(".table-next-btn");
+      const ths = container.querySelectorAll("thead th");
+      
+      function parseValue(val, colIndex) {
+        if (val === undefined || val === null) val = "";
+        let clean = String(val).replace(/[₹$,\s]/g, "");
+        let num = parseFloat(clean);
+        if (!isNaN(num)) return num;
+        let dt = Date.parse(val);
+        if (!isNaN(dt)) return dt;
+        return String(val).toLowerCase();
+      }
+      
+      function renderTable() {
+        let displayRows = [...allRows];
+        if (sortCol !== null) {
+          displayRows.sort((a, b) => {
+            let valA = parseValue(a[sortCol] || "", sortCol);
+            let valB = parseValue(b[sortCol] || "", sortCol);
+            if (valA < valB) return sortAsc ? -1 : 1;
+            if (valA > valB) return sortAsc ? 1 : -1;
+            return 0;
+          });
+        }
+        
+        const totalPages = Math.max(1, Math.ceil(displayRows.length / pageSize));
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+        
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        const pageRows = displayRows.slice(start, end);
+        
+        tbody.innerHTML = pageRows.map(row => {
+          return "<tr>" + row.map((cell, idx) => {
+            const isNumeric = !isNaN(parseValue(cell, idx)) && cell !== undefined && cell !== null && String(cell).trim() !== "" && !/^\d{2}\s[A-Za-z]{3}\s\d{4}$/.test(String(cell));
+            const style = isNumeric ? 'text-align:right;font-variant-numeric:tabular-nums;' : '';
+            return `<td style="${style}padding:6px 10px;font-size:13px;border-bottom:1px solid var(--line);">${cell || ""}</td>`;
+          }).join('') + "</tr>";
+        }).join('');
+        
+        pagInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+        prevBtn.disabled = currentPage === 1;
+        nextBtn.disabled = currentPage === totalPages;
+        prevBtn.style.opacity = currentPage === 1 ? "0.5" : "1";
+        nextBtn.style.opacity = currentPage === totalPages ? "0.5" : "1";
+        
+        ths.forEach((th, idx) => {
+          const icon = th.querySelector(".sort-icon");
+          if (idx === sortCol) {
+            icon.textContent = sortAsc ? " ▲" : " ▼";
+            icon.style.color = "var(--ink)";
+          } else {
+            icon.textContent = " ⇅";
+            icon.style.color = "#8a8";
+          }
         });
       }
       
-      const totalPages = Math.max(1, Math.ceil(displayRows.length / pageSize));
-      if (currentPage > totalPages) currentPage = totalPages;
-      if (currentPage < 1) currentPage = 1;
+      prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderTable(); } };
+      nextBtn.onclick = () => { if (currentPage < Math.ceil(allRows.length / pageSize)) { currentPage++; renderTable(); } };
       
-      const start = (currentPage - 1) * pageSize;
-      const end = start + pageSize;
-      const pageRows = displayRows.slice(start, end);
-      
-      tbody.innerHTML = pageRows.map(row => {
-        return "<tr>" + row.map((cell, idx) => {
-          const isNumeric = !isNaN(parseValue(cell, idx)) && cell.trim() !== "" && !/^\d{2}\s[A-Za-z]{3}\s\d{4}$/.test(cell);
-          const style = isNumeric ? 'text-align:right;font-variant-numeric:tabular-nums;' : '';
-          return `<td style="${style}padding:6px 10px;font-size:13px;border-bottom:1px solid var(--line);">${cell}</td>`;
-        }).join('') + "</tr>";
-      }).join('');
-      
-      pagInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-      prevBtn.disabled = currentPage === 1;
-      nextBtn.disabled = currentPage === totalPages;
-      prevBtn.style.opacity = currentPage === 1 ? "0.5" : "1";
-      nextBtn.style.opacity = currentPage === totalPages ? "0.5" : "1";
-      
-      ths.forEach((th, idx) => {
-        const icon = th.querySelector(".sort-icon");
-        if (idx === sortCol) {
-          icon.textContent = sortAsc ? " ▲" : " ▼";
-          icon.style.color = "var(--ink)";
-        } else {
-          icon.textContent = " ⇅";
-          icon.style.color = "#8a8";
-        }
+      ths.forEach(th => {
+        th.onclick = () => {
+          const colIdx = parseInt(th.getAttribute("data-col-index"));
+          if (sortCol === colIdx) {
+            sortAsc = !sortAsc;
+          } else {
+            sortCol = colIdx;
+            sortAsc = true;
+          }
+          renderTable();
+        };
       });
-    }
-    
-    prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderTable(); } };
-    nextBtn.onclick = () => { if (currentPage < Math.ceil(allRows.length / pageSize)) { currentPage++; renderTable(); } };
-    
-    ths.forEach(th => {
-      th.onclick = () => {
-        const colIdx = parseInt(th.getAttribute("data-col-index"));
-        if (sortCol === colIdx) {
-          sortAsc = !sortAsc;
-        } else {
-          sortCol = colIdx;
-          sortAsc = true;
-        }
-        renderTable();
-      };
+      
+      renderTable();
     });
-    
-    renderTable();
-  });
+  } catch (err) {
+    console.error("initDynamicTables error:", err);
+    const errDiv = document.createElement("div");
+    errDiv.style.color = "red";
+    errDiv.style.fontSize = "11px";
+    errDiv.style.marginTop = "8px";
+    errDiv.textContent = "Table JS Error: " + err.message;
+    parent.appendChild(errDiv);
+  }
 }
 
 function add(cls,html,tag){ const d=document.createElement("div"); d.className="msg "+cls;
