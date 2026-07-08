@@ -309,23 +309,47 @@ document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{$("#q").value=c.tex
 
 async function refreshDocuments(){
   try{
-    const r=await fetch("/documents");
+    const r=await fetch("/documents?thread=" + THREAD);
     if(!r.ok)return;
-    const docs=await r.json();
+    const res=await r.json();
+    const docs=res.documents;
+    const activeDoc=res.active_doc_name;
     const list=$("#filelist");
-    if(docs.length>0){
+    if(docs && docs.length>0){
       $("#loaded-files").style.display="block";
-      list.innerHTML=docs.map(d=>`
-        <li style="margin-top:4px;">
-          <strong>${d.bank_name}</strong> (<span class="muted" style="font-size:11.5px;">${d.doc_name}</span>) - <b>${d.txn_count}</b> txns
-          <span class="muted" style="font-size:11.5px;">[${d.from_date || ''} to ${d.to_date || ''}]</span>
-        </li>
-      `).join('');
+      list.innerHTML=docs.map(d=> {
+        const isActive = (d.doc_name === activeDoc);
+        const activeIndicator = isActive ? `<span class="tag SQL" style="margin-left:6px;padding:2px 6px;font-size:10px;">Active</span>` : "";
+        const style = isActive ? "background:var(--cream2);border-radius:6px;padding:6px 10px;margin-bottom:6px;" : "padding:6px 10px;margin-bottom:6px;";
+        return `
+          <li class="loaded-file-item" onclick="selectActiveBank('${d.doc_name}', '${d.bank_name.replace(/'/g, "\\'")}')" 
+              style="${style}cursor:pointer;list-style-type:none;transition:background .2s;border:1px solid var(--line);margin-top:6px;">
+            📁 <strong>${d.bank_name}</strong> <span class="muted" style="font-size:11px;">(${d.doc_name})</span>${activeIndicator}
+            <br/>
+            <span class="muted" style="font-size:11px;margin-left:18px;">${d.txn_count} txns [${d.from_date || ''} to ${d.to_date || ''}]</span>
+          </li>
+        `;
+      }).join('');
     } else {
       $("#loaded-files").style.display="none";
     }
   }catch(e){}
 }
+
+async function selectActiveBank(docName, bankName){
+  try{
+    const r=await fetch("/chat/select_bank",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({doc_name:docName,thread:THREAD})
+    });
+    if(r.ok){
+      refreshDocuments();
+      add("chat", `Switched active scope to **${bankName}**.`);
+    }
+  }catch(e){}
+}
+window.selectActiveBank = selectActiveBank;
 
 // GATE: the chat + transactions stay hidden until a statement has been parsed.
 const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); refreshDocuments(); };
@@ -508,6 +532,7 @@ localStorage.setItem("penny_thread", THREAD);
 $("#newchat").onclick=()=>{
   THREAD=newThreadId(); localStorage.setItem("penny_thread", THREAD);
   $("#chat").innerHTML='<div class="muted">New chat  -  context cleared. Ask away.</div>';
+  refreshDocuments();
   $("#q").focus();
 };
 

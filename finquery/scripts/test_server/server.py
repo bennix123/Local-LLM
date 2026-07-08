@@ -284,11 +284,32 @@ async def ml_categorize(user: str = Depends(get_current_user)):
     return JSONResponse(_ml("cat", lambda: ml.categorizer_report(user)))
 
 @app.get("/documents")
-async def get_documents(user: str = Depends(get_current_user)):
+async def get_documents(request: Request, user: str = Depends(get_current_user)):
     _switch_db(user)
+    tid = (request.query_params.get("thread") or "default")
     from src.services.txn_store.queries import list_user_documents
     docs = list_user_documents(user)
-    return JSONResponse(docs)
+    st = _thread(tid)
+    active_doc = st["ctx"].get("default_doc_name")
+    return JSONResponse({
+        "documents": docs,
+        "active_doc_name": active_doc
+    })
+
+@app.post("/chat/select_bank")
+async def select_bank(request: Request, user: str = Depends(get_current_user)):
+    _switch_db(user)
+    body = await request.json()
+    tid = (body.get("thread") or "default")
+    doc_name = body.get("doc_name")
+    st = _thread(tid)
+    ctx = st["ctx"]
+    # If the bank changed, clear the carried date/metric context to avoid leaks
+    if ctx.get("default_doc_name") != doc_name:
+        for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
+            ctx.pop(k, None)
+    ctx["default_doc_name"] = doc_name
+    return JSONResponse({"status": "ok", "active_doc_name": doc_name})
 
 @app.get("/insights")
 async def insights_endpoint(user: str = Depends(get_current_user)):
@@ -577,6 +598,9 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     if body.get("clarification_response"):
         selected_id = body.get("selected_id")
         resolved_doc_name = None if selected_id == "overall" else selected_id[4:]
+        if ctx.get("default_doc_name") != resolved_doc_name:
+            for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
+                ctx.pop(k, None)
         ctx["default_doc_name"] = resolved_doc_name
     else:
         # Check if query needs a clarification prompt
