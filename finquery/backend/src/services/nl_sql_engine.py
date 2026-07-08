@@ -462,8 +462,8 @@ _DATE_RANGE_RE = re.compile(
 )
 _SINGLE_DATE_RE = re.compile(rf"\b({_DATE_PAT})\b", re.I)
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
-_MON_YEAR_RE = re.compile(rf"\b({_MON_PAT})\s+(20\d{2})\b", re.I)
-_FIRST_WEEK_RE = re.compile(rf"\bfirst\s+week\s+(?:of\s+)?({_MON_PAT})(?:\s+(20\d{2}))?\b", re.I)
+_MON_YEAR_RE = re.compile(rf"\b({_MON_PAT})\s+(20\d{{2}})\b", re.I)
+_FIRST_WEEK_RE = re.compile(rf"\bfirst\s+week\s+(?:of\s+)?({_MON_PAT})(?:\s+(20\d{{2}}))?\b", re.I)
 
 
 def _parse_date_str(s: str) -> Optional[str]:
