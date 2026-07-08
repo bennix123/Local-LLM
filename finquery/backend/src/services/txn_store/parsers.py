@@ -1418,9 +1418,11 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
         con.close()
         return 0
 
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     con.execute("DELETE FROM document_metadata WHERE user_id=? AND doc_name=?", (user_id, doc_name))
-    con.execute("INSERT INTO document_metadata (user_id, doc_name, parse_confidence) VALUES (?, ?, ?)",
-                (user_id, doc_name, confidence))
+    con.execute("INSERT INTO document_metadata (user_id, doc_name, parse_confidence, upload_ts) VALUES (?, ?, ?, ?)",
+                (user_id, doc_name, confidence, now_str))
 
     # Detect reverse-chronological order and reverse the list if needed
     is_rev = False

@@ -71,7 +71,7 @@ def init_db():
     # Migrate document_metadata to include upload_ts
     cols_meta = {r[1] for r in con.execute("PRAGMA table_info(document_metadata)")}
     if "upload_ts" not in cols_meta:
-        con.execute("ALTER TABLE document_metadata ADD COLUMN upload_ts TEXT DEFAULT CURRENT_TIMESTAMP")
+        con.execute("ALTER TABLE document_metadata ADD COLUMN upload_ts TEXT")
         
     con.execute("CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id)")
     con.commit()
