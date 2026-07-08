@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import json
 import sqlite3
@@ -10,7 +10,7 @@ sys.path.insert(0, ROOT)
 
 from src.services.txn_store import queries
 from src.services import txn_store as ts
-from scripts.test_server.server import needs_bank_clarification, is_account_scoped_query
+from scripts.test_server.server import needs_bank_clarification
 
 # Setup test user and database paths
 USER_ID = "test_user_multidoc"
@@ -106,12 +106,12 @@ def run_test_suite():
     assert ob["total"] == 83000.0, "Overall balance should sum 80,000 + 3,000 = 83,000"
     
     # ------------------------------------------------------------------
-    print("\n[TEST 5] Two documents, spending query (Cross-document safe)")
+    print("\n[TEST 5] Two documents, spending query (Trigger clarification)")
     ctx = {}
     doc, payload = needs_bank_clarification(USER_ID, "how much did I spend on food this month?", ctx)
     print(f"  Query: 'how much did I spend on food this month?'")
     print(f"  Outcome: doc_name={doc!r}, clarification_needed={payload is not None}")
-    assert doc is None and payload is None, "Safe spending query should combine across all docs without prompting"
+    assert payload is not None, "Spending query should trigger clarification when multiple banks exist"
     
     # ------------------------------------------------------------------
     print("\n[TEST 6] Clarification round-trip simulation")

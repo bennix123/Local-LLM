@@ -483,10 +483,6 @@ async def chats():
     except Exception:
         return JSONResponse({})
 
-def is_account_scoped_query(q):
-    low = q.lower()
-    return bool(re.search(r"\bbalance\b|in my account|sitting in|summary|overview|net position|net (gain|loss)|snapshot", low))
-
 def needs_bank_clarification(user_id, q, ctx):
     low = q.lower()
     from src.services.txn_store.queries import list_user_documents, overall_balance, latest_balance
@@ -508,12 +504,12 @@ def needs_bank_clarification(user_id, q, ctx):
     if matched_doc:
         return matched_doc, None
         
-    # Check for combine-keywords
-    if any(w in low for w in ("overall", "combined", "all accounts", "all banks", "everything", "across all", "sum of all")):
+    # Check for combine-keywords with word boundaries
+    if any(re.search(rf"\b{w}\b", low) for w in ("overall", "combined", "all accounts", "all banks", "everything", "across all", "sum of all")):
         return None, None
         
-    # Check if account-scoped
-    if not is_account_scoped_query(q):
+    # Check for smalltalk / help / system keywords with word boundaries
+    if any(re.search(rf"\b{w}\b", low) for w in ("help", "hi", "hello", "hey", "who are you", "what can you do", "reset", "clear", "logout", "sign out")):
         return None, None
         
     # Check in-session default
