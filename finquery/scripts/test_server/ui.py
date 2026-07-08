@@ -393,10 +393,14 @@ function mdToHtml(md){
       const tableId = `dyn-table-${tableCounter}`;
       const headerRow = rows[0];
       const dataRows = rows.slice(1);
-      const headers = headerRow.split("|").filter(c=>c.trim()!=="").map(c=>c.trim());
-      const parsedData = dataRows.map(r => {
-        return r.split("|").filter(c=>c.trim()!=="").map(c=>c.trim());
-      });
+      const parseRow = (rowStr) => {
+        let parts = rowStr.split("|");
+        if (parts[0] === "") parts.shift();
+        if (parts[parts.length - 1] === "") parts.pop();
+        return parts.map(c => c.trim());
+      };
+      const headers = parseRow(headerRow);
+      const parsedData = dataRows.map(r => parseRow(r));
       const headersEscaped = encodeURIComponent(JSON.stringify(headers));
       const dataEscaped = encodeURIComponent(JSON.stringify(parsedData));
       
@@ -690,6 +694,7 @@ async function submitClarification(btn, originalQuery){
       if(queue.length){
         full+=queue.shift();
         md.innerHTML=mdToHtml(full);
+        initDynamicTables(md);
         md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
         setTimeout(reveal,18);
       } else if(streamDone){ revealing=false; $("#send").disabled=false; }
@@ -739,6 +744,7 @@ async function ask(){
       if(queue.length){
         full+=queue.shift();
         md.innerHTML=mdToHtml(full);
+        initDynamicTables(md);
         md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
         setTimeout(reveal,18);                       // ~18ms per word -> typewriter
       } else if(streamDone){ revealing=false; $("#send").disabled=false; }
