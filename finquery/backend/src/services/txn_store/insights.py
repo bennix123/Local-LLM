@@ -4,7 +4,7 @@ from .formatters import inr, grp, _mlabel, _mname, _table, _pct
 from .queries import (
     overview, by_month, by_category, top_merchants, subscription_costs,
     top_expenses, income_by_source, category_movers, months_list, _scope,
-    latest_balance
+    latest_balance, DISCRETIONARY
 )
 
 def build_insights(user_id, doc_name=None, period=None):

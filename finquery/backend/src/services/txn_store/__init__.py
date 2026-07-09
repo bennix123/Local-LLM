@@ -16,6 +16,7 @@ from .parsers import (
     MERCHANT_MAP
 )
 from .queries import (
+    reconciliation_rate,
     coverage, overview, latest_balance, by_category, merchant_spend, by_month,
     income_by_source, top_merchants, txn_count, amount_filter, filtered_summary,
     top_expenses, extreme, merchant_category, merchant_dates, list_transactions,

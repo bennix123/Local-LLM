@@ -1,12 +1,13 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
-import re, os, threading
+import re, os, threading, json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from src.services import txn_store as ts
 from .prompts import ROUTER_SYSTEM
 
 USER = "local"
+LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")   # for capability text; server owns the live value
 CHAT_LOG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "chats.json"))
 
 _log_lock = threading.Lock()

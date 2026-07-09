@@ -1,7 +1,9 @@
 import sqlite3, re
+from datetime import datetime
 from .db import connect
-from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct
+from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, MONTHS
 from . import formatters
+from .parsers import MERCHANT_MAP
 
 DISCRETIONARY = {"Shopping", "Entertainment", "Food & Dining", "Other"}
 SUBSCRIPTION_MERCHANTS = {"netflix", "spotify", "jio", "airtel", "tata power", "amazon prime"}
@@ -64,6 +66,30 @@ def _scope(user_id, doc_name, period=None):
         else:
             where += " AND txn_date LIKE ?"; params.append(period + "%")
     return where, params
+
+
+def reconciliation_rate(user_id, doc_name=None):
+    """Parse-quality signal: the % of consecutive rows whose running balance is arithmetically
+    consistent (balance[i] == balance[i-1] + credit - debit, within 1 paisa/penny). 100% means
+    every parsed figure ties out against the statement's own balance column. Rows are read in
+    stored seq order (ingest_pdf writes them oldest-first). Returns {percent, checked, breaks}."""
+    w, p = _scope(user_id, doc_name)
+    con = connect()
+    rows = con.execute(f"SELECT debit, credit, balance FROM transactions WHERE {w} ORDER BY seq", p).fetchall()
+    con.close()
+    checks = breaks = 0
+    prev = None
+    for deb, cr, bal in rows:
+        if bal is None:
+            prev = None
+            continue
+        if prev is not None:
+            checks += 1
+            if abs(bal - (prev + (cr or 0.0) - (deb or 0.0))) > 0.01:
+                breaks += 1
+        prev = bal
+    percent = round(100.0 * (checks - breaks) / checks, 1) if checks else None
+    return {"percent": percent, "checked": checks, "breaks": breaks}
 
 
 def coverage(user_id, doc_name=None):

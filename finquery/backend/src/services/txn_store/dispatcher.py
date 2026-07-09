@@ -1,6 +1,6 @@
 import re, sqlite3
-from .db import connect
-from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, format_money
+from .db import connect, init_db
+from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, format_money, MONTHS
 from . import formatters
 from .parsers import MERCHANT_MAP
 from .queries import (

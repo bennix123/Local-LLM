@@ -6,8 +6,10 @@ from src.services.txn_store import (
     DISCRETIONARY, SUBSCRIPTION_MERCHANTS, advice_facts, inr, grp
 )
 from src.services import ml_insights as ml
+from fastapi.responses import StreamingResponse
+from .prompts import ADVICE_SYSTEM, GROUNDED_ADVICE_SYSTEM
 from .router import (
-    _known_merchants,
+    _known_merchants, FOLLOWUP_SYSTEM,
     _ML_CACHE,
     _RISK_RE, _HEALTH_RE, _CATTREND_RE, _RECUR_RE, _NUM_MULT, _WHICH_MONTHS_RE, _PCT_RE, _BEHAVE_RE, _FCAST_RE, _ANOM_RE, _AMT_RE, _WHY_RE, _CONCEPTS, _MON_RE, _RECUR_DEFER, _PROJ_RE, _IMPACT_RE, _PATTERN_RE,
     _find_categories, _find_merchants, _find_periods, _parse_amount, _parse_period,
@@ -90,6 +92,7 @@ def followup_sql_answer(q, ctx):
 
 def followup_response(q, history, thread="default"):
     """Answer a question ABOUT the recent conversation (e.g. 'what is that number?')."""
+    from .server import _nd, _txt, _append_log
     convo = "\n".join(f"User: {h['q']}\nPenny: {h['a']}" for h in history[-4:])
 
     def gen():
@@ -102,7 +105,7 @@ def followup_response(q, history, thread="default"):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 def advice_response(q, thread="default"):
-    from .server import _append_log, stream_markdown
+    from .server import _append_log, stream_markdown, _nd, _txt
     """Deterministic insights (exact SQL figures) + one grounded LLM sentence."""
     report, grounding = ts.build_insights(ts.USER)
     snapshot, _ = ts.advice_context(ts.USER)
