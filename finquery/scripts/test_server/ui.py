@@ -576,6 +576,7 @@ $("#file").onchange=async e=>{
   $("#dropsub").textContent=j.filename+" loaded";
   $("#stats").innerHTML=`<span class="stat"><b>${j.rows.toLocaleString()}</b> txns${more}</span>
     <span class="stat">parsed in <b>${j.seconds}s</b></span>
+    ${j.parse_percent!=null?`<span class="stat">parse quality <b>${j.parse_percent}%</b></span>`:''}
     <span class="stat">spend <b>${j.spend}</b></span>
     <span class="stat">income <b>${j.income}</b></span>`;
   $("#chat").innerHTML='<div class="muted">Ready. Ask a question or tap a suggestion.</div>';

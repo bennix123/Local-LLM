@@ -4,6 +4,7 @@ import json, os, re, sys, threading, urllib.request, html as _htmlmod
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from src.services import txn_store as ts
 from src.services import ml_insights as ml
 
@@ -59,6 +60,13 @@ def _switch_db(user: str):
     db = get_user_db_path(user)
     ts.DB_PATH = db
     ts.USER = user
+    # ts.USER is exposed via a ModuleType-subclass property that proxies dispatcher.USER, BUT the
+    # package also bound a module-level name `USER` (`from .dispatcher import ... USER`) whose stale
+    # value 'local' shadows the property getter -> ts.USER can read 'local' even after the setter ran.
+    # Advice/analytics read ts.USER (the SQL path passes `user` explicitly and is unaffected), so a
+    # wrong ts.USER made them query user 'local' -> 0 rows -> "no data". Keep the module-dict copy in
+    # sync so every reader of ts.USER agrees with the request's user.
+    ts.__dict__["USER"] = user
     from . import router
     router.USER = user
     ts.init_db()
@@ -326,82 +334,100 @@ async def insights_endpoint(user: str = Depends(get_current_user)):
         "risk": ts.risk_assessment(user),
     })
 
+_UPLOAD_LOCK = threading.Lock()
+
+
+def _upload_worker(user, name, data, is_zip):
+    """Blocking upload pipeline (unzip -> statement-detect -> parse/ingest -> insights). Runs in a
+    worker THREAD (via run_in_threadpool) so a slow parse -- especially the LLM parser cascade,
+    which makes 60-90s blocking calls per chunk on a big/unknown PDF -- never blocks the event loop.
+    Before this, a single large upload froze the whole server (even /app). Serialized by _UPLOAD_LOCK
+    so overlapping uploads can't clobber the shared txn_store globals mid-parse.
+    Returns (status_code, payload_dict)."""
+    import time, zipfile, tempfile, shutil
+    with _UPLOAD_LOCK:
+        _switch_db(user)                 # pin this user's DB right before ingest opens its connection
+        t0 = time.time()
+        pdfs, workdir = [], None         # (path, label) candidates
+        try:
+            if is_zip:
+                workdir = tempfile.mkdtemp(prefix="penny_zip_")
+                zpath = os.path.join(workdir, "u.zip")
+                with open(zpath, "wb") as f:
+                    f.write(data)
+                try:
+                    with zipfile.ZipFile(zpath) as z:
+                        for info in z.infolist():
+                            fn = info.filename
+                            if info.is_dir() or fn.startswith("__MACOSX") or not fn.lower().endswith(".pdf"):
+                                continue
+                            out = os.path.join(workdir, f"{len(pdfs):02d}_{os.path.basename(fn)}")
+                            with z.open(info) as src, open(out, "wb") as dst:
+                                dst.write(src.read())
+                            pdfs.append((out, os.path.basename(fn)))
+                except zipfile.BadZipFile:
+                    return 400, {"error": "That file isn't a valid ZIP archive."}
+                if not pdfs:
+                    return 422, {"error": "No PDF files were found inside the ZIP."}
+            else:
+                out = os.path.join(UPLOAD_DIR, os.path.basename(name) or "statement.pdf")
+                with open(out, "wb") as f:
+                    f.write(data)
+                pdfs.append((out, os.path.basename(name) or "statement.pdf"))
+
+            # keep only the PDFs that actually look like bank statements
+            statements = [(p, lbl) for p, lbl in pdfs if ts.is_statement_pdf(p)]
+            if not statements:
+                msg = (f"No bank statement found in the ZIP (scanned {len(pdfs)} PDF"
+                       f"{'s' if len(pdfs) != 1 else ''})." if is_zip
+                       else "That PDF doesn't look like a bank statement.")
+                return 422, {"error": msg, "scanned": len(pdfs)}
+
+            # multi-document support: do not delete prior transactions globally.
+            # ingest_pdf deletes only rows matching the same document name. Clear this user's threads.
+            for k in list(THREADS.keys()):
+                if k.startswith(user + ":"):
+                    del THREADS[k]
+            _switch_db(user)             # re-pin: statement-detection above doesn't touch the DB, but a
+                                         # concurrent query could have flipped the global db path meanwhile
+            total, parsed = 0, []
+            rec_pass = rec_check = 0
+            for p, lbl in statements:
+                n = ts.ingest_pdf(p, lbl, user)
+                rr = ts.reconciliation_rate(user, lbl)           # parse quality: % of rows that tie out
+                rec_pass += rr["checked"] - rr["breaks"]; rec_check += rr["checked"]
+                total += n
+                parsed.append({"file": lbl, "rows": n, "parse_percent": rr["percent"]})
+        finally:
+            if workdir:
+                shutil.rmtree(workdir, ignore_errors=True)
+
+        dt = time.time() - t0
+        ts.set_currency(ts.detect_currency(user))    # display currency follows the data
+        _reset_vocab()                               # merchant/category vocab follows it too
+        ov = ts.overview(user)
+        try:
+            ts.save_insights(user, ts.compute_insights(user))
+        except Exception as e:
+            print("[insights] compute on upload failed:", e, flush=True)
+        return 200, {
+            "filename": (parsed[0]["file"] if len(parsed) == 1
+                         else f"{len(parsed)} statements from {name}"),
+            "parsed": parsed, "rows": total, "seconds": round(dt, 2), "currency": ts.CURRENCY,
+            "spend": ts.inr(ov["debit"]), "income": ts.inr(ov["credit"]),
+            "parse_percent": round(100.0 * rec_pass / rec_check, 1) if rec_check else None,
+        }
+
+
 @app.post("/upload")
 async def upload(request: Request, user: str = Depends(get_current_user)):
-    """Accept a statement PDF **or a ZIP**. A ZIP is unpacked and scanned for bank-statement
-    PDFs (any non-statement files are ignored); the statement(s) found are parsed. A new
-    upload is a fresh analysis (prior data is replaced)."""
-    _switch_db(user)
-    import time, zipfile, tempfile, shutil
+    """Accept a statement PDF **or a ZIP**. The heavy parse/ingest runs in a worker thread so a
+    large or LLM-parsed document can't freeze the event loop (the server stays responsive)."""
     name = request.query_params.get("name", "upload")
     data = await request.body()
-    t0 = time.time()
     is_zip = data[:2] == b"PK" or name.lower().endswith(".zip")
-
-    pdfs = []          # (path, label) candidates
-    workdir = None
-    try:
-        if is_zip:
-            workdir = tempfile.mkdtemp(prefix="penny_zip_")
-            zpath = os.path.join(workdir, "u.zip")
-            with open(zpath, "wb") as f:
-                f.write(data)
-            try:
-                with zipfile.ZipFile(zpath) as z:
-                    for info in z.infolist():
-                        fn = info.filename
-                        if info.is_dir() or fn.startswith("__MACOSX") or not fn.lower().endswith(".pdf"):
-                            continue
-                        out = os.path.join(workdir, f"{len(pdfs):02d}_{os.path.basename(fn)}")
-                        with z.open(info) as src, open(out, "wb") as dst:
-                            dst.write(src.read())
-                        pdfs.append((out, os.path.basename(fn)))
-            except zipfile.BadZipFile:
-                return JSONResponse({"error": "That file isn't a valid ZIP archive."}, status_code=400)
-            if not pdfs:
-                return JSONResponse({"error": "No PDF files were found inside the ZIP."}, status_code=422)
-        else:
-            out = os.path.join(UPLOAD_DIR, os.path.basename(name) or "statement.pdf")
-            with open(out, "wb") as f:
-                f.write(data)
-            pdfs.append((out, os.path.basename(name) or "statement.pdf"))
-
-        # keep only the PDFs that actually look like bank statements
-        statements = [(p, lbl) for p, lbl in pdfs if ts.is_statement_pdf(p)]
-        if not statements:
-            msg = (f"No bank statement found in the ZIP (scanned {len(pdfs)} PDF"
-                   f"{'s' if len(pdfs) != 1 else ''})." if is_zip
-                   else "That PDF doesn't look like a bank statement.")
-            return JSONResponse({"error": msg, "scanned": len(pdfs)}, status_code=422)
-
-        # multi-document support: do not delete prior transactions globally.
-        # ingest_pdf will delete only the transactions matching the same document name to prevent duplicates.
-        # Clear chat thread state for this user only
-        for k in list(THREADS.keys()):
-            if k.startswith(user + ":"):
-                del THREADS[k]
-        total, parsed = 0, []
-        for p, lbl in statements:
-            n = ts.ingest_pdf(p, lbl, user)
-            total += n; parsed.append({"file": lbl, "rows": n})
-    finally:
-        if workdir:
-            shutil.rmtree(workdir, ignore_errors=True)
-
-    dt = time.time() - t0
-    ts.set_currency(ts.detect_currency(user))      # display currency follows the data
-    _reset_vocab()                                 # merchant/category vocab follows it too
-    ov = ts.overview(user)
-    try:
-        ts.save_insights(user, ts.compute_insights(user))
-    except Exception as e:
-        print("[insights] compute on upload failed:", e, flush=True)
-    return JSONResponse({
-        "filename": (parsed[0]["file"] if len(parsed) == 1
-                     else f"{len(parsed)} statements from {name}"),
-        "parsed": parsed, "rows": total, "seconds": round(dt, 2), "currency": ts.CURRENCY,
-        "spend": ts.inr(ov["debit"]), "income": ts.inr(ov["credit"]),
-    })
+    status, payload = await run_in_threadpool(_upload_worker, user, name, data, is_zip)
+    return JSONResponse(payload, status_code=status)
 
 def _apply_guards(intent, q):
     """Override the LLM where regex is more reliable: period parsing, the
@@ -518,21 +544,42 @@ def is_followup_query(q):
         return True
     return False
 
+# Generic bank / entity / ultra-common words that must NOT, on their own, pin a query to a
+# specific bank. Without this filter the old `bank[:4] in low` prefix-substring wrongly fired:
+# "State Bank of India"[:4]="stat" matched the word "statement"; "Bank of Baroda"[:4]="bank"
+# matched any query that merely mentioned a bank.
+_BANK_STOPWORDS = {
+    "bank", "banking", "of", "the", "and", "co", "ltd", "limited", "pvt", "private",
+    "corporation", "corp", "company", "account", "statement", "india", "national",
+    "plc", "group", "financial", "finance", "inc", "credit", "cooperative",
+    "yes", "no", "new", "all", "for", "how", "what", "show", "my",
+}
+
+def _bank_tokens(name):
+    """Distinctive whole-word tokens of a bank/document name, for matching it inside a query:
+    alphanumeric words >= 3 chars that aren't generic banking or ultra-common English words.
+    'State Bank of India' -> {'state'}, 'Bank of Baroda' -> {'baroda'}, 'HDFC Bank' -> {'hdfc'}."""
+    return {w for w in re.findall(r"[a-z0-9]+", (name or "").lower())
+            if w not in _BANK_STOPWORDS and len(w) >= 3}
+
+
 def needs_bank_clarification(user_id, q, ctx):
     low = q.lower()
     from src.services.txn_store.queries import list_user_documents, overall_balance, latest_balance
-    
+
     docs = list_user_documents(user_id)
     if len(docs) <= 1:
         return None, None
-        
-    # Check if query names a bank explicitly
+
+    # Check if query names a bank explicitly: a full bank-name mention, or any DISTINCTIVE
+    # token (from the bank name or the file name) matched as a WHOLE WORD. Whole-word matching
+    # is what stops "statement" from selecting "State Bank of India".
     matched_doc = None
     for d in docs:
         bank = d["bank_name"].lower()
-        doc = d["doc_name"].lower()
-        doc_base = os.path.splitext(doc)[0]
-        if bank in low or doc_base in low or (len(bank) > 3 and bank[:4] in low):
+        doc_base = os.path.splitext(d["doc_name"].lower())[0]
+        tokens = _bank_tokens(bank) | _bank_tokens(doc_base)
+        if (bank and bank in low) or any(re.search(rf"\b{re.escape(t)}\b", low) for t in tokens):
             matched_doc = d["doc_name"]
             break
             
