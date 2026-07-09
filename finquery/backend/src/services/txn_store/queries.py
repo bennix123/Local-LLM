@@ -411,7 +411,7 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
     base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
     con = connect()
     total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
-    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency {base}
+    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency, category {base}
                            ORDER BY txn_date, seq LIMIT ?""", p + params + [limit]).fetchall()
     con.close()
     return rows, total

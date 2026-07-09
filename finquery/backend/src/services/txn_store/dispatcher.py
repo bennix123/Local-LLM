@@ -79,15 +79,15 @@ def dispatch_intent(intent, user_id, doc_name=None):
         if not rows:
             return f"**No transactions found{who}{sfx}.**"
         body = []
-        for d, bank, mer, descr, deb, cr, curr in rows:
+        for d, bank, mer, descr, deb, cr, curr, cat in rows:
             name = (mer or descr or "").strip() or "-"
             bank_label = bank or "Unknown Bank"
             amt = format_money(deb, curr) if (deb or 0) > 0 else format_money(cr, curr)
-            body.append((_dlabel(d), bank_label, _mname(name[:34]),
+            body.append((_dlabel(d), bank_label, _mname(name[:34]), cat or "Other",
                          amt, "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
         tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
-        return head + "\n\n" + _table(["Date", "Bank", "Merchant", "Amount", "Type"], body) + tail
+        return head + "\n\n" + _table(["Date", "Bank", "Merchant", "Category", "Amount", "Type"], body) + tail
 
     if t == "spend":
         oo = overall_overview(user_id, doc_name, period)
