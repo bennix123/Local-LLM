@@ -1249,7 +1249,19 @@ def _parse_generic_statement_list(pdf_path) -> tuple[list[dict], str]:
     # Layer 1: Rule-based columnar / dateinherited
     print("[cascade] Layer 1 (rule-based) running...")
     columnar = list(_parse_generic_columnar(pdf_path))
+    if columnar:
+        # Self-validation: if > 30% of descriptions are pure numbers, it means columns are misaligned
+        num_descs = sum(1 for r in columnar if r["descr"].strip().isdigit())
+        if (num_descs / len(columnar)) > 0.30:
+            print(f"[cascade] Layer 1 columnar rejected: {num_descs}/{len(columnar)} descriptions are pure numbers (misaligned columns)")
+            columnar = []
+
     inherited = list(_parse_generic_dateinherited(pdf_path))
+    if inherited:
+        num_descs = sum(1 for r in inherited if r["descr"].strip().isdigit())
+        if (num_descs / len(inherited)) > 0.30:
+            print(f"[cascade] Layer 1 dateinherited rejected: {num_descs}/{len(inherited)} descriptions are pure numbers (misaligned columns)")
+            inherited = []
     
     best_l1 = None
     best_l1_breaks = 10**9
