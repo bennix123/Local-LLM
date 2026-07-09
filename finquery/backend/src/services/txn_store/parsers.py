@@ -1365,6 +1365,57 @@ def is_statement_pdf(path):
         return False
 
 
+def categorize_descriptions_with_llm(descriptions: list[str]) -> dict[str, str]:
+    """Uses the local Ollama LLM to classify a batch of transaction descriptions."""
+    valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
+                        "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"]
+    prompt = f"""You are a financial classification assistant. Classify the following transaction descriptions into one of these standard categories:
+{json.dumps(valid_categories)}
+
+Return ONLY a JSON object mapping each description to its category. Do not include markdown code fences, comments, or explanations.
+Example:
+{{
+  "TESCO STORES 2431": "Groceries",
+  "UBER TRIP": "Transport",
+  "DIRECT DEBIT - BRITISH GAS": "Utilities"
+}}
+
+Descriptions to classify:
+{json.dumps(descriptions)}"""
+
+    payload = json.dumps({
+        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
+        "stream": False,
+        "keep_alive": "10m",
+        "options": {"temperature": 0.0, "num_ctx": 2048},
+        "prompt": prompt
+    }).encode("utf-8")
+    
+    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            content = res_data.get("response", "").strip()
+            
+            if "```" in content:
+                first_fence = content.find("```")
+                last_fence = content.rfind("```")
+                if first_fence != last_fence:
+                    content = content[first_fence:last_fence]
+                    content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
+            
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1:
+                content = content[start:end+1]
+                
+            return json.loads(content)
+    except Exception as e:
+        print(f"[categorizer] LLM classification failed: {e}")
+        return {}
+
+
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     """Parse a statement PDF into SQLite (auto-detecting Barclays vs the row format).
     Returns count of rows ingested and sets the active display currency to the data."""
@@ -1417,6 +1468,33 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     if not txns:
         con.close()
         return 0
+
+    # Batch classify "Other" categories using local LLM
+    other_descriptions = list({t["descr"] for t in txns if t.get("category") == "Other"})
+    if other_descriptions:
+        print(f"[categorizer] Found {len(other_descriptions)} unique descriptions with category 'Other'. Running LLM categorization...")
+        batch_size = 50
+        categorized_map = {}
+        for i in range(0, len(other_descriptions), batch_size):
+            chunk = other_descriptions[i:i+batch_size]
+            try:
+                mapping = categorize_descriptions_with_llm(chunk)
+                if mapping:
+                    categorized_map.update(mapping)
+            except Exception as e:
+                print(f"[categorizer] Batch classification failed for chunk {i}: {e}")
+        
+        valid_categories = {"Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
+                            "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"}
+        cat_lower_map = {c.lower(): c for c in valid_categories}
+        
+        for t in txns:
+            if t.get("category") == "Other" and t["descr"] in categorized_map:
+                cat = categorized_map[t["descr"]]
+                if isinstance(cat, str):
+                    norm_cat = cat_lower_map.get(cat.strip().lower())
+                    if norm_cat:
+                        t["category"] = norm_cat
 
     import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
