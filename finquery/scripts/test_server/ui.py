@@ -360,10 +360,16 @@ async function selectActiveBank(docName, bankName){
       body:JSON.stringify({doc_name:docName,thread:THREAD})
     });
     if(r.ok){
+      const res = await r.json();
       reveal();
       loadTxns(true);
       refreshDocuments();
-      add("chat", `Switched active scope to **${bankName}**.`);
+      if(res.active_doc_name && res.active_doc_name.length > 0){
+        // Format the active doc names for the user
+        add("chat", `Active statement scope updated. Current active statements count: **${res.active_doc_name.length}**.`);
+      } else {
+        add("chat", `Cleared statement filter. Querying across **all uploaded statements**.`);
+      }
     }
   }catch(e){}
 }
@@ -373,7 +379,7 @@ window.selectActiveBank = selectActiveBank;
 const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); refreshDocuments(); };
 const gate=()=>{ $("#chatcard").classList.add("hidden"); $("#txncard").classList.add("hidden"); };
 (async()=>{ try{
-  const s=await (await fetch("/status")).json();
+  const s=await (await fetch("/status?thread=" + THREAD)).json();
   if(s.rows>0){
     $("#stats").innerHTML=`<span class="stat"><b>${s.rows.toLocaleString()}</b> txns loaded</span>
       <span class="stat">spend <b>${s.spend}</b></span><span class="stat">income <b>${s.income}</b></span>`;
@@ -614,7 +620,7 @@ $("#plaidbtn").onclick=async()=>{
   }catch(err){
     $("#drop").classList.remove("busy"); btn.disabled=false;
     setnote("Warning:  "+err.message);
-    try{ const s=await (await fetch("/status")).json(); if(s.rows>0) reveal(); }catch(_){}
+    try{ const s=await (await fetch("/status?thread=" + THREAD)).json(); if(s.rows>0) reveal(); }catch(_){}
   }
 };
 const TAG={SQL:"SQL",chat:"chat",advice:"RAG"};
@@ -840,7 +846,7 @@ function doLogout(){
 // ---- Transactions: filterable table over /transactions (numbers from SQL) -----
 let tOffset=0; const tLimit=50; let tTotal=0;
 function tparams(){
-  const p=new URLSearchParams(); p.set("offset",tOffset); p.set("limit",tLimit);
+  const p=new URLSearchParams(); p.set("offset",tOffset); p.set("limit",tLimit); p.set("thread", THREAD);
   const q=$("#tq").value.trim(); if(q)p.set("q",q);
   const dir=$("#tdir").value; if(dir)p.set("dir",dir);
   if($("#tstart").value)p.set("start",$("#tstart").value);

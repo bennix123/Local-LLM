@@ -1107,6 +1107,14 @@ def _save_ctx(ctx, intent):
     for k in ("type", "start", "end", "category", "merchant", "txn_type"):
         ctx[k] = intent.get(k, "")
     ctx["n"] = intent.get("n", 0)
+    new_entity = ctx.get("merchant") or ctx.get("category")
+    if new_entity:
+        prev = list(ctx.get("prev_entities") or [])
+        if not prev or prev[-1] != new_entity:
+            prev.append(new_entity)
+            if len(prev) > 5:
+                prev.pop(0)
+            ctx["prev_entities"] = prev
 
 @dataclass
 class ConversationState:
@@ -1319,6 +1327,23 @@ def _resolve_conversation(q, state):
     # nothing carried -> passthrough (single-turn suites unaffected)
     if not carry_entity and not carry_start:
         return out
+
+    # ---- comparison follow-up: "compare both" or "compare them" ----
+    if re.search(r"\bcompare (?:both|them)\b", low):
+        unique_prev = []
+        for ent in reversed(state.prev_entities):
+            if ent and ent not in unique_prev:
+                unique_prev.append(ent)
+                if len(unique_prev) == 2:
+                    break
+        if len(unique_prev) >= 2:
+            entity1, entity2 = unique_prev[1], unique_prev[0]
+            ph = "" if own_period else _period_phrase(carry_start, carry_end)
+            out["resolved"] = (f"compare {entity1} vs {entity2}" + (f" {ph}" if ph else "")).strip()
+            out["changed"] = True
+            out["signals"] = [f"compare-both:{entity1}|{entity2}"]
+            out["scope"]["comparison"] = [entity1, entity2]
+            return out
 
     # ---- comparison follow-up: "compare with swiggy" / "vs amazon" ----
     if _CMP_WORD_RE.search(low) and carry_entity and n_ents == 1:

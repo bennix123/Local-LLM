@@ -2,7 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
 import json, os, re, sys, threading, urllib.request, html as _htmlmod
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from src.services import txn_store as ts
@@ -146,7 +146,7 @@ def llm_route(question, history=None):
     history = history or []
     # context = the last couple of REAL exchanges (skip placeholder answers like
     # "(answered from conversation)") so elliptical follow-ups reuse the right intent.
-    real = [h for h in history if not h["a"].startswith("(")][-2:]
+    real = [h for h in history if not h["a"].startswith("(")][-5:]
     if real:
         ctx = "\n".join(f"Q: {h['q']}\nA: {h['a']}" for h in real)
         user = f"[Recent conversation:\n{ctx}]\n\nNew message: {question}"
@@ -168,6 +168,10 @@ def llm_route(question, history=None):
         print(f"[router] LLM unavailable: {e}")
         return None
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     """Root: serve the login page. The JS redirects to /app if already authed."""
@@ -178,62 +182,74 @@ async def app_page():
     """Main Penny UI — auth is enforced by the frontend JWT check."""
     return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
 
+def _get_active_doc(thread: str = "default"):
+    st = THREADS.get(thread)
+    if st:
+        return st["ctx"].get("default_doc_name")
+    return None
+
 @app.get("/status")
-async def status(user: str = Depends(get_current_user)):
+async def status(request: Request, user: str = Depends(get_current_user)):
     """Lets the page detect data already in the DB on load (so the input works
     without re-uploading after a refresh/restart)."""
     _switch_db(user)
-    o = ts.overview(user)
+    tid = request.query_params.get("thread", "default")
+    doc_name = _get_active_doc(tid)
+    o = ts.overview(user, doc_name)
     return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
                          "income": ts.inr(o["credit"])})
 
 @app.get("/dashboard")
-async def dashboard(user: str = Depends(get_current_user)):
+async def dashboard(request: Request, user: str = Depends(get_current_user)):
     """Structured figures for the Penny Today / Patterns / Bills views.
     Amounts are signed: spend negative, income positive (the UI styles by sign).
     Every number is straight from SQL."""
     _switch_db(user)
-    o = ts.overview(user)
+    tid = request.query_params.get("thread", "default")
+    doc_name = _get_active_doc(tid)
+    o = ts.overview(user, doc_name)
     if o["count"] == 0:
         return JSONResponse({"ready": False})
     con = ts.connect()
+    from src.services.txn_store.queries import _scope
+    w, params = _scope(user, doc_name)
     cats = [{"name": r[0], "amount": r[1], "count": r[2]} for r in con.execute(
-        "SELECT category,SUM(debit),COUNT(*) FROM transactions "
-        "WHERE user_id=? AND debit>0 GROUP BY category ORDER BY 2 DESC", (user,))]
+        f"SELECT category,SUM(debit),COUNT(*) FROM transactions "
+        f"WHERE {w} AND debit>0 GROUP BY category ORDER BY 2 DESC", params)]
     months = [{"ym": r[0], "spending": r[1], "income": r[2]} for r in con.execute(
-        "SELECT month,SUM(debit),SUM(credit) FROM transactions "
-        "WHERE user_id=? GROUP BY month ORDER BY month", (user,))]
+        f"SELECT month,SUM(debit),SUM(credit) FROM transactions "
+        f"WHERE {w} GROUP BY month ORDER BY month", params)]
     recent = [{"date": _fmt_date(r[0]), "payee": r[1], "category": r[2],
                "amount": (r[4] - r[3])} for r in con.execute(
-        "SELECT txn_date,merchant,category,debit,credit FROM transactions "
-        "WHERE user_id=? ORDER BY seq DESC LIMIT 12", (user,))]
-    lg = con.execute("SELECT txn_date,merchant,debit FROM transactions "
-                     "WHERE user_id=? AND debit>0 ORDER BY debit DESC LIMIT 1", (user,)).fetchone()
+        f"SELECT txn_date,merchant,category,debit,credit FROM transactions "
+        f"WHERE {w} ORDER BY seq DESC LIMIT 12", params)]
+    lg = con.execute(f"SELECT txn_date,merchant,debit FROM transactions "
+                     f"WHERE {w} AND debit>0 ORDER BY debit DESC LIMIT 1", params).fetchone()
     largest = {"date": _fmt_date(lg[0]), "payee": lg[1], "amount": lg[2]} if lg else None
     payees = [{"name": r[0], "amount": r[1]} for r in con.execute(
-        "SELECT merchant,SUM(debit) FROM transactions WHERE user_id=? AND debit>0 "
-        "GROUP BY merchant ORDER BY 2 DESC LIMIT 6", (user,))]
+        f"SELECT merchant,SUM(debit) FROM transactions WHERE {w} AND debit>0 "
+        f"GROUP BY merchant ORDER BY 2 DESC LIMIT 6", params)]
     subs = []
     subset = sorted(ts.SUBSCRIPTION_MERCHANTS)
     if subset:
         qs = ",".join("?" * len(subset))
         for r in con.execute(
             f"SELECT merchant,COUNT(*),SUM(debit),MAX(txn_date) FROM transactions "
-            f"WHERE user_id=? AND debit>0 AND merchant IN ({qs}) "
-            f"GROUP BY merchant ORDER BY 3 DESC", (user, *subset)):
+            f"WHERE {w} AND debit>0 AND merchant IN ({qs}) "
+            f"GROUP BY merchant ORDER BY 3 DESC", (*params, *subset)):
             subs.append({"name": r[0], "count": r[1], "total": r[2], "last": _fmt_date(r[3])})
     con.close()
     return JSONResponse({
         "ready": True, "currency": ts.CURRENCY,
         "totals": {"spending": o["debit"], "income": o["credit"],
                    "net": o["credit"] - o["debit"], "count": o["count"]},
-        "balance": ts.latest_balance(user),
+        "balance": ts.latest_balance(user, doc_name),
         "categories": cats, "months": months, "recent": recent,
         "largest": largest, "topPayees": payees, "subscriptions": subs,
     })
 
 @app.get("/transactions")
-async def transactions(offset: int = 0, limit: int = 50, q: str = "",
+async def transactions(request: Request, offset: int = 0, limit: int = 50, q: str = "",
                        start: str = "", end: str = "", minamt: float = 0.0,
                        maxamt: float = 0.0, dir: str = "",
                        user: str = Depends(get_current_user)):
@@ -242,7 +258,10 @@ async def transactions(offset: int = 0, limit: int = 50, q: str = "",
     and direction (dir = 'in' | 'out')."""
     _switch_db(user)
     con = ts.connect()
-    where, params = "user_id=?", [user]
+    tid = request.query_params.get("thread", "default")
+    doc_name = _get_active_doc(tid)
+    from src.services.txn_store.queries import _scope
+    where, params = _scope(user, doc_name)
     if q:
         where += " AND (LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ? OR LOWER(category) LIKE ?)"
         like = f"%{q.lower()}%"; params += [like, like, like]
@@ -312,16 +331,29 @@ async def select_bank(request: Request, user: str = Depends(get_current_user)):
     doc_name = body.get("doc_name")
     st = _thread(tid)
     ctx = st["ctx"]
-    # If the bank changed, clear the carried date/metric context to avoid leaks
-    if ctx.get("default_doc_name") != doc_name:
-        for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
-            ctx.pop(k, None)
-    ctx["default_doc_name"] = doc_name
-    if doc_name:
-        ctx["pinned_doc_name"] = doc_name
+    
+    current_docs = ctx.get("default_doc_name")
+    if isinstance(current_docs, list):
+        docs_list = list(current_docs)
+    elif isinstance(current_docs, str):
+        docs_list = [current_docs]
     else:
+        docs_list = []
+
+    if doc_name:
+        if doc_name in docs_list:
+            docs_list.remove(doc_name)
+        else:
+            docs_list.append(doc_name)
+
+    if docs_list:
+        ctx["default_doc_name"] = docs_list
+        ctx["pinned_doc_name"] = docs_list
+    else:
+        ctx["default_doc_name"] = None
         ctx.pop("pinned_doc_name", None)
-    return JSONResponse({"status": "ok", "active_doc_name": doc_name})
+        
+    return JSONResponse({"status": "ok", "active_doc_name": ctx["default_doc_name"]})
 
 @app.get("/insights")
 async def insights_endpoint(user: str = Depends(get_current_user)):
@@ -595,9 +627,15 @@ def needs_bank_clarification(user_id, q, ctx):
         return None, None
         
     # Check in-session default
-    if "default_doc_name" in ctx:
-        if any(d["doc_name"] == ctx["default_doc_name"] for d in docs):
-            return ctx["default_doc_name"], None
+    active = ctx.get("default_doc_name")
+    if active:
+        if isinstance(active, list):
+            doc_names = {d["doc_name"] for d in docs}
+            if all(name in doc_names for name in active):
+                return active, None
+        else:
+            if any(d["doc_name"] == active for d in docs):
+                return active, None
             
     # Ambiguous! Build clarification payload
     options = []

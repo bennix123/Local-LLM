@@ -18,8 +18,7 @@ def _scope(user_id, doc_name, period=None):
     """
     where = "user_id=?"
     params = [user_id]
-    
-    target_doc = doc_name
+    target_doc = doc_name if doc_name is not None else ACTIVE_DOC_NAME
     
     if target_doc:
         if isinstance(target_doc, list):

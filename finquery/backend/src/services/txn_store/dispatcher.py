@@ -91,8 +91,8 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t == "spend":
         oo = overall_overview(user_id, doc_name, period)
-        if oo["mixed_currency"]:
-            lines = [f"**Total spending{sfx} (mixed currencies):**"]
+        if len(oo["breakdown"]) > 1:
+            lines = [f"**Total spending{sfx}:** {inr(oo['debit'])} across {grp(oo['count'])} transactions"]
             for b in oo["breakdown"]:
                 dc = txn_count(user_id, "debit", b["doc_name"], period)
                 cc = txn_count(user_id, "credit", b["doc_name"], period)
@@ -112,10 +112,11 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t == "income":
         oo = overall_overview(user_id, doc_name, period)
-        if oo["mixed_currency"]:
-            lines = [f"**Total income{sfx} (mixed currencies):**"]
+        if len(oo["breakdown"]) > 1:
+            lines = [f"**Total income{sfx}:** {inr(oo['credit'])} across {grp(oo['count'])} transactions"]
             for b in oo["breakdown"]:
-                lines.append(f"  - **{b['bank_name']}**: {format_money(b['credit'], b['currency'])}")
+                cc = txn_count(user_id, "credit", b["doc_name"], period)
+                lines.append(f"  - **{b['bank_name']}**: {format_money(b['credit'], b['currency'])} across {grp(cc)} transactions")
             return "\n".join(lines)
         else:
             o = overview(user_id, doc_name, period)
@@ -123,8 +124,8 @@ def dispatch_intent(intent, user_id, doc_name=None):
 
     if t == "summary":
         oo = overall_overview(user_id, doc_name, period)
-        if oo["mixed_currency"]:
-            lines = [f"**Account summary{sfx} (mixed currencies):**"]
+        if len(oo["breakdown"]) > 1:
+            lines = [f"**Account summary{sfx}:**"]
             for b in oo["breakdown"]:
                 bal = latest_balance(user_id, b["doc_name"], period)
                 bal_str = format_money(bal, b["currency"]) if bal is not None else "-"
