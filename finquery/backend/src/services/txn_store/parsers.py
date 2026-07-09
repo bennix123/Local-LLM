@@ -4,6 +4,7 @@ from .formatters import set_currency, _money, inr, grp
 from . import formatters
 
 MERCHANT_MAP = {
+    "swiggyinstamart": ("Swiggy Instamart", "Groceries"),
     "swiggy": ("Swiggy", "Food & Dining"), "zomato": ("Zomato", "Food & Dining"),
     "amazon": ("Amazon", "Shopping"), "flipkart": ("Flipkart", "Shopping"),
     "myntra": ("Myntra", "Shopping"), "bigbasket": ("BigBasket", "Groceries"),
@@ -18,7 +19,12 @@ MERCHANT_MAP = {
     "axis_bank_car_loan": ("Axis Bank Car Loan", "Investment & Insurance"),
     "salary": ("Salary Credit", "Income"), "interest": ("Interest Earned", "Income"),
     "refund": ("Refund", "Income"),
+    "ekart": ("Ekart Logistics", "Shopping"),
+    "vyapar": ("Vyapar Merchant", "Shopping"),
+    "google": ("Google", "Utilities"),
+    "paytm": ("Paytm", "Shopping"),
 }
+
 
 ROW_RE = re.compile(
     r"^(\d{2}-\d{2}-\d{4})\s{2,}(\S.*?)\s{2,}(DR|CR)\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s*$"
@@ -40,8 +46,14 @@ def _classify(descr):
     # fall back to the slug between the first two slashes: TYPE/MERCHANT/REF
     parts = descr.split("/")
     if len(parts) >= 2:
+        # Check if this is a UPI transaction with format UPI/DR/RRN/NAME/BANK/VPA
+        if parts[0].lower() == "upi" and parts[1].lower() in ("dr", "cr") and len(parts) >= 4:
+            candidate = parts[3].strip()
+            if candidate:
+                return candidate, "Other"
         return parts[1].replace("_", " ").strip(), "Other"
     return descr.strip()[:40], "Other"
+
 
 
 def parse_pdf(pdf_path):
@@ -1377,19 +1389,19 @@ def is_statement_pdf(path):
         return False
 
 
-def categorize_descriptions_with_llm(descriptions: list[str]) -> dict[str, str]:
-    """Uses the local Ollama LLM to classify a batch of transaction descriptions."""
+def categorize_descriptions_with_llm(descriptions: list[str]) -> dict[str, dict]:
+    """Uses the local Ollama LLM to extract clean merchant names and classify categories for a batch of transaction descriptions."""
     valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
                         "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"]
-    prompt = f"""You are a financial classification assistant. Classify the following transaction descriptions into one of these standard categories:
+    prompt = f"""You are a financial assistant. For each of the following transaction descriptions, extract the clean merchant/payee name (ignoring transaction types like DR/CR, reference numbers, VPA/handles, or UPI tags) and classify it into one of these standard categories:
 {json.dumps(valid_categories)}
 
-Return ONLY a JSON object mapping each description to its category. Do not include markdown code fences, comments, or explanations.
+Return ONLY a JSON object mapping each description to an object containing "merchant" and "category". Do not include markdown code fences, comments, or explanations.
 Example:
 {{
-  "TESCO STORES 2431": "Groceries",
-  "UBER TRIP": "Transport",
-  "DIRECT DEBIT - BRITISH GAS": "Utilities"
+  "TESCO STORES 2431": {{"merchant": "Tesco", "category": "Groceries"}},
+  "UPI/DR/124528964427/SWIGGY I/UTIB/swiggyinstamart/": {{"merchant": "Swiggy Instamart", "category": "Groceries"}},
+  "JioHotstar UPI/JioHotstar/HOTSTARONLINE@/Subscripti/YES BANK": {{"merchant": "JioHotstar", "category": "Entertainment"}}
 }}
 
 Descriptions to classify:
@@ -1426,6 +1438,7 @@ Descriptions to classify:
     except Exception as e:
         print(f"[categorizer] LLM classification failed: {e}")
         return {}
+
 
 
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
@@ -1501,12 +1514,24 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
         cat_lower_map = {c.lower(): c for c in valid_categories}
         
         for t in txns:
-            if t.get("category") == "Other" and t["descr"] in categorized_map:
-                cat = categorized_map[t["descr"]]
-                if isinstance(cat, str):
-                    norm_cat = cat_lower_map.get(cat.strip().lower())
+            if t["descr"] in categorized_map:
+                val = categorized_map[t["descr"]]
+                if isinstance(val, dict):
+                    cat = val.get("category")
+                    mer = val.get("merchant")
+                    if isinstance(cat, str):
+                        norm_cat = cat_lower_map.get(cat.strip().lower())
+                        if norm_cat:
+                            t["category"] = norm_cat
+                    if isinstance(mer, str) and mer.strip():
+                        # Overwrite merchant if it was poorly parsed (like DR/CR, empty, or fallback raw slice)
+                        if t.get("merchant") in ("DR", "CR", "") or t.get("merchant") == t["descr"][:40]:
+                            t["merchant"] = mer.strip()
+                elif isinstance(val, str):
+                    norm_cat = cat_lower_map.get(val.strip().lower())
                     if norm_cat:
                         t["category"] = norm_cat
+
 
     import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
