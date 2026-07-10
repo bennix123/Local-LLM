@@ -33,7 +33,11 @@ function Dashboard() {
       const data = await listDocuments();
       setDocuments(data.documents || []);
       if (data.active_doc_name) {
-        setSelectedDocs([data.active_doc_name]);
+        if (Array.isArray(data.active_doc_name)) {
+          setSelectedDocs(data.active_doc_name);
+        } else {
+          setSelectedDocs([data.active_doc_name]);
+        }
       }
     } catch (error) {
       console.error('Error fetching documents:', error);

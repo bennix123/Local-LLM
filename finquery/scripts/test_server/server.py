@@ -744,9 +744,19 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     from src.services.txn_store import queries
     resolved_doc_name = None
     if "document_names" in body:
-        resolved_doc_name = body.get("document_names")
-        if isinstance(resolved_doc_name, list) and len(resolved_doc_name) == 0:
-            resolved_doc_name = None
+        doc_names = body.get("document_names")
+        if isinstance(doc_names, list):
+            flat = []
+            for item in doc_names:
+                if isinstance(item, list):
+                    flat.extend(item)
+                else:
+                    flat.append(item)
+            resolved_doc_name = [d for d in flat if d]
+            if len(resolved_doc_name) == 0:
+                resolved_doc_name = None
+        else:
+            resolved_doc_name = doc_names
     elif body.get("clarification_response"):
         selected_ids = body.get("selected_ids") or []
         if "overall" in selected_ids:
