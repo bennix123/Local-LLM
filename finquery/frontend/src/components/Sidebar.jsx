@@ -50,7 +50,8 @@ const Sidebar = ({
   };
 
   // Helper to get matching icon based on document name
-  const getDocIcon = (name) => {
+  const getDocIcon = (doc) => {
+    const name = doc?.doc_name || doc?.bank_name || (typeof doc === 'string' ? doc : '');
     const n = name.toLowerCase();
     if (n.includes('amex') || n.includes('credit') || n.includes('card')) return '💳';
     if (n.includes('vanguard') || n.includes('stock') || n.includes('t212') || n.includes('trade')) return '📈';
@@ -94,17 +95,22 @@ const Sidebar = ({
       <div className="sbs">
         <div className="sbh">accounts</div>
         <div className="acls">
-          {documents.map((doc, idx) => (
-            <div 
-              key={idx} 
-              className={`acrow ${activeDoc === doc ? 'on' : ''}`}
-              onClick={() => onSelectDoc(doc)}
-              style={{ background: activeDoc === doc ? 'rgba(0,0,0,0.1)' : '' }}
-            >
-              <div className="acri">{getDocIcon(doc)}</div>
-              <div className="acrn">{doc}</div>
-            </div>
-          ))}
+          {documents.map((doc, idx) => {
+            const docName = doc?.doc_name || (typeof doc === 'string' ? doc : `Statement ${idx}`);
+            return (
+              <div 
+                key={idx} 
+                className={`acrow ${activeDoc === docName ? 'on' : ''}`}
+                onClick={() => onSelectDoc(docName)}
+                style={{ background: activeDoc === docName ? 'rgba(0,0,0,0.1)' : '' }}
+              >
+                <div className="acri">{getDocIcon(doc)}</div>
+                <div className="acrn" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {docName}
+                </div>
+              </div>
+            );
+          })}
           <div 
             className="acrow" 
             style={{ color: 'var(--dim)', justifyContent: 'center', fontSize: '10.5px', paddingTop: '6px', cursor: isUploading ? 'not-allowed' : 'pointer' }}
