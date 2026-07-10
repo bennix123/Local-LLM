@@ -111,6 +111,9 @@ const Register = () => {
             Already have an account?{' '}
             <Link to="/login">Sign in</Link>
           </p>
+          <p style={{ marginTop: '0.75rem' }}>
+            <Link to="/" style={{ color: 'var(--dim)', fontSize: '0.85rem' }}>← Back to Onboarding</Link>
+          </p>
         </div>
       </div>
     </div>
