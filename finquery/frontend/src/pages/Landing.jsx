@@ -81,6 +81,7 @@ const Landing = () => {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('Alex');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { loginUser } = useAuth();
   const [selectedAccts, setSelectedAccts] = useState([]);
@@ -364,14 +365,35 @@ const Landing = () => {
                 />
                 
                 <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--ink)' }}>Password</label>
-                <input 
-                  className="ni" 
-                  type="password" 
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••" 
-                  style={{ width: '100%' }}
-                />
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <input 
+                    className="ni" 
+                    type={showPassword ? "text" : "password"} 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••" 
+                    style={{ width: '100%', paddingRight: '55px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: 'var(--dim)',
+                      fontWeight: '700',
+                      userSelect: 'none'
+                    }}
+                  >
+                    {showPassword ? "HIDE" : "SHOW"}
+                  </button>
+                </div>
               </div>
 
               <div className="nh" style={{ marginTop: '16px' }}>📌 stays on this Mac · never shared</div>
