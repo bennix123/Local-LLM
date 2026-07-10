@@ -743,7 +743,11 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     # ---- AMBIGUITY / CLARIFICATION RESOLUTION ----
     from src.services.txn_store import queries
     resolved_doc_name = None
-    if body.get("clarification_response"):
+    if "document_names" in body:
+        resolved_doc_name = body.get("document_names")
+        if isinstance(resolved_doc_name, list) and len(resolved_doc_name) == 0:
+            resolved_doc_name = None
+    elif body.get("clarification_response"):
         selected_ids = body.get("selected_ids") or []
         if "overall" in selected_ids:
             resolved_doc_name = None
@@ -774,6 +778,9 @@ async def query(request: Request, user: str = Depends(get_current_user)):
 
     # Bind the resolved doc name context globally for this query execution thread
     queries.ACTIVE_DOC_NAME = resolved_doc_name
+    from src.services.txn_store.parsers import detect_currency
+    target_for_cur = resolved_doc_name[0] if isinstance(resolved_doc_name, list) and len(resolved_doc_name) > 0 else (resolved_doc_name if not isinstance(resolved_doc_name, list) else None)
+    ts.set_currency(detect_currency(user, target_for_cur))
 
     # Punctuation-only / no-letters input ("...", "???", "!!!") can never be a real
     # question -> short nudge, never the insights dump. (αñÇ-αÑ┐ = Devanagari,
