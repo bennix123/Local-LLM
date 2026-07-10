@@ -1,19 +1,37 @@
 name: Build macOS
 
+# Builds the macOS DMG on real macOS runners. The native deps (chromadb's Rust
+# binding, onnxruntime) only resolve to the correct darwin-<arch> binaries when
+# `npm ci` runs ON that arch, so we build each arch on its own runner instead of
+# cross-building both on one machine (which would ship the wrong binding).
+#
+# Run it on demand from the Actions tab (workflow_dispatch), or automatically by
+# pushing a version tag (git tag v1.0.0 && git push --tags).
+
 on:
+  workflow_dispatch: {}
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
+  contents: write        # needed to attach the DMGs to a Release on tag builds
 
 jobs:
-  macos:
-    runs-on: macos-latest
+  build:
+    name: Build ${{ matrix.arch }} DMG
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon -> arm64
+            arch: arm64
+          - runner: macos-13   # Intel        -> x64
+            arch: x64
+    runs-on: ${{ matrix.runner }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -21,10 +39,43 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Dependencies
+      # npm ci on THIS runner installs the matching darwin-${{ matrix.arch }} native
+      # bindings (chromadb-js-bindings, onnxruntime) — the whole reason we can't build
+      # this DMG on Windows.
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build macOS DMG
+      - name: Build ${{ matrix.arch }} DMG (unsigned)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac --publish always
+          # No Apple signing cert on CI -> build unsigned so it doesn't fail trying to sign.
+          # To SIGN + NOTARIZE instead: add these repo secrets and remove this line —
+          #   CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+          # (electron-builder picks them up automatically).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  # On a tag push, collect both DMGs and attach them to a GitHub Release.
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built DMGs
+        uses: actions/download-artifact@v4
+        with:
+          path: dmgs
+          merge-multiple: true
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dmgs/*.dmg
+          fail_on_unmatched_files: true
