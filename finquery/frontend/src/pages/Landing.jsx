@@ -404,6 +404,13 @@ const Landing = () => {
                     <div className="and">Marcus, Chase...</div>
                   </div>
                 </div>
+                <div className={`ac ${selectedAccts.includes('isa') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('isa')}>
+                  <div className="ai">🛡️</div>
+                  <div className="an">
+                    <div className="ann">Cash ISA</div>
+                    <div className="and">Monzo ISA, Vanguard...</div>
+                  </div>
+                </div>
                 <div className={`ac ${selectedAccts.includes('stocks') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('stocks')}>
                   <div className="ai">📈</div>
                   <div className="an">
@@ -411,9 +418,34 @@ const Landing = () => {
                     <div className="and">T212, Vanguard, HL...</div>
                   </div>
                 </div>
+                <div className={`ac ${selectedAccts.includes('crypto') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('crypto')}>
+                  <div className="ai">🪙</div>
+                  <div className="an">
+                    <div className="ann">Crypto wallet</div>
+                    <div className="and">Coinbase, Kraken...</div>
+                  </div>
+                </div>
               </div>
 
-              <div className="sec">Other</div>
+              <div className="sec">Long-term wealth</div>
+              <div className="ag">
+                <div className={`ac ${selectedAccts.includes('pension') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('pension')}>
+                  <div className="ai">🏛</div>
+                  <div className="an">
+                    <div className="ann">Pension</div>
+                    <div className="and">Nest, PenFold, workplace...</div>
+                  </div>
+                </div>
+                <div className={`ac ${selectedAccts.includes('property') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('property')}>
+                  <div className="ai">🏠</div>
+                  <div className="an">
+                    <div className="ann">Property / mortgage</div>
+                    <div className="and">Home equity, loans...</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="sec">Business</div>
               <div className="ag">
                 <div className={`ac ${selectedAccts.includes('business') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('business')}>
                   <div className="ai">💼</div>
@@ -422,6 +454,10 @@ const Landing = () => {
                     <div className="and">Tide, Starling Biz...</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="sec">Other</div>
+              <div className="ag">
                 <div className={`ac ${selectedAccts.includes('other') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('other')}>
                   <div className="ai">+</div>
                   <div className="an">
