@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-// Use environment variable for API URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Always use the same origin as the page — works on any port (5667, 3000, tunnel, etc.)
+// NEVER hardcode localhost:8000
+const API_BASE_URL = '';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -10,36 +11,18 @@ const api = axios.create({
   },
 });
 
-// Add token to requests if it exists
+// Add token to requests if one exists in localStorage (optional auth)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Handle 401 errors (token expired)
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
-
 // Auth endpoints
-export const register = async (email, password) => {
-  const response = await api.post('/register', { email, password });
-  return response.data;
-};
-
-export const login = async (email, password) => {
-  const response = await api.post('/login', { email, password });
+export const login = async (username, password) => {
+  const response = await api.post('/login', { username, password });
   return response.data;
 };
 
@@ -48,26 +31,28 @@ export const getCurrentUser = async () => {
   return response.data;
 };
 
-// Upload document
+// Upload a bank statement (CSV / PDF / ZIP)
 export const uploadDocument = async (file) => {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await api.post('/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+  const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
+  const response = await fetch(`/upload?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: file,
   });
-  return response.data;
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Upload failed (${response.status})`);
+  }
+  return response.json();
 };
 
-// List all documents
+// List uploaded statements
 export const listDocuments = async () => {
   const response = await api.get('/documents');
   return response.data;
 };
 
-// Query documents (non-streaming)
+// Ask a question (non-streaming)
 export const queryDocuments = async (question, documentNames = null) => {
   const response = await api.post('/query', {
     question,
@@ -77,15 +62,15 @@ export const queryDocuments = async (question, documentNames = null) => {
   return response.data;
 };
 
-// Query documents with streaming
+// Ask a question (streaming — token-by-token)
 export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
 
-  const response = await fetch(`${API_BASE_URL}/query/stream`, {
+  const response = await fetch('/query', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
       question,
@@ -95,11 +80,6 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
     throw new Error(`HTTP error: ${response.status}`);
   }
 
@@ -107,33 +87,46 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
   const decoder = new TextDecoder();
 
   try {
+    let buf = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const text = decoder.decode(value);
-      const lines = text.split('\n').filter(line => line.startsWith('data: '));
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete last line in buffer
 
       for (const line of lines) {
+        if (!line.trim()) continue;
         try {
-          const data = JSON.parse(line.slice(6));
-          if (data.type === 'token') {
+          const data = JSON.parse(line);
+          if (data.type === 'chunk') {
             onToken(data.content);
+          } else if (data.type === 'meta') {
+            // ignore meta
           } else if (data.type === 'done') {
-            onDone(data.sources);
+            if (onDone) onDone(data.sources);
           }
-        } catch (parseError) {
-          console.error('Error parsing SSE data:', parseError);
+        } catch {
+          // also handle SSE "data: ..." format
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'token') onToken(data.content);
+              else if (data.type === 'done' && onDone) onDone(data.sources);
+            } catch { /* ignore */ }
+          }
         }
       }
     }
+    if (onDone) onDone([]);
   } catch (error) {
     if (onError) onError(error);
     throw error;
   }
 };
 
-// Delete document
+// Delete a document
 export const deleteDocument = async (docName) => {
   const response = await api.delete(`/documents/${docName}`);
   return response.data;
