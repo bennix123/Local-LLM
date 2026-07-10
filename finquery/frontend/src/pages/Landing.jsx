@@ -15,42 +15,42 @@ const ACCTS = {
     sampleFile: "amex_2024.csv", sampleMeta: "8.4 KB · 316 rows"
   },
   savings: {
-    icon: "🐖", name: "Savings account", sub: "drop a statement file",
+    icon: "🐖", name: "Savings account", sub: "Easy-access or notice",
     exportSteps: ["Open your savings bank", "Find Statements", "Pick last 12 months", "Drag CSV or PDF here"],
     sampleFile: "savings_2024.csv", sampleMeta: "3.2 KB · 24 rows"
   },
   isa: {
-    icon: "🛡️", name: "Cash ISA", sub: "drop a statement file",
+    icon: "🛡️", name: "Cash ISA", sub: "Tax-free savings",
     exportSteps: ["Log into your ISA provider", "Find statements", "Export 12 months as CSV or PDF", "Drag here"],
     sampleFile: "isa.pdf", sampleMeta: "42 KB · PDF 4 pages"
   },
   stocks: {
-    icon: "📈", name: "Stocks & shares", sub: "drop your broker report · PDF / CSV",
+    icon: "📈", name: "Stocks & shares", sub: "Vanguard, T212, HL",
     exportSteps: ["Log into broker (Vanguard, T212, HL)", "Find Account history", "Export 12 months as CSV", "Drag here — I'll read trades & dividends"],
     sampleFile: "t212_report.csv", sampleMeta: "6.7 KB · 89 trades"
   },
   crypto: {
-    icon: "🪙", name: "Crypto wallet", sub: "drop an exchange CSV",
+    icon: "🪙", name: "Crypto wallet", sub: "Coinbase, Kraken",
     exportSteps: ["Log into exchange (Coinbase, Kraken)", "Go to Reports", "Export transactions as CSV", "Drag here"],
     sampleFile: "coinbase.csv", sampleMeta: "4.1 KB · 47 txns"
   },
   pension: {
-    icon: "🏛", name: "Pension", sub: "drop annual statement · PDF",
+    icon: "🏛", name: "Pension", sub: "Nest, PenFold, workplace",
     exportSteps: ["Log into your pension provider", "Download most recent statement", "PDF is fine", "Drag here"],
     sampleFile: "pension_2024.pdf", sampleMeta: "180 KB · PDF 12 pages"
   },
   property: {
-    icon: "🏠", name: "Property / mortgage", sub: "drop mortgage statement · PDF",
+    icon: "🏠", name: "Property / mortgage", sub: "Statement-based",
     exportSteps: ["Log into your mortgage provider", "Download annual statement", "Upload PDF — I track principal & equity"],
     sampleFile: "mortgage.pdf", sampleMeta: "96 KB · PDF 6 pages"
   },
   business: {
-    icon: "💼", name: "Business account", sub: "drop a statement file",
+    icon: "💼", name: "Business account", sub: "Ltd co or sole trader",
     exportSteps: ["Log into business bank", "Find Statements", "Pick 12 months CSV", "Drag here"],
     sampleFile: "tide_business.csv", sampleMeta: "22.4 KB · 1,847 rows"
   },
   other: {
-    icon: "+", name: "Other account", sub: "drop any financial file",
+    icon: "+", name: "Something else", sub: "Any financial file",
     exportSteps: ["Export from wherever the money lives", "Any format works", "Drag the file here"],
     sampleFile: "statement.csv", sampleMeta: "~15 KB · ~1,000 rows"
   }
@@ -377,92 +377,88 @@ const Landing = () => {
               <div className="s4h">What accounts do we<br />want to <em>track?</em></div>
               <div className="s4s">Select all that apply. You can add or remove these later.</div>
               
-              <div className="sec">Personal banking</div>
+              <div className="sec">SPENDING</div>
               <div className="ag">
                 <div className={`ac ${selectedAccts.includes('current') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('current')}>
                   <div className="ai">🏦</div>
                   <div className="an">
                     <div className="ann">Current account</div>
-                    <div className="and">Monzo, Lloyds, Barclays...</div>
+                    <div className="and">Day-to-day</div>
                   </div>
                 </div>
                 <div className={`ac ${selectedAccts.includes('credit') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('credit')}>
                   <div className="ai">💳</div>
                   <div className="an">
                     <div className="ann">Credit card</div>
-                    <div className="and">Amex, Barclaycard...</div>
+                    <div className="and">Visa / Mastercard / Amex</div>
                   </div>
                 </div>
               </div>
 
-              <div className="sec">Savings & Investments</div>
+              <div className="sec">SAVINGS</div>
               <div className="ag">
                 <div className={`ac ${selectedAccts.includes('savings') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('savings')}>
                   <div className="ai">🐖</div>
                   <div className="an">
-                    <div className="ann">Savings</div>
-                    <div className="and">Marcus, Chase...</div>
+                    <div className="ann">Savings account</div>
+                    <div className="and">Easy-access or notice</div>
                   </div>
                 </div>
                 <div className={`ac ${selectedAccts.includes('isa') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('isa')}>
                   <div className="ai">🛡️</div>
                   <div className="an">
                     <div className="ann">Cash ISA</div>
-                    <div className="and">Monzo ISA, Vanguard...</div>
+                    <div className="and">Tax-free savings</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="sec">INVESTMENTS</div>
+              <div className="ag">
                 <div className={`ac ${selectedAccts.includes('stocks') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('stocks')}>
                   <div className="ai">📈</div>
                   <div className="an">
                     <div className="ann">Stocks & shares</div>
-                    <div className="and">T212, Vanguard, HL...</div>
+                    <div className="and">Vanguard, T212, HL</div>
                   </div>
                 </div>
                 <div className={`ac ${selectedAccts.includes('crypto') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('crypto')}>
                   <div className="ai">🪙</div>
                   <div className="an">
                     <div className="ann">Crypto wallet</div>
-                    <div className="and">Coinbase, Kraken...</div>
+                    <div className="and">Coinbase, Kraken</div>
                   </div>
                 </div>
-              </div>
-
-              <div className="sec">Long-term wealth</div>
-              <div className="ag">
                 <div className={`ac ${selectedAccts.includes('pension') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('pension')}>
                   <div className="ai">🏛</div>
                   <div className="an">
                     <div className="ann">Pension</div>
-                    <div className="and">Nest, PenFold, workplace...</div>
+                    <div className="and">Nest, PenFold, workplace</div>
                   </div>
                 </div>
                 <div className={`ac ${selectedAccts.includes('property') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('property')}>
                   <div className="ai">🏠</div>
                   <div className="an">
                     <div className="ann">Property / mortgage</div>
-                    <div className="and">Home equity, loans...</div>
+                    <div className="and">Statement-based</div>
                   </div>
                 </div>
               </div>
 
-              <div className="sec">Business</div>
+              <div className="sec">OTHER</div>
               <div className="ag">
                 <div className={`ac ${selectedAccts.includes('business') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('business')}>
                   <div className="ai">💼</div>
                   <div className="an">
                     <div className="ann">Business account</div>
-                    <div className="and">Tide, Starling Biz...</div>
+                    <div className="and">Ltd co or sole trader</div>
                   </div>
                 </div>
-              </div>
-
-              <div className="sec">Other</div>
-              <div className="ag">
                 <div className={`ac ${selectedAccts.includes('other') ? 'sel' : ''}`} onClick={() => toggleAccountSelection('other')}>
                   <div className="ai">+</div>
                   <div className="an">
-                    <div className="ann">Other</div>
-                    <div className="and">Manual or custom statement</div>
+                    <div className="ann">Something else</div>
+                    <div className="and">Any financial file</div>
                   </div>
                 </div>
               </div>
