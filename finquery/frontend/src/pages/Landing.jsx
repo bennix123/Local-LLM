@@ -269,7 +269,7 @@ const Landing = () => {
   };
 
   const handleFinish = () => {
-    // Stay on landing page — user logs in with credentials provided by admin
+    navigate('/app');
   };
 
   return (
@@ -743,26 +743,8 @@ const Landing = () => {
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'flex-end', marginTop: '4px' }}>
-                  <div style={{ 
-                    background: 'var(--lime-s)', 
-                    border: '2px solid var(--lime-d)', 
-                    borderRadius: '13px', 
-                    padding: '14px 18px', 
-                    fontFamily: 'Caveat, cursive', 
-                    fontSize: '16px', 
-                    fontWeight: '700',
-                    color: 'var(--ink)',
-                    textAlign: 'center'
-                  }}>
-                    🎉 You're all set! Your credentials have been sent to your inbox.<br />
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--dim)' }}>
-                      Use them to log in below.
-                    </span>
-                  </div>
-                  <a href="/login" className="btn lime lg" style={{ textDecoration: 'none' }}>
-                    Sign in to Penny →
-                  </a>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn lime lg" onClick={handleFinish}>Take me to Penny →</button>
                 </div>
               </div>
             </div>

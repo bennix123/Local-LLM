@@ -65,14 +65,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
-          <Route 
-            path="/app" 
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } 
-          />
+          <Route path="/app" element={<Dashboard />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
