@@ -13,6 +13,17 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - "feat/penny-dynamic-decimals"
+    # Only build when the DESKTOP app (or this workflow) changes, so the frequent
+    # finquery/Python pushes to this branch don't each kick off a 10-min Mac build.
+    paths:
+      - "electron/**"
+      - "public/**"
+      - "src/**"
+      - "server.js"
+      - "package.json"
+      - ".github/workflows/build-mac.yml"
 
 permissions:
   contents: write        # needed to attach the DMGs to a Release on tag builds
