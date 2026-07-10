@@ -950,12 +950,11 @@ def _extract_slots(q):
 def _resolve_factual(q, ctx):
     """Deterministically resolve a factual money query, carrying missing slots from
     the THREAD's ctx for elliptical follow-ups. Returns an intent dict, or None
-    (let the LLM handle smalltalk / help / advice / summary / coverage / etc.).
+    (let the LLM handle smalltalk / help / advice / summary / coverage / etc.)."""
+    low = q.lower()
+    if _ADVICE_RE.search(q) or _REASON_RE.search(q) or _WHY_RE.search(q) or "plan" in low:
+        return None
 
-    Thread model: within a live thread (ctx non-empty) a question that omits the
-    period inherits the thread's period  -  so a bare "how many transactions?" after
-    "spend in August 2024" carries August. A FRESH thread has empty ctx, so the
-    same bare question resolves all-time. The client decides what's one thread."""
     s = _extract_slots(q)
     if s.get("type") == "clarify":             # ambiguous merchant  -  ask, don't guess
         return {"type": "clarify", "options": s["options"], "phrase": s["phrase"]}

@@ -1101,7 +1101,15 @@ async def lld_md():
 def _warmup():
     """Pre-load the model so the first advisory answer isn't a cold start (which is what
     made earlier replies show '(... unavailable)')."""
-    if _llm_complete("Reply with the single word: ok.", "ok", num_predict=5):
-        print(f"[warmup] {LLM_MODEL} ready")
-    else:
-        print(f"[warmup] {LLM_MODEL} not reachable yet  -  will retry on first question")
+    try:
+        if _llm_complete("Reply with the single word: ok.", "ok", num_predict=5):
+            print(f"[warmup] {LLM_MODEL} ready", flush=True)
+        else:
+            print(f"[warmup] {LLM_MODEL} not reachable yet - will retry on first question", flush=True)
+    except Exception as e:
+        print(f"[warmup] Failed: {e}", flush=True)
+
+@app.on_event("startup")
+async def startup_event():
+    import threading
+    threading.Thread(target=_warmup, daemon=True).start()
