@@ -79,10 +79,7 @@ const Login = () => {
         <div className="auth-footer">
           <p>
             Don't have an account?{' '}
-            <Link to="/register">Sign up</Link>
-          </p>
-          <p style={{ marginTop: '0.75rem' }}>
-            <Link to="/" style={{ color: 'var(--dim)', fontSize: '0.85rem' }}>← Back to Onboarding</Link>
+            <Link to="/">Set up onboarding</Link>
           </p>
         </div>
       </div>
