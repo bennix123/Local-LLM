@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 
 function Dashboard() {
   const [documents, setDocuments] = useState([]);
-  const [activeDoc, setActiveDoc] = useState(null);
+  const [selectedDocs, setSelectedDocs] = useState([]);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState({ rows: 2847, spend: '£2,148', income: '£3,820' });
@@ -33,7 +33,7 @@ function Dashboard() {
       const data = await listDocuments();
       setDocuments(data.documents || []);
       if (data.active_doc_name) {
-        setActiveDoc(data.active_doc_name);
+        setSelectedDocs([data.active_doc_name]);
       }
     } catch (error) {
       console.error('Error fetching documents:', error);
@@ -64,24 +64,18 @@ function Dashboard() {
     }
   };
 
-  const handleSelectDoc = async (docName) => {
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
-      const response = await fetch('/chat/select_bank', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ doc_name: docName })
-      });
-      if (response.ok) {
-        setActiveDoc(docName);
-        toast.success(`Active statement: ${docName}`);
+  const handleSelectDoc = (docName) => {
+    setSelectedDocs((prev) => {
+      if (prev.includes(docName)) {
+        const next = prev.filter(name => name !== docName);
+        toast.success(`Deselected: ${docName}`);
+        return next;
+      } else {
+        const next = [...prev, docName];
+        toast.success(`Selected: ${docName}`);
+        return next;
       }
-    } catch (error) {
-      console.error('Error selecting document:', error);
-    }
+    });
   };
 
   const handleSendMessage = async (question) => {
@@ -93,7 +87,7 @@ function Dashboard() {
     setIsLoading(true);
 
     try {
-      const docNameParam = activeDoc ? [activeDoc] : null;
+      const docNameParam = selectedDocs.length > 0 ? selectedDocs : null;
 
       await queryDocumentsStream(
         question,
@@ -162,7 +156,7 @@ function Dashboard() {
     <div className="desktop">
       <Sidebar
         documents={documents}
-        activeDoc={activeDoc}
+        selectedDocs={selectedDocs}
         onSelectDoc={handleSelectDoc}
         user={user}
         onLogout={handleLogout}

@@ -10,7 +10,7 @@ const Sidebar = ({
   transactionCount = 2847, 
   runFlow,
   documents = [],
-  activeDoc,
+  selectedDocs = [],
   onSelectDoc,
   onRefreshDocs
 }) => {
@@ -97,12 +97,13 @@ const Sidebar = ({
         <div className="acls">
           {documents.map((doc, idx) => {
             const docName = doc?.doc_name || (typeof doc === 'string' ? doc : `Statement ${idx}`);
+            const isSelected = selectedDocs.includes(docName);
             return (
               <div 
                 key={idx} 
-                className={`acrow ${activeDoc === docName ? 'on' : ''}`}
+                className={`acrow ${isSelected ? 'on' : ''}`}
                 onClick={() => onSelectDoc(docName)}
-                style={{ background: activeDoc === docName ? 'rgba(0,0,0,0.1)' : '' }}
+                style={{ background: isSelected ? 'rgba(0,0,0,0.1)' : '' }}
               >
                 <div className="acri">{getDocIcon(doc)}</div>
                 <div className="acrn" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
