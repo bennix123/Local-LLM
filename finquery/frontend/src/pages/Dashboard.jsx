@@ -15,6 +15,9 @@ function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState({ rows: 2847, spend: '£2,148', income: '£3,820' });
   const { user, logout } = useAuth();
+  
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const [chips, setChips] = useState([
     { label: '🔥 Roast my spending', action: 'roast' },
@@ -159,6 +162,7 @@ function Dashboard() {
       question = flowName;
     }
     handleSendMessage(question);
+    setSidebarOpen(false); // Close drawer after trigger
   };
 
   const handleLogout = () => {
@@ -168,24 +172,61 @@ function Dashboard() {
 
   return (
     <div className="desktop">
-      <Sidebar
-        documents={documents}
-        selectedDocs={selectedDocs}
-        onSelectDoc={handleSelectDoc}
-        user={user}
-        onLogout={handleLogout}
-        transactionCount={overview.rows}
-        runFlow={runFlow}
-        onRefreshDocs={fetchDocuments}
-      />
+      {/* Mobile Backdrop */}
+      {(sidebarOpen || panelOpen) && (
+        <div 
+          className="mobile-backdrop" 
+          onClick={() => {
+            setSidebarOpen(false);
+            setPanelOpen(false);
+          }}
+        />
+      )}
+
+      {/* Sidebar Wrapper */}
+      <div className={`sb-wrapper ${sidebarOpen ? 'open' : ''}`}>
+        <Sidebar
+          documents={documents}
+          selectedDocs={selectedDocs}
+          onSelectDoc={handleSelectDoc}
+          user={user}
+          onLogout={handleLogout}
+          transactionCount={overview.rows}
+          runFlow={runFlow}
+          onRefreshDocs={fetchDocuments}
+        />
+      </div>
+
       <div className="cm">
         <div className="ct">
-          <div className="cti">
+          {/* Mobile Hamburger menu */}
+          <button 
+            className="mobile-toggle-btn burger" 
+            onClick={() => {
+              setSidebarOpen(!sidebarOpen);
+              setPanelOpen(false);
+            }}
+          >
+            ☰
+          </button>
+          
+          <div className="cti" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="ctn">penny<em style={{ fontStyle: 'normal', color: 'var(--lime-d)' }}>.</em></div>
             <div className="cts">running locally · ready · Llama 8B</div>
           </div>
-          <div className="cttl">
+          
+          <div className="cttl" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button className="ctt" title="New chat" onClick={() => setMessages([])}>+</button>
+            {/* Mobile Context Panel toggle */}
+            <button 
+              className="mobile-toggle-btn stats" 
+              onClick={() => {
+                setPanelOpen(!panelOpen);
+                setSidebarOpen(false);
+              }}
+            >
+              📊
+            </button>
           </div>
         </div>
 
@@ -202,11 +243,15 @@ function Dashboard() {
           onChipClick={runFlow}
         />
       </div>
-      <ContextPanel 
-        balance={overview.income ? 8432 : 0} 
-        spentThisMonth={2148}
-        portfolio={18742}
-      />
+
+      {/* Context Panel Wrapper */}
+      <div className={`cp-wrapper ${panelOpen ? 'open' : ''}`}>
+        <ContextPanel 
+          balance={overview.income ? 8432 : 0} 
+          spentThisMonth={2148}
+          portfolio={18742}
+        />
+      </div>
     </div>
   );
 }
