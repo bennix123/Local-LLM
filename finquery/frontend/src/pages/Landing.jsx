@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { register } from '../api';
-import { useAuth } from '../context/AuthContext';
 import PennyAvatar from '../components/PennyAvatar';
 import './Landing.css';
 
@@ -80,10 +77,6 @@ const sampleTxns = [
 const Landing = () => {
   const [step, setStep] = useState(1);
   const [name, setName] = useState('Alex');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const { loginUser } = useAuth();
   const [selectedAccts, setSelectedAccts] = useState([]);
   const [currentAcctIdx, setCurrentAcctIdx] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState({});
@@ -275,24 +268,8 @@ const Landing = () => {
     }, 50);
   };
 
-  const handleFinish = async () => {
-    if (!name.trim() || !password.trim()) {
-      toast.error('Please choose a username and password in Step 2');
-      setStep(2);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const data = await register(name, password);
-      loginUser(data.access_token, data.email || name);
-      toast.success('Sign up successful!');
-      navigate('/app');
-    } catch (error) {
-      console.error('Registration error:', error);
-      toast.error(error.response?.data?.detail || 'Registration failed. Try another username.');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleFinish = () => {
+    navigate(`/login?username=${encodeURIComponent(name)}`);
   };
 
   return (
@@ -350,71 +327,19 @@ const Landing = () => {
         <div className="scrn">
           <div className="s2">
             <div className="s2l">
-              <div className="s2h">Choose your <em>username & password</em></div>
-              <div className="s2p">I'll use your username when I talk to you. Stays offline on this Mac.</div>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', maxWidth: '340px', marginTop: '15px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--ink)' }}>Username</label>
-                <input 
-                  className="ni" 
-                  type="text" 
-                  value={name} 
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Alex" 
-                  style={{ width: '100%', marginBottom: '12px' }}
-                />
-                
-                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--ink)' }}>Password</label>
-                <div style={{ position: 'relative', width: '100%' }}>
-                  <input 
-                    className="ni" 
-                    type={showPassword ? "text" : "password"} 
-                    value={password} 
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••" 
-                    style={{ width: '100%', paddingRight: '55px' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={{
-                      position: 'absolute',
-                      right: '12px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      color: 'var(--dim)',
-                      fontWeight: '700',
-                      userSelect: 'none'
-                    }}
-                  >
-                    {showPassword ? "HIDE" : "SHOW"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="nh" style={{ marginTop: '16px' }}>📌 stays on this Mac · never shared</div>
-              <div className="na" style={{ marginTop: '20px' }}>
+              <div className="s2h">First — what should<br />I <em>call you?</em></div>
+              <div className="s2p">I'll use your first name when I talk to you. Doesn't need to be your legal one.</div>
+              <input 
+                className="ni" 
+                type="text" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Alex" 
+              />
+              <div className="nh">📌 stays on this Mac · never shared</div>
+              <div className="na">
                 <button className="skip" onClick={() => goTo(1)}>← back</button>
-                <button 
-                  className="btn lime" 
-                  onClick={() => {
-                    if (!name.trim() || !password.trim()) {
-                      toast.error('Please enter both username and password');
-                      return;
-                    }
-                    if (password.length < 6) {
-                      toast.error('Password must be at least 6 characters');
-                      return;
-                    }
-                    goTo(3);
-                  }}
-                >
-                  Nice to meet you →
-                </button>
+                <button className="btn lime" onClick={() => goTo(3)}>Nice to meet you →</button>
               </div>
             </div>
             <div className="s2r">

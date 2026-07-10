@@ -1,17 +1,26 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { login } from '../api';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import './Auth.css';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const initialUsername = queryParams.get('username') || '';
+
+  const [email, setEmail] = useState(initialUsername);
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { loginUser } = useAuth();
+
+  useEffect(() => {
+    if (initialUsername) {
+      setEmail(initialUsername);
+    }
+  }, [initialUsername]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,53 +54,30 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="email">Username</label>
             <input
               id="email"
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder="Your username"
               disabled={isLoading}
-              autoComplete="email"
               required
             />
           </div>
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <div style={{ position: 'relative', width: '100%' }}>
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                disabled={isLoading}
-                autoComplete="current-password"
-                required
-                style={{ width: '100%', paddingRight: '55px' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  color: 'var(--dim)',
-                  fontWeight: '700',
-                  userSelect: 'none'
-                }}
-              >
-                {showPassword ? "HIDE" : "SHOW"}
-              </button>
-            </div>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              disabled={isLoading}
+              autoComplete="current-password"
+              required
+            />
           </div>
 
           <button type="submit" className="auth-button" disabled={isLoading}>
@@ -101,8 +87,7 @@ const Login = () => {
 
         <div className="auth-footer">
           <p>
-            Don't have an account?{' '}
-            <Link to="/">Set up onboarding</Link>
+            <Link to="/" style={{ color: 'var(--dim)', fontSize: '0.85rem' }}>← Back to Onboarding</Link>
           </p>
         </div>
       </div>
