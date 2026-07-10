@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './Dashboard.css';
 import toast from 'react-hot-toast';
 import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
@@ -45,16 +46,21 @@ function Dashboard() {
       const response = await fetch('/status', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847;
       if (response.ok) {
         const data = await response.json();
         setOverview({
-          rows: data.rows || 2847,
+          rows: data.rows || storedTotal,
           spend: data.spend || '£2,148',
           income: data.income || '£3,820'
         });
+      } else {
+        setOverview(prev => ({ ...prev, rows: storedTotal }));
       }
     } catch (error) {
       console.error('Error fetching status:', error);
+      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847;
+      setOverview(prev => ({ ...prev, rows: storedTotal }));
     }
   };
 
@@ -162,6 +168,7 @@ function Dashboard() {
         onLogout={handleLogout}
         transactionCount={overview.rows}
         runFlow={runFlow}
+        onRefreshDocs={fetchDocuments}
       />
       <div className="cm">
         <div className="ct">

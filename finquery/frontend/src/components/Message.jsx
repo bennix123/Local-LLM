@@ -61,7 +61,7 @@ const Message = ({ message }) => {
   
   return (
     <div className={`msg ${isUser ? 'us' : 'ai'}`}>
-      {!isUser && <PennyAvatar size="xs" mood={message.mood || 'happy'} />}
+      {!isUser && <PennyAvatar size="sm" mood={message.mood || 'happy'} />}
       <div className="bw">
         <div 
           className="bb" 

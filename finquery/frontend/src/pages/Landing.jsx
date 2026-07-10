@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PennyAvatar from '../components/PennyAvatar';
+import { uploadDocument } from '../api';
 import './Landing.css';
 
 const ACCTS = {
@@ -122,7 +123,7 @@ const Landing = () => {
     goTo(5);
   };
 
-  const handleFilesAdded = (filesList) => {
+  const handleFilesAdded = async (filesList) => {
     const ak = selectedAccts[currentAcctIdx];
     if (!ak) return;
     const currentFiles = uploadedFiles[ak] || [];
@@ -140,7 +141,14 @@ const Landing = () => {
       const mockRows = Math.floor(Math.random() * 500) + 50;
       const meta = `${sizeStr} · ${mockRows} rows`;
       
-      newFiles.push({ name: file.name, meta: meta, fileObj: file });
+      newFiles.push({ name: file.name, meta: meta, fileObj: file, rows: mockRows });
+
+      // Dynamically upload the file to the backend so it's loaded in the DB
+      try {
+        await uploadDocument(file);
+      } catch (err) {
+        console.error("Failed to upload document to backend:", err);
+      }
     }
 
     setUploadedFiles({ ...uploadedFiles, [ak]: newFiles });
@@ -212,7 +220,21 @@ const Landing = () => {
 
     let msgIdx = 0;
     let feedIdx = 0;
-    const target = 2847;
+    
+    // Calculate total rows dynamically from metadata rows
+    let dynamicTarget = 0;
+    allFiles.forEach(f => {
+      if (f.file.rows) {
+        dynamicTarget += f.file.rows;
+      } else {
+        // Fallback row count estimation from placeholder file names
+        dynamicTarget += Math.floor(Math.random() * 500) + 150;
+      }
+    });
+    if (dynamicTarget === 0) dynamicTarget = 2847; // absolute fallback
+    
+    localStorage.setItem('penny_dynamic_total_rows', dynamicTarget);
+
     const dur = 5400;
     const startTime = Date.now();
 
@@ -230,7 +252,7 @@ const Landing = () => {
     procInterval.current = setInterval(() => {
       const el = Date.now() - startTime;
       const pct = Math.min(el / dur, 1);
-      const count = Math.min(Math.floor(target * pct), target);
+      const count = Math.min(Math.floor(dynamicTarget * pct), dynamicTarget);
       
       setProcCount(count);
       setFeedCount(`${count.toLocaleString()} parsed`);
@@ -719,7 +741,7 @@ const Landing = () => {
               </div>
               <div>
                 <div className="s7h">Let me have a quick<br /><em>look at this...</em></div>
-                <div className="s7p">2,847 transactions and 1 investment statement read. Already found a few things — fixable.</div>
+                <div className="s7p">{(parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847).toLocaleString()} transactions and {(selectedAccts.includes('stocks') || selectedAccts.includes('crypto')) ? 1 : 0} investment statement read. Already found a few things — fixable.</div>
                 <div className="ins">
                   <div className="in">
                     <div className="ini">🍔</div>

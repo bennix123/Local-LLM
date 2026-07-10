@@ -159,6 +159,18 @@
   animation: wave 1.2s infinite;
 }
 
+/* Ensure the layout wraps beautifully with a dark centered backdrop for the landing wizard page */
+html:has(.desktop-wizard), body:has(.desktop-wizard) {
+  background: linear-gradient(135deg,#3a2a1a,#1f1810) !important;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  overflow: auto !important;
+}
+
 /* WIZARD CONTAINER */
 .desktop-wizard {
   width: 100%;
@@ -172,6 +184,7 @@
   flex-direction: column;
   box-shadow: 0 60px 140px rgba(0, 0, 0, 0.6);
   border: 3px solid var(--ink);
+  margin: auto;
 }
 
 .hdr {

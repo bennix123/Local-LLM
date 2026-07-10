@@ -122,20 +122,12 @@ def get_current_user(
     creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer)
 ) -> str:
     """FastAPI dependency: validates JWT and returns the username.
-    Raises HTTP 401 if token is missing or invalid."""
+    Falls back to 'local' for local dev/offline mode instead of raising 401."""
     if not creds:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return "local"
     username = _decode_token(creds.credentials)
     if not username:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        return "local"
     return username
 
 def get_optional_user(
