@@ -27,8 +27,24 @@ from .analytics import (
 )
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
 PORT = int(os.getenv("PORT", "5667"))
+
+def _detect_ollama_model():
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            if models:
+                name = models[0]["name"]
+                print(f"[ollama] Detected installed model: {name}")
+                return name
+    except Exception as e:
+        print(f"[ollama] Failed to auto-detect model: {e}")
+    return "llama3.1:8b"
+
+LLM_MODEL = os.getenv("LLM_MODEL") or _detect_ollama_model()
 USER = "local"
 
 GREETING = ("Hi! I'm **Penny**, your offline statement assistant. "

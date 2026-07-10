@@ -63,6 +63,26 @@ const Message = ({ message }) => {
     <div className={`msg ${isUser ? 'us' : 'ai'}`}>
       {!isUser && <PennyAvatar size="sm" mood={message.mood || 'happy'} />}
       <div className="bw">
+        {!isUser && message.path && (
+          <span style={{
+            fontSize: '9px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            background: message.path.toUpperCase() === 'SQL' ? 'var(--lime-s)' : 
+                       (message.path.toUpperCase() === 'ML' ? '#ffe2e2' : '#f0f3ff'),
+            border: message.path.toUpperCase() === 'SQL' ? '2px solid var(--lime-d)' : 
+                    (message.path.toUpperCase() === 'ML' ? '2px solid #ff9b9b' : '2px solid #b8c8ff'),
+            color: 'var(--ink)',
+            padding: '2px 8px',
+            borderRadius: '10px',
+            fontWeight: '800',
+            display: 'inline-block',
+            marginBottom: '6px',
+            fontFamily: 'Courier New, monospace'
+          }}>
+            ⚡ {message.path.toUpperCase()} ENGINE
+          </span>
+        )}
         <div 
           className="bb" 
           dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }} 

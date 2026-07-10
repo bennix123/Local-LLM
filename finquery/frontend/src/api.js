@@ -63,7 +63,7 @@ export const queryDocuments = async (question, documentNames = null) => {
 };
 
 // Ask a question (streaming — token-by-token)
-export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError) => {
+export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError, onMeta) => {
   const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
 
   const response = await fetch('/query', {
@@ -103,7 +103,7 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
           if (data.type === 'chunk') {
             onToken(data.content);
           } else if (data.type === 'meta') {
-            // ignore meta
+            if (onMeta) onMeta(data);
           } else if (data.type === 'done') {
             if (onDone) onDone(data.sources);
           }
@@ -113,6 +113,7 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
             try {
               const data = JSON.parse(line.slice(6));
               if (data.type === 'token') onToken(data.content);
+              else if (data.type === 'meta' && onMeta) onMeta(data);
               else if (data.type === 'done' && onDone) onDone(data.sources);
             } catch { /* ignore */ }
           }

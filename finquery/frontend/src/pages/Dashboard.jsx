@@ -113,6 +113,16 @@ function Dashboard() {
               { ...lastMsg, sources }
             ];
           });
+        },
+        null, // error callback
+        (meta) => {
+          setMessages((prev) => {
+            const lastMsg = prev[prev.length - 1];
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, path: meta.path }
+            ];
+          });
         }
       );
     } catch (error) {
