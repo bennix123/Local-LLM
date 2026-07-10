@@ -1512,7 +1512,7 @@ _FIN_RE = re.compile(
     r"expense|\bcost|financ|categor|merchant|transaction|\btxn|rupee|Γé╣|₹|debt|loan|\bemi\b|"
     r"subscription|\bbill|balance|net worth|\brich\b|broke|overspend|\bpay\b|paying|purchase|"
     r"shopping|grocer|deposit|withdraw|\baccount|statement|cut back|cut down|fund|wealth|"
-    r"portfolio|retire|\btax|afford|spend less|monthly|per month", re.I)
+    r"portfolio|retire|\btax|afford|spend less|monthly|per month|buy|buying|plan|planning|car|house|home|wedding|education|travel", re.I)
 
 def _find_categories(low):
     out = []
