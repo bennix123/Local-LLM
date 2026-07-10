@@ -82,6 +82,8 @@ def followup_sql_answer(q, ctx):
         if mer:
             return f"That was **{ts._mname(mer)}**."
         intent = {**base, "type": "top_expenses", "n": 1}    # top merchant/expense of the scope
+    elif re.search(r"\b(name|names|merchant|merchants|shop|shops|store|stores|payee|payees)\b", low) and cat:
+        intent = {**base, "type": "list"}
     elif re.search(r"\b(list|show|see|what were|which were|details?|report)\b.*\b(them|those|these|it|they|that|details?)\b|\bdetails?\b", low):
         intent = {**base, "type": "list"}
     elif re.search(r"\bhow much\b|\btotal\b|\baltogether\b|\bin all\b", low):

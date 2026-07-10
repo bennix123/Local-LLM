@@ -9,5 +9,5 @@ set "LLM_MODEL=llama3.1:8b"
 echo [%date% %time%] starting Penny Llama 3.1 8B server on http://127.0.0.1:5667 ...
 python scripts\test_server.py
 echo [%date% %time%] server stopped - restarting in 3s. Close this window to stop.
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 goto loop

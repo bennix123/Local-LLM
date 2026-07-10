@@ -7,4 +7,4 @@ taskkill /FI "WINDOWTITLE eq Penny - server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Penny 8B Server*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq Penny 4B Server*" /F >nul 2>&1
 echo Done.
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul

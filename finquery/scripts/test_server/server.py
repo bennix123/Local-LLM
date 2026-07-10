@@ -278,7 +278,7 @@ async def status(request: Request, user: str = Depends(get_current_user)):
     doc_name = _get_active_doc(tid)
     o = ts.overview(user, doc_name)
     return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
-                         "income": ts.inr(o["credit"])})
+                         "income": ts.inr(o["credit"]), "model": LLM_MODEL})
 
 @app.get("/dashboard")
 async def dashboard(request: Request, user: str = Depends(get_current_user)):
@@ -651,9 +651,9 @@ def is_followup_query(q):
     low = q.lower().strip()
     if len(low.split()) <= 3:
         return True
-    if any(low.startswith(w) for w in ("show", "give", "list", "why", "what about", "and ", "how about", "explain", "detail")):
+    if any(low.startswith(w) for w in ("show", "give", "list", "why", "what about", "and ", "how about", "explain", "detail", "tell")):
         return True
-    if any(re.search(rf"\b{w}\b", low) for w in ("it", "them", "that", "this", "those", "list", "category", "details")):
+    if any(re.search(rf"\b{w}\b", low) for w in ("it", "them", "that", "this", "those", "list", "category", "details", "name", "names", "merchant", "merchants", "categories")):
         return True
     return False
 
@@ -945,6 +945,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         _append_log(tid, q, msg, "chat")
         return stream_text("chat", msg)
     if det and det.get("type"):
+        print(f"[router] Factual resolved: {det}", flush=True)
         ans = ts.dispatch_intent(det, user, doc_name=resolved_doc_name)
         if ans is not None:
             if ans.lstrip("* ").lower().startswith("no transactions found"):
@@ -960,6 +961,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     #    coverage / subscriptions / breakdown / genuine follow-ups.
     intent = llm_route(rq, history)
     if intent:
+        print(f"[router] LLM intent: {intent}", flush=True)
         intent = _apply_guards(intent, rq)
         t = (intent.get("type") or "").lower()
         if t == "smalltalk":

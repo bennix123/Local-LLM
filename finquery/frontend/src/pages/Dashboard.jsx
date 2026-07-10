@@ -18,6 +18,7 @@ function Dashboard() {
   
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [modelName, setModelName] = useState('Llama 8B');
 
   const [chips, setChips] = useState([
     { label: '🔥 Roast my spending', action: 'roast' },
@@ -61,6 +62,15 @@ function Dashboard() {
           spend: data.spend || '£2,148',
           income: data.income || '£3,820'
         });
+        if (data.model) {
+          let displayName = data.model;
+          if (data.model.toLowerCase().includes('llama3.1:8b') || data.model.toLowerCase().includes('llama')) {
+            displayName = 'Llama 8B';
+          } else if (data.model.toLowerCase().includes('qwen2.5-coder:3b') || data.model.toLowerCase().includes('qwen')) {
+            displayName = 'Qwen 3B';
+          }
+          setModelName(displayName);
+        }
       } else {
         setOverview(prev => ({ ...prev, rows: storedTotal }));
       }
@@ -194,6 +204,7 @@ function Dashboard() {
           transactionCount={overview.rows}
           runFlow={runFlow}
           onRefreshDocs={fetchDocuments}
+          modelName={modelName}
         />
       </div>
 
@@ -212,7 +223,7 @@ function Dashboard() {
           
           <div className="cti" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="ctn">penny<em style={{ fontStyle: 'normal', color: 'var(--lime-d)' }}>.</em></div>
-            <div className="cts">running locally · ready · Llama 8B</div>
+            <div className="cts">running locally · ready · {modelName}</div>
           </div>
           
           <div className="cttl" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

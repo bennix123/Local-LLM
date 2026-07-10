@@ -28,7 +28,7 @@ start "Penny Qwen 3B Server" cmd /c _penny_server_qwen3b.bat
 REM --- wait until 8B server answers on :5667 ---
 echo Waiting for 8B server (port 5667) to come up...
 :wait8b
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 curl -s -o nul http://127.0.0.1:5667/status
 if errorlevel 1 goto wait8b
 echo 8B Server is up.
@@ -36,7 +36,7 @@ echo 8B Server is up.
 REM --- wait until 3B server answers on :5668 ---
 echo Waiting for 3B server (port 5668) to come up...
 :wait3b
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 curl -s -o nul http://127.0.0.1:5668/status
 if errorlevel 1 goto wait3b
 echo 3B Server is up.
@@ -54,7 +54,7 @@ echo ============================================================
 echo.
 
 REM --- open the apps in the default browser ---
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 start "" http://127.0.0.1:5667/app
 start "" http://127.0.0.1:5668/app
 endlocal

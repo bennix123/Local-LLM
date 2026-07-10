@@ -9,5 +9,5 @@ set "LLM_MODEL=qwen2.5-coder:3b"
 echo [%date% %time%] starting Penny Qwen 3B server on http://127.0.0.1:5668 with model %LLM_MODEL% ...
 python scripts\test_server.py
 echo [%date% %time%] server stopped - restarting in 3s. Close this window to stop.
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 goto loop

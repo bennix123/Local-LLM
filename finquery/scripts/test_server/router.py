@@ -451,6 +451,7 @@ _GUARD_STOP = frozenset((
     "thursday", "friday", "saturday", "sunday", "saving", "savings",
     "shopping", "buying", "anything", "something", "everything", "nothing", "stuff",
     "things", "average", "total", "credit", "debit", "card", "account", "bank", "cash",
+    "another", "other", "others", "category", "categories", "merchant", "merchants", "different", "difference",
     "what", "which", "how", "when", "where"))
 
 _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expensive|dearest|sabse bada|sabse zyada)\b", re.I)
@@ -466,7 +467,7 @@ _TOP_RE = re.compile(r"\btop\s+(\d+)\b", re.I)
 
 _LIST_RE = re.compile(
     r"\b(?:show|list|display|view|see|pull up|give me|let me see|what were|what was)\b[^?]*?"
-    r"\b(trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those|that|list)\b", re.I)
+    r"\b(trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?|recei?ve?d?|recie?ve?d?|incomes?|them|these|those|that|list|recent|latest|all|more|\d{1,3})\b", re.I)
 
 _LIST_N_RE = re.compile(
     r"\b(\d{1,3})\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
@@ -939,7 +940,7 @@ def _extract_slots(q):
             t = "top_expenses"
         else:
             t = "list"
-            mn = _LIST_N_RE.search(low) or re.search(r"\b(?:only|top|latest|first|last|limit)\s*(\d{1,3})\b", low)
+            mn = _LIST_N_RE.search(low) or re.search(r"\b(?:only|top|latest|first|last|limit|recent|next|another|more|show|list)\s*(\d{1,3})\b", low)
             list_n = int(mn.group(1)) if mn else 0
             if not merch and not cat:              # an unknown named entity -> honest "none",
                 ent = _list_entity(low)            # never a silent list of the whole ledger
@@ -1444,7 +1445,7 @@ def _log_conv(tid, original, resolved, rinfo, state, before):
 _ADVICE_RE = re.compile(
     r"\broast\b|how am i doing|am i doing (?:ok|well|good|bad|fine|alright|great)|"
     r"should i (?:cut|save|spend|reduce|budget)|cut back|cut down|save money|saving enough|"
-    r"spending too much|am i (?:broke|rich|overspending|spending)|give me (?:advice|tips)|"
+    r"spending too much|am i (?:broke|rich|overspending)|give me (?:advice|tips)|"
     r"financial advice|help me save|improve my (?:finance|spending|budget|habit)|"
     r"where can i (?:save|cut)|tips to save|how (?:can|do) i save|"
     # solution-seeking follow-ups ("any solutions to the above problems?") are advice,
