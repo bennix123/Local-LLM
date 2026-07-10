@@ -37,8 +37,10 @@ jobs:
         include:
           - runner: macos-14   # Apple Silicon -> arm64
             arch: arm64
-          - runner: macos-13   # Intel        -> x64
-            arch: x64
+          # x64 (Intel) removed: GitHub's Intel macos-13 runners queue for 20-40+ min.
+          # arm64 covers every Mac from late-2020 on. To re-add Intel support, restore:
+          #   - runner: macos-13
+          #     arch: x64
     runs-on: ${{ matrix.runner }}
 
     steps:
