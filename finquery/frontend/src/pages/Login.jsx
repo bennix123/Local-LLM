@@ -35,7 +35,7 @@ const Login = () => {
       const data = await login(email, password);
       loginUser(data.access_token, data.email);
       toast.success('Welcome back!');
-      navigate('/');
+      navigate('/app');
     } catch (error) {
       console.error('Login error:', error);
       toast.error(error.response?.data?.detail || 'Login failed');
