@@ -33,6 +33,8 @@ def _grouped(intpart):
 
 def format_money(n, cur):
     """Money formatter for a SPECIFIC currency (symbol + locale grouping, 2 or 3 decimals dynamically)."""
+    if n is None:                       # e.g. a combined total across MIXED currencies is undefined
+        return "-"
     neg = n < 0
     currency = (cur or "").upper()
     dec_places = 3 if currency in ("OMR", "KWD", "BHD", "JOD", "IQD") else 2

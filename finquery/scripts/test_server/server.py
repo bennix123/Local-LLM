@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, Depends, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from src.services import txn_store as ts
 from src.services import ml_insights as ml
@@ -63,6 +64,22 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "chat_sessions.jsonl")
 
 app = FastAPI(title="Penny Local Server")
+
+# CORS: allow the hosted dashboard front-end to call this API (with the Bearer token).
+# Extra origins can be added via the CORS_ORIGINS env var (comma-separated).
+_CORS_ORIGINS = [
+    "https://workerdashboard1.thescript.design",
+    "http://workerdashboard1.thescript.design",
+]
+_CORS_ORIGINS += [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
 
 from typing import Optional
