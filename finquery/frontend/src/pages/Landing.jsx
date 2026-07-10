@@ -88,6 +88,7 @@ const Landing = () => {
   
   const navigate = useNavigate();
   const procInterval = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     return () => {
@@ -121,12 +122,47 @@ const Landing = () => {
     goTo(5);
   };
 
-  const simulateUpload = () => {
+  const handleFilesAdded = (filesList) => {
     const ak = selectedAccts[currentAcctIdx];
-    const info = ACCTS[ak];
+    if (!ak) return;
     const currentFiles = uploadedFiles[ak] || [];
-    const newFiles = [...currentFiles, { name: info.sampleFile, meta: info.sampleMeta }];
+    const newFiles = [...currentFiles];
+
+    for (let i = 0; i < filesList.length; i++) {
+      const file = filesList[i];
+      let sizeStr = '';
+      if (file.size > 1024 * 1024) {
+        sizeStr = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
+      } else {
+        sizeStr = (file.size / 1024).toFixed(1) + ' KB';
+      }
+      
+      const mockRows = Math.floor(Math.random() * 500) + 50;
+      const meta = `${sizeStr} · ${mockRows} rows`;
+      
+      newFiles.push({ name: file.name, meta: meta, fileObj: file });
+    }
+
     setUploadedFiles({ ...uploadedFiles, [ak]: newFiles });
+  };
+
+  const handleFileSelect = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFilesAdded(e.target.files);
+    }
+  };
+
+  const handleFileDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesAdded(e.dataTransfer.files);
+    }
+  };
+
+  const triggerFileSelect = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
   const removeFile = (ak, idx) => {
@@ -541,7 +577,19 @@ const Landing = () => {
             <div className="s5r">
               <div className="s5h"><em>{ACCTS[selectedAccts[currentAcctIdx]]?.name}</em></div>
               <div className="s5acs">{ACCTS[selectedAccts[currentAcctIdx]]?.sub}</div>
-              <div className="uz" onClick={simulateUpload}>
+              <div 
+                className="uz" 
+                onClick={triggerFileSelect}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleFileDrop}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelect}
+                  multiple
+                />
                 <div className="uzi">📥</div>
                 <div className="uzh">Drag files here</div>
                 <div className="uzp">Or click to browse. <b>I process them locally — never uploaded.</b></div>
