@@ -1559,3 +1559,36 @@
   font-weight: 600;
   margin-top: 2px;
 }
+
+/* FULL DESKTOP SIZING CHANGES */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  background: var(--bg) !important;
+  display: block;
+  overflow: hidden;
+}
+
+.desktop-wizard {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  min-width: 100vw !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.desktop {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  min-width: 100vw !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
