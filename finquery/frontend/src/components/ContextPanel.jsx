@@ -1,55 +1,78 @@
 import React from 'react';
+import { formatMoney, categoryMeta } from '../format';
 
-const ContextPanel = ({ 
-  balance = 8432, 
-  spentThisMonth = 2148, 
-  portfolio = 18742,
-  spendCategories = [
-    { name: 'Food & Dining', icon: '🍔', pct: 45, amt: '£966', fill: 'var(--coral)' },
-    { name: 'Bills & Utilities', icon: '⚡', pct: 28, amt: '£601', fill: 'var(--sky)' },
-    { name: 'Shopping', icon: '🛍', pct: 15, amt: '£322', fill: 'var(--peach)' },
-    { name: 'Travel', icon: '🚇', pct: 8, amt: '£171', fill: 'var(--plum)' },
-    { name: 'Subscriptions', icon: '🎵', pct: 4, amt: '£88', fill: 'var(--lime)' }
-  ]
+// Right-hand "Today" panel. Every figure is driven by the /dashboard endpoint
+// (all numbers computed in SQL on-device) and formatted in the statement's own
+// currency — nothing here is hardcoded to £ or a fixed set of categories.
+const ContextPanel = ({
+  currency = 'INR',
+  ready = false,
+  balance = null,
+  spentThisMonth = null,
+  net = null,
+  txnCount = 0,
+  categories = [],   // [{ name, amount }] — amount is spend (positive) per category
 }) => {
+  const spendCats = categories.filter((c) => Math.abs(c.amount || 0) > 0);
+  const total = spendCats.reduce((s, c) => s + Math.abs(c.amount || 0), 0);
+  const bars = spendCats.slice(0, 6).map((c) => {
+    const amt = Math.abs(c.amount || 0);
+    const meta = categoryMeta(c.name);
+    return {
+      name: c.name,
+      icon: meta.icon,
+      fill: meta.fill,
+      pct: total > 0 ? Math.round((amt / total) * 100) : 0,
+      amt: formatMoney(amt, currency),
+    };
+  });
+
+  const money = (v) => (ready && v != null ? formatMoney(v, currency) : '—');
+
   return (
     <aside className="cp">
       <div className="cpt">
         <div>
           <div className="cptt">Today</div>
-          <div className="cptm">2,847 transactions · on-device</div>
+          <div className="cptm">
+            {ready
+              ? `${(txnCount || 0).toLocaleString()} transactions · on-device`
+              : 'on-device · upload a statement to begin'}
+          </div>
         </div>
       </div>
       <div className="cpb">
         <div className="cpc">
           <div className="cpsl">total balance</div>
-          <div className="cpsv">£{balance.toLocaleString()}</div>
-          <div className="cpsx">across all accounts</div>
+          <div className="cpsv">{money(balance)}</div>
+          <div className="cpsx">latest statement balance</div>
         </div>
         <div className="cpc">
           <div className="cpsl">spent · this month</div>
-          <div className="cpsv warn">£{spentThisMonth.toLocaleString()}</div>
+          <div className="cpsv warn">{money(spentThisMonth)}</div>
           <div className="cpsx">on-device parsed</div>
         </div>
         <div className="cpc">
-          <div className="cpsl">portfolio</div>
-          <div className="cpsv gd">£{portfolio.toLocaleString()}</div>
-          <div className="cpsx">+8.2% YTD · £1,420 gain</div>
+          <div className="cpsl">net · income − spend</div>
+          <div className={`cpsv ${net != null && net < 0 ? 'warn' : 'gd'}`}>{money(net)}</div>
+          <div className="cpsx">across loaded statements</div>
         </div>
 
-        <div className="cpc">
-          <div className="cph">spending by category</div>
-          {spendCategories.map((cat, idx) => (
-            <div className="cpbar" key={idx}>
-              <div className="cpbi">{cat.icon}</div>
-              <div className="cpbn">{cat.name}</div>
-              <div className="cpbb">
-                <div className="cpbf" style={{ width: `${cat.pct}%`, backgroundColor: cat.fill }}></div>
+        {bars.length > 0 && (
+          <div className="cpc">
+            <div className="cph">spending by category</div>
+            {bars.map((cat, idx) => (
+              <div className="cpbar" key={idx}>
+                <div className="cpbi">{cat.icon}</div>
+                <div className="cpbn">{cat.name}</div>
+                <div className="cpbb">
+                  <div className="cpbf" style={{ width: `${cat.pct}%`, backgroundColor: cat.fill }}></div>
+                </div>
+                <div className="cpba">{cat.amt}</div>
               </div>
-              <div className="cpba">{cat.amt}</div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </aside>
   );

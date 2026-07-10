@@ -278,7 +278,8 @@ async def status(request: Request, user: str = Depends(get_current_user)):
     doc_name = _get_active_doc(tid)
     o = ts.overview(user, doc_name)
     return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
-                         "income": ts.inr(o["credit"]), "model": LLM_MODEL})
+                         "income": ts.inr(o["credit"]), "model": LLM_MODEL,
+                         "currency": ts.CURRENCY})
 
 @app.get("/dashboard")
 async def dashboard(request: Request, user: str = Depends(get_current_user)):

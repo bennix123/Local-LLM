@@ -2,7 +2,47 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PennyAvatar from '../components/PennyAvatar';
 import { uploadDocument } from '../api';
+import { formatMoney, categoryMeta } from '../format';
 import './Landing.css';
+
+// Auth header + tiny JSON GET helper — the wizard talks to the same on-device
+// API the dashboard does, so every figure it shows is real, not mocked.
+const authHeaders = () => {
+  const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+const fetchJSON = async (path) => {
+  try {
+    const r = await fetch(path, { headers: authHeaders() });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+};
+
+// Friendly model label (mirrors the dashboard mapping).
+const prettyModel = (m) => {
+  const low = (m || '').toLowerCase();
+  if (low.includes('llama')) return 'Llama 8B';
+  if (low.includes('qwen')) return 'Qwen 3B';
+  if (low.includes('gemma')) return 'Gemma 2B';
+  return m || '';
+};
+
+// Map a real category name to the feed's colour class + short label.
+const CAT_FEED = [
+  { k: ['food', 'dining', 'grocer', 'restaurant'], cat: 'food',  cl: 'FOOD' },
+  { k: ['income', 'salary'],                       cat: 'inc',   cl: 'INC' },
+  { k: ['invest', 'insurance'],                    cat: 'inv',   cl: 'INV' },
+  { k: ['transport', 'travel', 'fuel'],            cat: 'tr',    cl: 'TR' },
+  { k: ['shop'],                                   cat: 'shop',  cl: 'SHOP' },
+  { k: ['subscription', 'entertain'],              cat: 'sub',   cl: 'SUB' },
+  { k: ['bill', 'utilit'],                         cat: 'bills', cl: 'BILLS' },
+];
+const feedCat = (name) => {
+  const l = (name || '').toLowerCase();
+  for (const c of CAT_FEED) if (c.k.some((x) => l.includes(x))) return c;
+  return { cat: 'food', cl: (name || 'OTHER').toUpperCase().slice(0, 6) };
+};
 
 const ACCTS = {
   current: {
@@ -86,16 +126,78 @@ const Landing = () => {
   const [feedCount, setFeedCount] = useState('0 parsed');
   const [feedList, setFeedList] = useState([]);
   const [procFiles, setProcFiles] = useState([]);
-  
+  const [modelName, setModelName] = useState('');
+  const [currency, setCurrency] = useState('INR');
+  const [insights, setInsights] = useState(null); // real figures for the results screen
+
   const navigate = useNavigate();
   const procInterval = useRef(null);
   const fileInputRef = useRef(null);
+  const realFeedRef = useRef([]);   // interval reads this (closures can't see state updates)
+  const targetRef = useRef(0);      // live transaction-count target
+  const statusRef = useRef(null);   // status-message rotator timer
+  const shownRef = useRef(0);       // eased/displayed transaction count
+
+  const modelLabel = modelName || 'a local LLM';
 
   useEffect(() => {
+    // Pull the real model + currency already known to the backend so even the
+    // intro copy reflects this machine, not a hardcoded "Qwen 3 14B".
+    (async () => {
+      const s = await fetchJSON('/status');
+      if (s) {
+        if (s.model) setModelName(prettyModel(s.model));
+        if (s.currency) setCurrency(s.currency);
+      }
+    })();
     return () => {
       if (procInterval.current) clearInterval(procInterval.current);
+      if (statusRef.current) clearInterval(statusRef.current);
     };
   }, []);
+
+  // Pull the real transactions detected so far into the live feed (called after
+  // each file finishes parsing, so the feed fills as the parse progresses).
+  const refreshFeed = async () => {
+    const txns = await fetchJSON('/transactions?limit=15');
+    if (txns && Array.isArray(txns.rows) && txns.rows.length) {
+      const mapped = txns.rows.map((r) => {
+        const fc = feedCat(r.category);
+        return {
+          n: r.payee || 'Transaction',
+          m: r.date || '',
+          amt: r.in ? `+${r.in}` : (r.out ? `-${r.out}` : ''),
+          icon: categoryMeta(r.category).icon,
+          cat: fc.cat, cl: fc.cl,
+        };
+      });
+      realFeedRef.current = mapped;
+      setFeedList(mapped.slice(0, 15));
+    }
+  };
+
+  // Build the results-screen insights from real on-device figures once parsing is done.
+  const loadInsights = async () => {
+    const [st, dash] = await Promise.all([fetchJSON('/status'), fetchJSON('/dashboard')]);
+    const cur = (st && st.currency) || (dash && dash.currency) || currency;
+    setCurrency(cur);
+    if (st && st.model) setModelName(prettyModel(st.model));
+    if (dash && dash.ready) {
+      const cats = dash.categories || [];
+      const totals = dash.totals || {};
+      setInsights({
+        currency: cur,
+        rows: (st && st.rows) || totals.count || 0,
+        topCategory: cats.length ? { name: cats[0].name, amount: cats[0].amount } : null,
+        largest: dash.largest || null,       // {date, payee, amount}
+        subs: dash.subscriptions || [],
+        net: totals.net,
+        spend: totals.spending,
+        income: totals.income,
+        balance: dash.balance,
+      });
+    }
+  };
 
   const goTo = (n) => {
     if (procInterval.current) {
@@ -123,32 +225,20 @@ const Landing = () => {
     goTo(5);
   };
 
-  const handleFilesAdded = async (filesList) => {
+  const handleFilesAdded = (filesList) => {
     const ak = selectedAccts[currentAcctIdx];
     if (!ak) return;
     const currentFiles = uploadedFiles[ak] || [];
     const newFiles = [...currentFiles];
 
+    // Just COLLECT the files here — the actual upload + parse is deferred to the
+    // processing screen (step 6) so the parse animation plays during real work.
     for (let i = 0; i < filesList.length; i++) {
       const file = filesList[i];
-      let sizeStr = '';
-      if (file.size > 1024 * 1024) {
-        sizeStr = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
-      } else {
-        sizeStr = (file.size / 1024).toFixed(1) + ' KB';
-      }
-      
-      const mockRows = Math.floor(Math.random() * 500) + 50;
-      const meta = `${sizeStr} · ${mockRows} rows`;
-      
-      newFiles.push({ name: file.name, meta: meta, fileObj: file, rows: mockRows });
-
-      // Dynamically upload the file to the backend so it's loaded in the DB
-      try {
-        await uploadDocument(file);
-      } catch (err) {
-        console.error("Failed to upload document to backend:", err);
-      }
+      const sizeStr = file.size > 1024 * 1024
+        ? (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+        : (file.size / 1024).toFixed(1) + ' KB';
+      newFiles.push({ name: file.name, meta: sizeStr, fileObj: file, rows: 0 });
     }
 
     setUploadedFiles({ ...uploadedFiles, [ak]: newFiles });
@@ -207,87 +297,126 @@ const Landing = () => {
     goTo(6);
   };
 
-  const startProcessing = () => {
-    setFeedList([]);
-    const allFiles = [];
-    selectedAccts.forEach(ak => {
-      (uploadedFiles[ak] || []).forEach(f => {
-        allFiles.push({ acct: ak, file: f });
-      });
-    });
-
-    setProcFiles(allFiles.map(f => ({ ...f, status: 'queued' })));
-
-    let msgIdx = 0;
-    let feedIdx = 0;
-    
-    // Calculate total rows dynamically from metadata rows
-    let dynamicTarget = 0;
-    allFiles.forEach(f => {
-      if (f.file.rows) {
-        dynamicTarget += f.file.rows;
-      } else {
-        // Fallback row count estimation from placeholder file names
-        dynamicTarget += Math.floor(Math.random() * 500) + 150;
-      }
-    });
-    if (dynamicTarget === 0) dynamicTarget = 2847; // absolute fallback
-    
+  // DEMO fallback: user hit "Skip — show demo" with no real files. Keeps the
+  // illustrative timed animation with sample transactions.
+  const runDemoAnimation = (allFiles) => {
+    let msgIdx = 0, feedIdx = 0;
+    const dynamicTarget = 2847;
+    targetRef.current = dynamicTarget;
     localStorage.setItem('penny_dynamic_total_rows', dynamicTarget);
-
-    const dur = 5400;
-    const startTime = Date.now();
-
+    const dur = 5400, startTime = Date.now();
     const statusMsgs = [
       { at: 0, t: "opening statements..." },
       { at: 700, t: "parsing transactions on your Mac..." },
-      { at: 1400, t: "categorising with Qwen 3 14B 🧠" },
+      { at: 1400, t: `categorising with ${modelLabel} 🧠` },
       { at: 2100, t: "reading next file..." },
       { at: 2800, t: "detecting subscriptions 🔍" },
       { at: 3500, t: "merging accounts 🔗" },
-      { at: 4200, t: "analysing investments 📈" },
-      { at: 4800, t: "almost ready..." }
+      { at: 4800, t: "almost ready..." },
     ];
-
     procInterval.current = setInterval(() => {
       const el = Date.now() - startTime;
       const pct = Math.min(el / dur, 1);
-      const count = Math.min(Math.floor(dynamicTarget * pct), dynamicTarget);
-      
-      setProcCount(count);
-      setFeedCount(`${count.toLocaleString()} parsed`);
-
+      setProcCount(Math.floor(dynamicTarget * pct));
+      setFeedCount(`${Math.floor(dynamicTarget * pct).toLocaleString()} parsed`);
       const fps = allFiles.length > 0 ? 1 / allFiles.length : 1;
       setProcFiles(allFiles.map((f, i) => {
-        const s = i * fps;
-        const e = (i + 1) * fps;
-        let status = 'queued';
-        if (pct >= e) status = 'done';
-        else if (pct >= s) status = 'processing';
-        return { ...f, status };
+        const s = i * fps, e = (i + 1) * fps;
+        return { ...f, status: pct >= e ? 'done' : (pct >= s ? 'processing' : 'queued') };
       }));
-
       while (msgIdx < statusMsgs.length - 1 && el >= statusMsgs[msgIdx + 1].at) {
-        msgIdx++;
-        setProcStatus(statusMsgs[msgIdx].t);
+        msgIdx++; setProcStatus(statusMsgs[msgIdx].t);
       }
-
       const tf = Math.floor(pct * 40);
       if (feedIdx < tf && feedIdx < sampleTxns.length * 3) {
-        const t = sampleTxns[feedIdx % sampleTxns.length];
-        setFeedList(prev => [t, ...prev].slice(0, 15));
+        setFeedList(prev => [sampleTxns[feedIdx % sampleTxns.length], ...prev].slice(0, 15));
         feedIdx++;
       }
-
       if (pct >= 1) {
-        clearInterval(procInterval.current);
-        procInterval.current = null;
+        clearInterval(procInterval.current); procInterval.current = null;
         setProcStatus('✨ ready · in a moment...');
-        setTimeout(() => {
-          setStep(7);
-        }, 800);
+        setTimeout(() => setStep(7), 800);
       }
     }, 50);
+  };
+
+  // REAL parse: the animation is shown WHILE each file is actually uploaded and
+  // parsed on-device. The screen stays up until the real parse resolves — so a
+  // slow LLM-parsed PDF keeps animating instead of ending on a fake timer.
+  const startProcessing = async () => {
+    setFeedList([]);
+    setProcCount(0);
+    setInsights(null);
+    realFeedRef.current = [];
+    shownRef.current = 0;
+    const allFiles = [];
+    selectedAccts.forEach(ak => {
+      (uploadedFiles[ak] || []).forEach(f => allFiles.push({ acct: ak, file: f }));
+    });
+    setProcFiles(allFiles.map(f => ({ ...f, status: 'queued' })));
+
+    const hasReal = allFiles.some(f => f.file && f.file.fileObj);
+    if (!hasReal) { runDemoAnimation(allFiles); return; }
+
+    targetRef.current = 0;
+
+    // Rotating status line + eased counter — these run for as long as the real
+    // parse takes (however many seconds the backend needs).
+    const statusMsgs = [
+      "opening statements...",
+      "parsing transactions on your Mac...",
+      `categorising with ${modelLabel} 🧠`,
+      "detecting subscriptions 🔍",
+      "merging accounts 🔗",
+      "almost there...",
+    ];
+    let msgIdx = 0;
+    setProcStatus(statusMsgs[0]);
+    statusRef.current = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, statusMsgs.length - 1);
+      setProcStatus(statusMsgs[msgIdx]);
+    }, 1500);
+    procInterval.current = setInterval(() => {
+      const tgt = targetRef.current;
+      if (shownRef.current < tgt) {
+        shownRef.current = Math.min(shownRef.current + Math.max(1, Math.ceil((tgt - shownRef.current) / 6)), tgt);
+        setProcCount(shownRef.current);
+        setFeedCount(`${shownRef.current.toLocaleString()} parsed`);
+      }
+    }, 60);
+
+    // Upload + parse each file for real, one at a time — this is the slow part.
+    for (let i = 0; i < allFiles.length; i++) {
+      setProcFiles(prev => prev.map((pf, idx) => idx === i ? { ...pf, status: 'processing' } : pf));
+      const fileObj = allFiles[i].file.fileObj;
+      let rows = 0;
+      if (fileObj) {
+        try {
+          const res = await uploadDocument(fileObj);
+          rows = (res && (res.rows ?? (res.parsed && res.parsed[0] && res.parsed[0].rows))) || 0;
+          if (res && res.currency) setCurrency(res.currency);
+        } catch (e) {
+          console.error('Parse failed:', e);
+        }
+      }
+      targetRef.current += rows;
+      setProcFiles(prev => prev.map((pf, idx) => idx === i
+        ? { ...pf, status: 'done', file: { ...pf.file, meta: rows > 0 ? `${pf.file.meta} · ${rows.toLocaleString()} rows` : pf.file.meta } }
+        : pf));
+      await refreshFeed();   // show the real transactions detected so far
+    }
+
+    // Real parse finished — settle the counter, load insights, advance.
+    clearInterval(statusRef.current); statusRef.current = null;
+    clearInterval(procInterval.current); procInterval.current = null;
+    if (targetRef.current > 0) localStorage.setItem('penny_dynamic_total_rows', targetRef.current);
+    shownRef.current = targetRef.current;
+    setProcCount(targetRef.current);
+    setFeedCount(`${targetRef.current.toLocaleString()} parsed`);
+    setProcStatus('categorising & finding patterns 🧠');
+    await loadInsights();
+    setProcStatus('✨ ready · in a moment...');
+    setTimeout(() => setStep(7), 900);
   };
 
   const handleFinish = () => {
@@ -333,7 +462,7 @@ const Landing = () => {
                 <div className="bul">
                   <div className="bul-r"><div className="bul-i">🔒</div><div><b>Lives on your Mac.</b> Files never leave. Ever.</div></div>
                   <div className="bul-r"><div className="bul-i">📄</div><div><b>You upload files.</b> CSV, PDF, Excel — no passwords.</div></div>
-                  <div className="bul-r"><div className="bul-i">⚡</div><div><b>Qwen 3 14B</b> on your Mac's chip. Proper reasoning.</div></div>
+                  <div className="bul-r"><div className="bul-i">⚡</div><div><b>{modelLabel}</b> on your Mac's chip. Proper reasoning.</div></div>
                 </div>
                 <div className="cta">
                   <button className="btn lime lg" onClick={() => goTo(2)}>Let's set up →</button>
@@ -403,7 +532,7 @@ const Landing = () => {
                 <div className="stn">3</div>
                 <div className="sti">🧠</div>
                 <div className="sth">I read everything locally</div>
-                <div className="stp">Qwen 3 14B on your Mac's chip categorises, finds patterns, spots subs.</div>
+                <div className="stp">{modelLabel} on your Mac's chip categorises, finds patterns, spots subs.</div>
                 <div className="stt">~30 SECONDS</div>
               </div>
               <div className="stc">
@@ -733,42 +862,105 @@ const Landing = () => {
         <div className="scrn">
           <div className="s7">
             <div className="s7c">
-              <div className="s7l">
-                <div className="th1">hmm, <b>£187</b> on Deliveroo? 👀</div>
-                <div className="th2">3 zombie subs spotted 🧟</div>
-                <div className="th3">your <b>portfolio</b> is up 8% ✨</div>
-                <PennyAvatar size="lg" mood="thinking" />
-              </div>
-              <div>
-                <div className="s7h">Let me have a quick<br /><em>look at this...</em></div>
-                <div className="s7p">{(parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847).toLocaleString()} transactions and {(selectedAccts.includes('stocks') || selectedAccts.includes('crypto')) ? 1 : 0} investment statement read. Already found a few things — fixable.</div>
-                <div className="ins">
-                  <div className="in">
-                    <div className="ini">🍔</div>
+              {insights ? (() => {
+                const cur = insights.currency || currency;
+                const { largest, topCategory: top } = insights;
+                const subs = insights.subs || [];
+                const rows = insights.rows || parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 0;
+                return (
+                  <>
+                    <div className="s7l">
+                      {largest && <div className="th1">hmm, <b>{formatMoney(largest.amount, cur)}</b> at {largest.payee}? 👀</div>}
+                      {subs.length > 0 && <div className="th2">{subs.length} recurring sub{subs.length > 1 ? 's' : ''} spotted 🧟</div>}
+                      {insights.net != null && <div className="th3">net <b>{formatMoney(insights.net, cur)}</b> this period ✨</div>}
+                      <PennyAvatar size="lg" mood="thinking" />
+                    </div>
                     <div>
-                      <div className="int">Takeaways up <b>34%</b> this month</div>
-                      <div className="ind">£187 on Deliveroo · mostly late-night</div>
+                      <div className="s7h">Let me have a quick<br /><em>look at this...</em></div>
+                      <div className="s7p">{rows.toLocaleString()} transactions read across your statements — already spotted a few things.</div>
+                      <div className="ins">
+                        {top && (
+                          <div className="in">
+                            <div className="ini">{categoryMeta(top.name).icon}</div>
+                            <div>
+                              <div className="int"><b>{top.name}</b> is your top spend</div>
+                              <div className="ind">{formatMoney(top.amount, cur)} across your statements</div>
+                            </div>
+                          </div>
+                        )}
+                        {largest && (
+                          <div className="in">
+                            <div className="ini">💸</div>
+                            <div>
+                              <div className="int">Largest single payment</div>
+                              <div className="ind">{formatMoney(largest.amount, cur)} · {largest.payee}{largest.date ? ` on ${largest.date}` : ''}</div>
+                            </div>
+                          </div>
+                        )}
+                        {subs.length > 0 ? (
+                          <div className="in">
+                            <div className="ini">👻</div>
+                            <div>
+                              <div className="int">Found <b>{subs.length} recurring sub{subs.length > 1 ? 's' : ''}</b></div>
+                              <div className="ind">{subs.map(s => s.name).join(' · ')}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="in">
+                            <div className="ini">📊</div>
+                            <div>
+                              <div className="int">Money in vs out</div>
+                              <div className="ind">in {formatMoney(insights.income, cur)} · out {formatMoney(insights.spend, cur)}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button className="btn lime lg" onClick={handleFinish}>Take me to Penny →</button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })() : (
+                <>
+                  <div className="s7l">
+                    <div className="th1">hmm, <b>£187</b> on Deliveroo? 👀</div>
+                    <div className="th2">3 zombie subs spotted 🧟</div>
+                    <div className="th3">your <b>portfolio</b> is up 8% ✨</div>
+                    <PennyAvatar size="lg" mood="thinking" />
+                  </div>
+                  <div>
+                    <div className="s7h">Let me have a quick<br /><em>look at this...</em></div>
+                    <div className="s7p">Demo preview — upload real statements to see your own numbers here.</div>
+                    <div className="ins">
+                      <div className="in">
+                        <div className="ini">🍔</div>
+                        <div>
+                          <div className="int">Takeaways up <b>34%</b> this month</div>
+                          <div className="ind">£187 on Deliveroo · mostly late-night</div>
+                        </div>
+                      </div>
+                      <div className="in">
+                        <div className="ini">👻</div>
+                        <div>
+                          <div className="int">Found <b>3 zombie subs</b> wasting £34/mo</div>
+                          <div className="ind">Audible · FitnessPal · Times+ · all unused</div>
+                        </div>
+                      </div>
+                      <div className="in">
+                        <div className="ini">📈</div>
+                        <div>
+                          <div className="int">Portfolio <span className="gd">+8.2%</span> YTD</div>
+                          <div className="ind">VWRL up, GOOGL down, net £1,420 gain</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button className="btn lime lg" onClick={handleFinish}>Take me to Penny →</button>
                     </div>
                   </div>
-                  <div className="in">
-                    <div className="ini">👻</div>
-                    <div>
-                      <div className="int">Found <b>3 zombie subs</b> wasting £34/mo</div>
-                      <div className="ind">Audible · FitnessPal · Times+ · all unused</div>
-                    </div>
-                  </div>
-                  <div className="in">
-                    <div className="ini">📈</div>
-                    <div>
-                      <div className="int">Portfolio <span className="gd">+8.2%</span> YTD</div>
-                      <div className="ind">VWRL up, GOOGL down, net £1,420 gain</div>
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button className="btn lime lg" onClick={handleFinish}>Take me to Penny →</button>
-                </div>
-              </div>
+                </>
+              )}
             </div>
           </div>
         </div>

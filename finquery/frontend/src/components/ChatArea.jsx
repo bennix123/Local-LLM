@@ -24,7 +24,7 @@ const ChatArea = ({ messages, isLoading, runFlow }) => {
           <div className="qs ghosts" onClick={() => runFlow('ghosts')}>
             <div className="qse">👻</div>
             <div className="qsh">Banish zombie subs</div>
-            <div className="qsp">3 unused subs draining £34/mo.</div>
+            <div className="qsp">Find recurring subs you forgot you had.</div>
           </div>
           <div className="qs forecast" onClick={() => runFlow('forecast')}>
             <div className="qse">📊</div>

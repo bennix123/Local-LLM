@@ -13,12 +13,16 @@ function Dashboard() {
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [overview, setOverview] = useState({ rows: 2847, spend: '£2,148', income: '£3,820' });
+  const [overview, setOverview] = useState({ rows: 0, spend: '—', income: '—' });
+  const [ctx, setCtx] = useState({
+    ready: false, currency: 'INR', balance: null,
+    spentThisMonth: null, net: null, txnCount: 0, categories: [],
+  });
   const { user, logout } = useAuth();
-  
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [modelName, setModelName] = useState('Llama 8B');
+  const [modelName, setModelName] = useState('local model');
 
   const [chips, setChips] = useState([
     { label: '🔥 Roast my spending', action: 'roast' },
@@ -30,7 +34,42 @@ function Dashboard() {
   useEffect(() => {
     fetchDocuments();
     fetchStatus();
+    fetchDashboard();
   }, []);
+
+  const authHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  // Rich, currency-aware figures for the Today panel — every number is computed
+  // in SQL on-device, so nothing here can be hallucinated.
+  const fetchDashboard = async () => {
+    try {
+      const res = await fetch('/dashboard', { headers: authHeaders() });
+      if (!res.ok) return;
+      const d = await res.json();
+      if (!d.ready) {
+        setCtx((c) => ({ ...c, ready: false }));
+        return;
+      }
+      const months = d.months || [];
+      const spentThisMonth = months.length
+        ? months[months.length - 1].spending
+        : (d.totals ? d.totals.spending : null);
+      setCtx({
+        ready: true,
+        currency: d.currency || 'INR',
+        balance: d.balance != null ? d.balance : null,
+        spentThisMonth,
+        net: d.totals ? d.totals.net : null,
+        txnCount: d.totals ? d.totals.count : 0,
+        categories: (d.categories || []).map((c) => ({ name: c.name, amount: c.amount })),
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard:', error);
+    }
+  };
 
   const fetchDocuments = async () => {
     try {
@@ -50,17 +89,14 @@ function Dashboard() {
 
   const fetchStatus = async () => {
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
-      const response = await fetch('/status', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847;
+      const response = await fetch('/status', { headers: authHeaders() });
+      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 0;
       if (response.ok) {
         const data = await response.json();
         setOverview({
           rows: data.rows || storedTotal,
-          spend: data.spend || '£2,148',
-          income: data.income || '£3,820'
+          spend: data.spend || '—',
+          income: data.income || '—'
         });
         if (data.model) {
           let displayName = data.model;
@@ -76,7 +112,7 @@ function Dashboard() {
       }
     } catch (error) {
       console.error('Error fetching status:', error);
-      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 2847;
+      const storedTotal = parseInt(localStorage.getItem('penny_dynamic_total_rows')) || 0;
       setOverview(prev => ({ ...prev, rows: storedTotal }));
     }
   };
@@ -151,6 +187,7 @@ function Dashboard() {
       toast.error('Failed to get response');
     } finally {
       setIsLoading(false);
+      fetchDashboard();   // figures may have changed (new upload / scope switch)
     }
   };
 
@@ -257,10 +294,14 @@ function Dashboard() {
 
       {/* Context Panel Wrapper */}
       <div className={`cp-wrapper ${panelOpen ? 'open' : ''}`}>
-        <ContextPanel 
-          balance={overview.income ? 8432 : 0} 
-          spentThisMonth={2148}
-          portfolio={18742}
+        <ContextPanel
+          currency={ctx.currency}
+          ready={ctx.ready}
+          balance={ctx.balance}
+          spentThisMonth={ctx.spentThisMonth}
+          net={ctx.net}
+          txnCount={ctx.txnCount || overview.rows}
+          categories={ctx.categories}
         />
       </div>
     </div>
