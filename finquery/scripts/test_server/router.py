@@ -489,6 +489,19 @@ def _list_entity(low):
     filler precedes the noun (a scopeless 'show me all transactions')."""
     m = _LIST_ENT_RE.search(low)
     if not m:
+        # Fallback for "list of spent on <X>", "transactions at/from/on <X>", "spent on <X>"
+        fm = re.search(r"\b(?:list of |show me |transactions? )(?:spent )?(?:on|at|from|to|for)\s+([a-z0-9&'.\- ]+)", low)
+        if fm:
+            cand = fm.group(1).strip()
+            # Truncate at prepositions or clause starters
+            cand = re.split(r"\b(?:in|on|during|for|last|this|the|over|between|per|by|if|any|bank|transaction)\b", cand)[0].strip()
+            toks = [t for t in cand.split() if t]
+            while toks and toks[0] in _LIST_STOP:
+                toks.pop(0)
+            if toks and not all(t in _LIST_STOP or t.isdigit() for t in toks):
+                cand = " ".join(toks)
+                if not (re.match(rf"(?:{_MON_RE})\b", cand) or cand in _GUARD_STOP):
+                    return cand
         return None
     toks = [t for t in m.group(1).split() if t]
     while toks and toks[0] in _LIST_STOP:
