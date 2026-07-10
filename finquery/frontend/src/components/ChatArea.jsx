@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import Message from './Message';
 
-const ChatArea = ({ messages, isLoading, onExampleClick }) => {
+const ChatArea = ({ messages, isLoading, runFlow }) => {
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -12,39 +12,29 @@ const ChatArea = ({ messages, isLoading, onExampleClick }) => {
     scrollToBottom();
   }, [messages]);
 
-  // Example questions
-  const exampleQuestions = [
-    "Hi, what's up?",
-    "What do you do?",
-    "What was my highest expense?",
-    "How much did I spend at bokku?",
-  ];
-
   return (
-    <div className="chat-area">
+    <div className="cb" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
       {messages.length === 0 ? (
-        <div className="chat-empty">
-          <div className="chat-empty-icon">
-            <svg viewBox="0 0 24 24">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
+        <div id="qsg" className="qsg" style={{ marginTop: 'auto', marginBottom: 'auto' }}>
+          <div className="qs roast" onClick={() => runFlow('roast')}>
+            <div className="qse">🔥</div>
+            <div className="qsh">Roast me</div>
+            <div className="qsp">Brutal honesty about your spending.</div>
           </div>
-          <div className="chat-empty-text">Ready when you are.</div>
-          
-          {/* Example Questions */}
-          <div className="example-questions">
-            <div className="example-title">Try asking:</div>
-            <div className="example-grid">
-              {exampleQuestions.map((question, idx) => (
-                <button
-                  key={idx}
-                  className="example-button"
-                  onClick={() => onExampleClick(question)}
-                >
-                  {question}
-                </button>
-              ))}
-            </div>
+          <div className="qs ghosts" onClick={() => runFlow('ghosts')}>
+            <div className="qse">👻</div>
+            <div className="qsh">Banish zombie subs</div>
+            <div className="qsp">3 unused subs draining £34/mo.</div>
+          </div>
+          <div className="qs forecast" onClick={() => runFlow('forecast')}>
+            <div className="qse">📊</div>
+            <div className="qsh">Portfolio right now</div>
+            <div className="qsp">Live value · needs a price check.</div>
+          </div>
+          <div className="qs compound" onClick={() => runFlow('compound')}>
+            <div className="qse">📈</div>
+            <div className="qsh">Compound my savings</div>
+            <div className="qsp">If I fix the leaks, what's it worth?</div>
           </div>
         </div>
       ) : (
@@ -53,9 +43,11 @@ const ChatArea = ({ messages, isLoading, onExampleClick }) => {
             <Message key={index} message={message} />
           ))}
           {isLoading && (
-            <div className="loading-message">
-              <div className="loading-content">
-                Thinking<span className="loading-dots"></span>
+            <div className="typ">
+              <div className="typb">
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
             </div>
           )}

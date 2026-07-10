@@ -4,13 +4,14 @@ import json, os, re, sys, threading, urllib.request, html as _htmlmod
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, Depends, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from src.services import txn_store as ts
 from src.services import ml_insights as ml
 
 from .prompts import ADVICE_SYSTEM, GROUNDED_ADVICE_SYSTEM, ROUTER_SYSTEM
 from .ui import PAGE, _DOC_SHELL, LOGIN_PAGE
-from .auth import get_current_user, get_user_db_path, router as auth_router
+from .auth import get_current_user, get_user_db_path, router as auth_router, login, signup, _Creds
 from .router import (
     _reset_vocab, UPLOAD_DIR, CONVO_RE, _log_conv, HELP_RE, _sub_clarify, _REASON_RE, _PROJ_RE, _FCAST_RE, _clarify_choice, _capabilities, _fmt_date, _FIN_RE, _ANOM_RE, _ADVICE_RE, _WHY_RE,
     _resolve_conversation, ConversationState, _resolve_factual,
@@ -47,6 +48,30 @@ LOG_FILE = os.path.join(LOG_DIR, "chat_sessions.jsonl")
 
 app = FastAPI(title="Penny Local Server")
 app.include_router(auth_router)
+
+from typing import Optional
+from pydantic import BaseModel
+
+class _CompatCreds(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    password: str
+
+@app.post("/login")
+def login_compat(body: _CompatCreds):
+    uname = body.username or body.email or ""
+    return login(_Creds(username=uname, password=body.password))
+
+@app.post("/register")
+def register_compat(body: _CompatCreds):
+    uname = body.username or body.email or ""
+    return signup(_Creds(username=uname, password=body.password))
+
+@app.get("/me")
+def me_compat(user: str = Depends(get_current_user)):
+    return {"username": user}
+
+
 
 _DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 _PINNED_DB = os.path.join(_DATA_DIR, "live_txn.db")
@@ -172,15 +197,38 @@ def llm_route(question, history=None):
 async def favicon():
     return Response(status_code=204)
 
+FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
+
+if os.path.exists(ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+def serve_index():
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(f.read())
+        except Exception as e:
+            print(f"[server] Error reading index.html: {e}")
+    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    """Root: serve the login page. The JS redirects to /app if already authed."""
-    return HTMLResponse(LOGIN_PAGE)
+    return serve_index()
 
 @app.get("/app", response_class=HTMLResponse)
 async def app_page():
-    """Main Penny UI — auth is enforced by the frontend JWT check."""
-    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+    return serve_index()
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page_route():
+    return serve_index()
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page_route():
+    return serve_index()
+
 
 def _get_active_doc(thread: str = "default"):
     st = THREADS.get(thread)
@@ -674,6 +722,7 @@ def needs_bank_clarification(user_id, q, ctx):
     return None, payload
 
 @app.post("/query")
+@app.post("/query/stream")
 async def query(request: Request, user: str = Depends(get_current_user)):
     _switch_db(user)
     body = await request.json()

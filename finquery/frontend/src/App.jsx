@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import './App.css';
+import './pages/Landing.css';
 
 // Protected route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -32,6 +33,8 @@ const ProtectedRoute = ({ children }) => {
 
   return children;
 };
+
+import Landing from './pages/Landing';
 
 function App() {
   return (
@@ -61,10 +64,11 @@ function App() {
           }}
         />
         <Routes>
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route 
-            path="/" 
+            path="/app" 
             element={
               <ProtectedRoute>
                 <Dashboard />

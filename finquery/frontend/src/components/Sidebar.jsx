@@ -1,183 +1,95 @@
-import React, { useRef, useState } from 'react';
-import toast from 'react-hot-toast';
+import React, { useState } from 'react';
+import PennyAvatar from './PennyAvatar';
 
-const Sidebar = ({ documents, selectedDocs, onSelectDoc, onUpload, onDelete, isUploading, user, onLogout }) => {
-  const fileInputRef = useRef(null);
-  const [isDragging, setIsDragging] = useState(false);
+const Sidebar = ({ 
+  user, 
+  onLogout, 
+  modelName = 'llama3.1:8b', 
+  transactionCount = 2847, 
+  runFlow,
+  documents = [],
+  activeDoc,
+  onSelectDoc
+}) => {
+  const [netOnline, setNetOnline] = useState(false);
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onUpload(file);
-      e.target.value = '';
-    }
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.name.endsWith('.pdf')) {
-      onUpload(file);
-    } else {
-      alert('Please upload a PDF file');
-    }
-  };
-
-  const handleDelete = (e, docName) => {
-    e.stopPropagation();
-    
-    toast((t) => (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <div style={{ fontWeight: 500 }}>Delete {docName}?</div>
-        <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
-          This action cannot be undone.
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <button
-            onClick={() => {
-              onDelete(docName);
-              toast.dismiss(t.id);
-            }}
-            style={{
-              flex: 1,
-              padding: '0.5rem',
-              backgroundColor: '#ef4444',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
-          >
-            Delete
-          </button>
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            style={{
-              flex: 1,
-              padding: '0.5rem',
-              backgroundColor: '#f3f4f6',
-              color: '#1f2937',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: 500,
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    ), {
-      duration: Infinity,
-      style: { maxWidth: '400px' }
-    });
+  const toggleNet = () => {
+    setNetOnline(!netOnline);
   };
 
   return (
-    <div className="sidebar">
-      {/* Header with user info */}
-      <div className="sidebar-header">
-        <div className="sidebar-logo">FinQuery</div>
-        <div className="sidebar-tagline">Financial Document Q&A</div>
-        {user && (
-          <div className="user-info">
-            <span className="user-email">{user.email}</span>
-            <button className="logout-btn" onClick={onLogout}>
-              Logout
-            </button>
-          </div>
-        )}
+    <aside className="sb">
+      <div className="sbb">
+        <PennyAvatar size="sm" />
+        <div className="sbbn">penny<em>.</em></div>
       </div>
 
-      {/* Documents List */}
-      <div className="sidebar-content">
-        <div className="documents-section-title">Documents</div>
-        
-        {documents.length === 0 ? (
-          <div className="empty-state">
-            No documents uploaded yet
-          </div>
-        ) : (
-          <div className="document-list">
-            {documents.map((doc) => {
-              const isSelected = selectedDocs.includes(doc.name);
-              return (
-                <div
-                  key={doc.name}
-                  onClick={() => onSelectDoc(doc.name)}
-                  className={`document-item ${isSelected ? 'selected' : ''}`}
-                >
-                  <div className="document-name">{doc.name}</div>
-                  <div className="document-meta">
-                    <div className="document-stats">
-                      <span>{doc.pages || 0} pages</span>
-                      <span>•</span>
-                      <span>{doc.count} chunks</span>
-                    </div>
-                    <button
-                      className="delete-btn"
-                      onClick={(e) => handleDelete(e, doc.name)}
-                      title="Delete document"
-                    >
-                      ×
-                    </button>
-                  </div>
+      <div className="sbs">
+        <div className="sbh">conversations</div>
+        <div className="sbi on">
+          <div className="sbic">💬</div>Today's chat
+        </div>
+        <div className="sbi" onClick={() => onLogout()}>
+          <div className="sbic">🚪</div>Sign Out
+        </div>
+      </div>
+
+      <div className="sbs">
+        <div className="sbh">jump to</div>
+        <div className="sbi" onClick={() => runFlow('roast')}><div class="sbic">🔥</div>Roast me</div>
+        <div className="sbi" onClick={() => runFlow('ghosts')}><div class="sbic">👻</div>Ghosts<span class="sbb-badge">3</span></div>
+        <div className="sbi" onClick={() => runFlow('patterns')}><div class="sbic">⚡</div>Patterns<span class="sbb-badge">3</span></div>
+        <div className="sbi" onClick={() => runFlow('forecast')}><div class="sbic">⛅</div>Forecast</div>
+        <div className="sbi" onClick={() => runFlow('compound')}><div class="sbic">📈</div>Compound math</div>
+        <div className="sbi" onClick={() => runFlow('reports')}><div class="sbic">📊</div>Reports</div>
+        <div className="sbi" onClick={() => runFlow('splurge')}><div class="sbic">💸</div>Can I splurge?</div>
+      </div>
+
+      {documents.length > 0 && (
+        <div className="sbs">
+          <div className="sbh">statements</div>
+          <div className="acls">
+            {documents.map((doc, idx) => (
+              <div 
+                key={idx} 
+                className={`acrow ${activeDoc === doc ? 'on' : ''}`}
+                onClick={() => onSelectDoc(doc)}
+                style={{ background: activeDoc === doc ? 'rgba(0,0,0,0.1)' : '' }}
+              >
+                <div className="acri">📄</div>
+                <div className="acrn" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {doc}
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Upload Area - EXACTLY like PDFtoChat */}
-      <div className="upload-section">
-        <div
-          className={`upload-area ${isDragging ? 'dragging' : ''}`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={handleUploadClick}
-        >
-          <div className="upload-content">
-            <button
-              className="upload-button"
-              disabled={isUploading}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleUploadClick();
-              }}
-            >
-              {isUploading ? 'Uploading...' : 'Upload a File'}
-            </button>
-            <div className="upload-subtext">...or drag and drop a file.</div>
+              </div>
+            ))}
           </div>
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf"
-          onChange={handleFileChange}
-          style={{ display: 'none' }}
-        />
+      )}
+
+      <div className={`net ${netOnline ? 'online' : 'offline'}`} id="netPanel" style={{ marginTop: 'auto' }}>
+        <div className="neth">
+          <div className="netl">
+            <span className="dot"></span>
+            <span id="netLabel">{netOnline ? 'Online when needed' : 'Offline mode'}</span>
+          </div>
+          <div className={`tgl ${netOnline ? 'on' : ''}`} id="netToggle" onClick={toggleNet}></div>
+        </div>
+        <div className="netd" id="netDesc">
+          {netOnline 
+            ? 'Penny stays local, but can fetch public numbers (like stock prices) when a question needs them. Your data never goes out — only anonymous lookups.'
+            : 'Penny is fully offline. She\'ll never reach the internet. Some live answers (stock prices) won\'t be available.'}
+        </div>
       </div>
-    </div>
+
+      <div className="bp" style={{ marginTop: '12px' }}>
+        <div className="bph">PENNY'S BRAIN</div>
+        <div className="bpm" style={{ textTransform: 'uppercase' }}>{modelName}</div>
+        <div className="bps"><span>RAM in use</span><b>8.2 GB</b></div>
+        <div className="bps"><span>Context</span><b>32K tokens</b></div>
+        <div className="bps"><span>Transactions</span><b>{transactionCount.toLocaleString()}</b></div>
+        <div className="bps"><span>Data sent out</span><b style={{ color: 'var(--lime-d)' }}>0 bytes</b></div>
+      </div>
+    </aside>
   );
 };
 

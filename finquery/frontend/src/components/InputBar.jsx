@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const InputBar = ({ selectedDocs, onRemoveDoc, onSendMessage, disabled }) => {
+const InputBar = ({ onSendMessage, disabled, chips = [], onChipClick }) => {
   const [input, setInput] = useState('');
 
   const handleSubmit = (e) => {
@@ -12,54 +12,44 @@ const InputBar = ({ selectedDocs, onRemoveDoc, onSendMessage, disabled }) => {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit(e);
     }
   };
 
-  const placeholder = selectedDocs.length === 0
-    ? 'Ask a question (will search all documents)...'
-    : `Ask about ${selectedDocs.join(', ')}...`;
-
   return (
-    <div className="input-area">
-      <div className="input-container">
-        {selectedDocs.length > 0 && (
-          <div className="selected-docs-pills">
-            {selectedDocs.map((docName) => (
-              <div key={docName} className="doc-pill">
-                <span>{docName}</span>
-                <button
-                  className="pill-remove"
-                  onClick={() => onRemoveDoc(docName)}
-                  title="Remove document"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="input-form">
-          <div className="input-wrapper">
-            <textarea
-              className="chat-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              disabled={disabled}
-              rows={1}
-            />
-          </div>
-          <button
-            type="submit"
-            className="send-button"
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {chips.length > 0 && (
+        <div className="chips">
+          {chips.map((chip, idx) => (
+            <button 
+              key={idx} 
+              className="chip"
+              onClick={() => onChipClick(chip.action || chip.label)}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="ciw">
+        <form onSubmit={handleSubmit} className="ci">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="ask penny anything... e.g. why am i broke?"
+            disabled={disabled}
+            autoComplete="off"
+          />
+          <button 
+            type="submit" 
+            className="sb-btn"
             disabled={disabled || !input.trim()}
           >
-            Send
+            →
           </button>
         </form>
       </div>

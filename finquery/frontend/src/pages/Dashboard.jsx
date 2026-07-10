@@ -3,107 +3,95 @@ import toast from 'react-hot-toast';
 import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 import InputBar from '../components/InputBar';
-import { uploadDocument, listDocuments, queryDocumentsStream, deleteDocument } from '../api';
+import ContextPanel from '../components/ContextPanel';
+import { listDocuments, queryDocumentsStream } from '../api';
 import { useAuth } from '../context/AuthContext';
-import '../App.css';
 
 function Dashboard() {
   const [documents, setDocuments] = useState([]);
-  const [selectedDocs, setSelectedDocs] = useState([]);
+  const [activeDoc, setActiveDoc] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [overview, setOverview] = useState({ rows: 2847, spend: '£2,148', income: '£3,820' });
   const { user, logout } = useAuth();
 
-  const MAX_SELECTED_DOCS = 2;
+  const [chips, setChips] = useState([
+    { label: '🔥 Roast my spending', action: 'roast' },
+    { label: '👻 Banish zombie subs', action: 'ghosts' },
+    { label: '⛅ Forecast savings', action: 'forecast' },
+    { label: '📈 Compound math', action: 'compound' }
+  ]);
 
   useEffect(() => {
     fetchDocuments();
+    fetchStatus();
   }, []);
 
   const fetchDocuments = async () => {
     try {
       const data = await listDocuments();
-      setDocuments(data.documents);
+      setDocuments(data.documents || []);
+      if (data.active_doc_name) {
+        setActiveDoc(data.active_doc_name);
+      }
     } catch (error) {
       console.error('Error fetching documents:', error);
-      toast.error('Failed to load documents');
     }
   };
 
-  const handleUpload = async (file) => {
-    if (!file.name.endsWith('.pdf')) {
-      toast.error('Please upload a PDF file');
-      return;
-    }
-
-    setIsUploading(true);
-    const uploadToast = toast.loading(`Uploading ${file.name}...`);
-    
+  const fetchStatus = async () => {
     try {
-      await uploadDocument(file);
-      await fetchDocuments();
-      toast.success(`Successfully uploaded ${file.name}`, { id: uploadToast });
-    } catch (error) {
-      console.error('Error uploading document:', error);
-      toast.error(`Failed to upload ${file.name}`, { id: uploadToast });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleDelete = async (docName) => {
-    try {
-      await deleteDocument(docName);
-      setSelectedDocs(selectedDocs.filter(name => name !== docName));
-      await fetchDocuments();
-      toast.success(`Deleted ${docName}`);
-    } catch (error) {
-      console.error('Error deleting document:', error);
-      toast.error(`Failed to delete ${docName}`);
-    }
-  };
-
-  const handleSelectDoc = (docName) => {
-    if (selectedDocs.includes(docName)) {
-      setSelectedDocs(selectedDocs.filter((name) => name !== docName));
-    } else {
-      if (selectedDocs.length >= MAX_SELECTED_DOCS) {
-        toast.error(`You can only select up to ${MAX_SELECTED_DOCS} documents at a time`);
-        return;
+      const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
+      const response = await fetch('/status', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setOverview({
+          rows: data.rows || 2847,
+          spend: data.spend || '£2,148',
+          income: data.income || '£3,820'
+        });
       }
-      setSelectedDocs([...selectedDocs, docName]);
-      toast.success(`Selected ${docName}`);
+    } catch (error) {
+      console.error('Error fetching status:', error);
     }
   };
 
-  const handleRemoveDoc = (docName) => {
-    setSelectedDocs(selectedDocs.filter((name) => name !== docName));
+  const handleSelectDoc = async (docName) => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('penny_token');
+      const response = await fetch('/chat/select_bank', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ doc_name: docName })
+      });
+      if (response.ok) {
+        setActiveDoc(docName);
+        toast.success(`Active statement: ${docName}`);
+      }
+    } catch (error) {
+      console.error('Error selecting document:', error);
+    }
   };
 
   const handleSendMessage = async (question) => {
-    const userMessage = {
-      role: 'user',
-      content: question,
-    };
+    const userMessage = { role: 'user', content: question };
     setMessages((prev) => [...prev, userMessage]);
 
-    // Add empty assistant message that will be streamed into
-    const assistantMessage = {
-      role: 'assistant',
-      content: '',
-      sources: [],
-    };
+    const assistantMessage = { role: 'assistant', content: '', sources: [] };
     setMessages((prev) => [...prev, assistantMessage]);
     setIsLoading(true);
 
     try {
-      const documentNames = selectedDocs.length > 0 ? selectedDocs : null;
+      const docNameParam = activeDoc ? [activeDoc] : null;
 
       await queryDocumentsStream(
         question,
-        documentNames,
-        // onToken - append each token to the message
+        docNameParam,
         (token) => {
           setMessages((prev) => {
             const lastMsg = prev[prev.length - 1];
@@ -113,7 +101,6 @@ function Dashboard() {
             ];
           });
         },
-        // onDone - add sources when complete
         (sources) => {
           setMessages((prev) => {
             const lastMsg = prev[prev.length - 1];
@@ -130,7 +117,7 @@ function Dashboard() {
         const updated = [...prev];
         const lastMsg = updated[updated.length - 1];
         if (!lastMsg.content) {
-          lastMsg.content = 'Sorry, an error occurred while processing your question. Please try again.';
+          lastMsg.content = 'Sorry, I couldn\'t process that question. Please try again.';
         }
         return [...updated];
       });
@@ -140,36 +127,71 @@ function Dashboard() {
     }
   };
 
+  const runFlow = (flowName) => {
+    let question = '';
+    if (flowName === 'roast') {
+      question = 'roast my spending';
+    } else if (flowName === 'ghosts') {
+      question = 'banish zombie subs';
+    } else if (flowName === 'forecast') {
+      question = 'give me a spending forecast';
+    } else if (flowName === 'compound') {
+      question = 'calculate compound savings if I cut back';
+    } else if (flowName === 'reports') {
+      question = 'show my category report';
+    } else if (flowName === 'splurge') {
+      question = 'can I splurge this month?';
+    } else {
+      question = flowName;
+    }
+    handleSendMessage(question);
+  };
+
   const handleLogout = () => {
     logout();
     toast.success('Logged out successfully');
   };
 
   return (
-    <div className="app-container">
+    <div className="desktop">
       <Sidebar
         documents={documents}
-        selectedDocs={selectedDocs}
+        activeDoc={activeDoc}
         onSelectDoc={handleSelectDoc}
-        onUpload={handleUpload}
-        onDelete={handleDelete}
-        isUploading={isUploading}
         user={user}
         onLogout={handleLogout}
+        transactionCount={overview.rows}
+        runFlow={runFlow}
       />
-      <div className="main-content">
-        <ChatArea
+      <div className="cm">
+        <div className="ct">
+          <div className="cti">
+            <div className="ctn">penny<em style={{ fontStyle: 'normal', color: 'var(--lime-d)' }}>.</em></div>
+            <div className="cts">running locally · ready · Llama 8B</div>
+          </div>
+          <div className="cttl">
+            <button className="ctt" title="New chat" onClick={() => setMessages([])}>+</button>
+          </div>
+        </div>
+
+        <ChatArea 
           messages={messages} 
-          isLoading={isLoading}
-          onExampleClick={handleSendMessage}
+          isLoading={isLoading} 
+          runFlow={runFlow} 
         />
-        <InputBar
-          selectedDocs={selectedDocs}
-          onRemoveDoc={handleRemoveDoc}
-          onSendMessage={handleSendMessage}
-          disabled={isLoading}
+
+        <InputBar 
+          onSendMessage={handleSendMessage} 
+          disabled={isLoading} 
+          chips={messages.length > 0 ? [] : chips}
+          onChipClick={runFlow}
         />
       </div>
+      <ContextPanel 
+        balance={overview.income ? 8432 : 0} 
+        spentThisMonth={2148}
+        portfolio={18742}
+      />
     </div>
   );
 }

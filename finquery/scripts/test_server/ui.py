@@ -142,6 +142,8 @@ async function doLogin(){
     if(!r.ok){ setMsg('loginMsg', j.detail||'Login failed.'); return; }
     localStorage.setItem('penny_token', j.token);
     localStorage.setItem('penny_user', j.username);
+    localStorage.setItem('token', j.token);
+    localStorage.setItem('user', j.username);
     setMsg('loginMsg','Welcome back, '+j.username+'! Redirecting…', true);
     setTimeout(()=>location.href='/app', 700);
   }catch(e){ setMsg('loginMsg','Server error. Is Penny running?'); }
@@ -163,6 +165,8 @@ async function doSignup(){
     if(!r.ok){ setMsg('signupMsg', j.detail||'Signup failed.'); return; }
     localStorage.setItem('penny_token', j.token);
     localStorage.setItem('penny_user', j.username);
+    localStorage.setItem('token', j.token);
+    localStorage.setItem('user', j.username);
     setMsg('signupMsg','Account created! Welcome, '+j.username+'!', true);
     setTimeout(()=>location.href='/app', 700);
   }catch(e){ setMsg('signupMsg','Server error. Is Penny running?'); }
@@ -840,6 +844,8 @@ window.fetch=async function(url,...args){
 function doLogout(){
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
   location.href='/';
 }
 
