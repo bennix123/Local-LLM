@@ -1552,19 +1552,17 @@ def categorize_descriptions_with_llm(descriptions: list) -> dict[str, dict]:
                         "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"]
     
     items_to_send = []
-    for item in descriptions:
-        if isinstance(item, dict):
-            items_to_send.append({
-                "id": item.get("descr", ""),
-                "description": item.get("descr", ""),
-                "hint": item.get("raw_category", "")
-            })
-        else:
-            items_to_send.append({
-                "id": item,
-                "description": item,
-                "hint": ""
-            })
+    idx_to_desc = {}
+    for idx, item in enumerate(descriptions):
+        desc = item.get("descr", "") if isinstance(item, dict) else item
+        hint = item.get("raw_category", "") if isinstance(item, dict) else ""
+        idx_str = str(idx)
+        idx_to_desc[idx_str] = desc
+        items_to_send.append({
+            "id": idx_str,
+            "description": desc,
+            "hint": hint
+        })
 
     prompt = f"""You are a financial assistant. For each of the following transaction items, extract the clean merchant/payee name and classify it into one of these standard categories:
 {json.dumps(valid_categories)}
@@ -1606,7 +1604,13 @@ Input items:
             if start != -1 and end != -1:
                 content = content[start:end+1]
                 
-            return json.loads(content)
+            parsed_res = json.loads(content)
+            mapped_res = {}
+            for idx_str, val in parsed_res.items():
+                orig_desc = idx_to_desc.get(str(idx_str).strip())
+                if orig_desc:
+                    mapped_res[orig_desc] = val
+            return mapped_res
     except Exception as e:
         print(f"[categorizer] LLM classification failed: {e}")
         return {}
@@ -1845,11 +1849,14 @@ def _normalize_category(val: str) -> str | None:
     return None
 
 
-_CATEGORY_HINT_WORDS = {
+_CATEGORY_HINT_WORDS_2 = {
+    "transfer in", "transfer out", "direct debit", "standing order", "card payment"
+}
+_CATEGORY_HINT_WORDS_1 = {
     "groceries", "grocer", "salary", "income", "transport", "travel", "dining", "food", 
     "utilities", "bills", "shopping", "rent", "subscriptions", "subscription", "entertainment", 
     "healthcare", "health", "insurance", "pension", "refund", "interest", "deposit", 
-    "transfer", "outgoings", "incomings", "fees", "fee", "bonus", "cash"
+    "transfer", "outgoings", "incomings", "fees", "fee", "bonus", "cash", "fuel", "dining"
 }
 
 def _extract_description_category_hint(desc: str) -> tuple[str, str | None]:
@@ -1858,11 +1865,22 @@ def _extract_description_category_hint(desc: str) -> tuple[str, str | None]:
     """
     if not desc:
         return desc, None
-    parts = desc.rsplit(maxsplit=1)
-    if len(parts) == 2:
-        last_word = parts[1].strip().strip(".,()")
-        if last_word.lower() in _CATEGORY_HINT_WORDS:
-            return parts[0].strip(), last_word
+        
+    # Try 2 words first
+    parts = desc.rsplit(maxsplit=2)
+    if len(parts) >= 3:
+        two_words = f"{parts[-2]} {parts[-1]}".strip().strip(".,()")
+        if two_words.lower() in _CATEGORY_HINT_WORDS_2:
+            clean = desc[:desc.lower().rfind(two_words.lower())].strip()
+            return clean, two_words
+
+    # Try 1 word
+    parts_1 = desc.rsplit(maxsplit=1)
+    if len(parts_1) == 2:
+        last_word = parts_1[1].strip().strip(".,()")
+        if last_word.lower() in _CATEGORY_HINT_WORDS_1:
+            return parts_1[0].strip(), last_word
+            
     return desc, None
 
 
