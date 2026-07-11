@@ -262,6 +262,13 @@ async def login_page_route():
 async def register_page_route():
     return serve_index()
 
+@app.get("/classic", response_class=HTMLResponse)
+async def classic_page():
+    """The original single-file Penny parser UI (drag-drop parse + transaction
+    table + chat) from ui.py. Kept reachable here even when the React build is
+    served at /. Talks to this same server's API."""
+    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+
 
 def _get_active_doc(thread: str = "default"):
     st = THREADS.get(thread)

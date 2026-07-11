@@ -821,7 +821,7 @@ window.fetch=async function(url,...args){
   const res=await _origFetch(url,...args);
   if(res.status===401 && typeof url==='string' && url.startsWith('/') && !url.startsWith('/auth')){
     localStorage.removeItem(TOKEN_KEY);
-    location.href='/';
+    location.reload();   // drop the stale token and retry on this page (anonymous), don't bounce to /
   }
   return res;
 };
@@ -830,10 +830,10 @@ window.fetch=async function(url,...args){
 (async()=>{
   const tok=localStorage.getItem(TOKEN_KEY);
   const uname=localStorage.getItem(USER_KEY);
-  if(!tok){ location.href='/'; return; }
+  if(!tok){ return; }   // no token -> use the server's anonymous/default account; stay on this page
   try{
     const r=await _origFetch('/auth/me',{headers:{Authorization:'Bearer '+tok}});
-    if(!r.ok){ localStorage.removeItem(TOKEN_KEY); location.href='/'; return; }
+    if(!r.ok){ localStorage.removeItem(TOKEN_KEY); return; }   // invalid token -> drop it, stay anonymous
     const name=(await r.json()).username||uname||'';
     const pill=$("#userPill"), btn=$("#logoutBtn");
     if(pill){ pill.textContent='User:  '+name; pill.style.display=''; }
