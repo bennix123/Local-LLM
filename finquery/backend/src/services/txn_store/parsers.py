@@ -977,7 +977,7 @@ Do not include headers, footers, summary metrics, or page numbers. Only return t
 Return ONLY the raw JSON array. Do not include markdown code fences, comments, or explanations."""
 
     payload = json.dumps({
-        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
+        "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
         "stream": False,
         "keep_alive": "10m",
         "options": {"temperature": 0.0, "num_ctx": 2048},
@@ -1565,7 +1565,7 @@ Descriptions to classify:
 {json.dumps(descriptions)}"""
 
     payload = json.dumps({
-        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
+        "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
         "stream": False,
         "keep_alive": "10m",
         "options": {"temperature": 0.0, "num_ctx": 2048},
