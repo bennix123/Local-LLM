@@ -1546,23 +1546,38 @@ def is_statement_pdf(path):
         return False
 
 
-def categorize_descriptions_with_llm(descriptions: list[str]) -> dict[str, dict]:
+def categorize_descriptions_with_llm(descriptions: list) -> dict[str, dict]:
     """Uses the local Ollama LLM to extract clean merchant names and classify categories for a batch of transaction descriptions."""
     valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
                         "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"]
-    prompt = f"""You are a financial assistant. For each of the following transaction descriptions, extract the clean merchant/payee name (ignoring transaction types like DR/CR, reference numbers, VPA/handles, or UPI tags) and classify it into one of these standard categories:
+    
+    items_to_send = []
+    for item in descriptions:
+        if isinstance(item, dict):
+            items_to_send.append({
+                "id": item.get("descr", ""),
+                "description": item.get("descr", ""),
+                "hint": item.get("raw_category", "")
+            })
+        else:
+            items_to_send.append({
+                "id": item,
+                "description": item,
+                "hint": ""
+            })
+
+    prompt = f"""You are a financial assistant. For each of the following transaction items, extract the clean merchant/payee name and classify it into one of these standard categories:
 {json.dumps(valid_categories)}
 
-Return ONLY a JSON object mapping each description to an object containing "merchant" and "category". Do not include markdown code fences, comments, or explanations.
-Example:
-{{
-  "TESCO STORES 2431": {{"merchant": "Tesco", "category": "Groceries"}},
-  "UPI/DR/124528964427/SWIGGY I/UTIB/swiggyinstamart/": {{"merchant": "Swiggy Instamart", "category": "Groceries"}},
-  "JioHotstar UPI/JioHotstar/HOTSTARONLINE@/Subscripti/YES BANK": {{"merchant": "JioHotstar", "category": "Entertainment"}}
-}}
+Guideline:
+- Analyze both the transaction description and the statement hint (if provided). Map it to the closest matching standard category.
+- Avoid the "Other" category as much as possible. Only classify as "Other" if the transaction cannot fit into any of the standard categories (e.g. Groceries, Transport, Food & Dining, Shopping, Utilities, Entertainment, Healthcare, Investment & Insurance, Income).
+- Return a JSON object where the keys are the exact "id" from the input.
 
-Descriptions to classify:
-{json.dumps(descriptions)}"""
+Return ONLY the raw JSON object mapping each "id" to an object containing "merchant" and "category". Do not include markdown code fences, comments, or explanations.
+
+Input items:
+{json.dumps(items_to_send)}"""
 
     payload = json.dumps({
         "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
@@ -1655,20 +1670,41 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     
     txns_iterable = parser(pdf_path)
     txns = list(txns_iterable)
+
+    # Extract category hints from description text ends for PDF rows
+    for t in txns:
+        if "descr" in t:
+            clean_desc, hint = _extract_description_category_hint(t["descr"])
+            if hint:
+                t["descr"] = clean_desc
+                t["raw_category"] = hint
+                norm = _normalize_category(hint)
+                if norm:
+                    t["category"] = norm
+
     confidence = getattr(txns_iterable, "parse_confidence", "high")
     
     if not txns:
         con.close()
         return 0
 
-    # Batch classify "Other" categories using local LLM
-    other_descriptions = list({t["descr"] for t in txns if t.get("category") == "Other"})
-    if other_descriptions:
-        print(f"[categorizer] Found {len(other_descriptions)} unique descriptions with category 'Other'. Running LLM categorization...")
+    # Batch classify "Other" categories using local LLM with category hints
+    other_txns = []
+    seen_descs = set()
+    for t in txns:
+        if t.get("category") == "Other" and t["descr"] not in seen_descs:
+            seen_descs.add(t["descr"])
+            other_txns.append({
+                "descr": t["descr"],
+                "raw_category": t.get("raw_category", "")
+            })
+            
+    if other_txns:
+        print(f"[categorizer] Found {len(other_txns)} unique descriptions with category 'Other'. Running LLM categorization...")
         batch_size = 50
         categorized_map = {}
-        for i in range(0, len(other_descriptions), batch_size):
-            chunk = other_descriptions[i:i+batch_size]
+        for i in range(0, len(other_txns), batch_size):
+            chunk = other_txns[i:i+batch_size]
             try:
                 mapping = categorize_descriptions_with_llm(chunk)
                 if mapping:
@@ -1759,6 +1795,7 @@ _CSV_DEBIT_ALIASES   = {"debit", "withdrawal", "withdrawal amt", "dr", "money ou
 _CSV_CREDIT_ALIASES  = {"credit", "deposit", "deposit amt", "cr", "money in", "payments in", "incomings"}
 _CSV_BALANCE_ALIASES = {"balance", "closing balance", "running balance", "outstanding amount (inr)", "balance (inr)"}
 _CSV_AMOUNT_ALIASES  = {"amount", "transaction amount"}
+_CSV_CATEGORY_ALIASES = {"category", "transaction category", "type", "transaction type", "details", "sub-category", "group", "class", "narrative", "remarks"}
 
 
 def _map_csv_headers(headers: list[str]) -> dict:
@@ -1778,7 +1815,55 @@ def _map_csv_headers(headers: list[str]) -> dict:
             mapping["balance"] = idx
         elif hl in _CSV_AMOUNT_ALIASES and "amount" not in mapping:
             mapping["amount"] = idx
+        elif hl in _CSV_CATEGORY_ALIASES and "category" not in mapping:
+            mapping["category"] = idx
     return mapping
+
+
+def _normalize_category(val: str) -> str | None:
+    if not val:
+        return None
+    vl = val.strip().lower()
+    if any(k in vl for k in ("dining", "restaurant", "cafe", "food", "eat", "takeaway", "pub", "bar")):
+        return "Food & Dining"
+    if any(k in vl for k in ("utilities", "gas", "water", "electricity", "bills", "energy", "power", "telecom", "mobile")):
+        return "Utilities"
+    if any(k in vl for k in ("groceries", "supermarket", "grocery", "sainsbury", "tesco", "waitrose", "m&s", "coop", "stores")):
+        return "Groceries"
+    if any(k in vl for k in ("transport", "travel", "fuel", "petrol", "train", "bus", "tube", "tfl", "uber", "taxi")):
+        return "Transport"
+    if any(k in vl for k in ("shopping", "retail", "clothing", "amazon", "argos", "boots", "john lewis", "ebay")):
+        return "Shopping"
+    if any(k in vl for k in ("subscriptions", "subscription", "entertainment", "netflix", "spotify", "gym", "pure gym", "cinema")):
+        return "Entertainment"
+    if any(k in vl for k in ("salary", "income", "freelance", "interest", "refund", "dividend", "bonus", "pension")):
+        return "Income"
+    if any(k in vl for k in ("insurance", "investment", "isa", "savings", "shares", "stocks", "bond")):
+        return "Investment & Insurance"
+    if any(k in vl for k in ("healthcare", "health", "pharmacy", "doctor", "dentist", "medical")):
+        return "Healthcare"
+    return None
+
+
+_CATEGORY_HINT_WORDS = {
+    "groceries", "grocer", "salary", "income", "transport", "travel", "dining", "food", 
+    "utilities", "bills", "shopping", "rent", "subscriptions", "subscription", "entertainment", 
+    "healthcare", "health", "insurance", "pension", "refund", "interest", "deposit", 
+    "transfer", "outgoings", "incomings", "fees", "fee", "bonus", "cash"
+}
+
+def _extract_description_category_hint(desc: str) -> tuple[str, str | None]:
+    """Helper to detect and strip category hints from the end of description text.
+    Returns (clean_desc, raw_category_hint).
+    """
+    if not desc:
+        return desc, None
+    parts = desc.rsplit(maxsplit=1)
+    if len(parts) == 2:
+        last_word = parts[1].strip().strip(".,()")
+        if last_word.lower() in _CATEGORY_HINT_WORDS:
+            return parts[0].strip(), last_word
+    return desc, None
 
 
 def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) -> list[dict]:
@@ -1799,6 +1884,7 @@ def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) 
         iso = f"{yr:04d}-{mon:02d}-{day:02d}"
 
         desc = _cell("desc") or _cell("description") or ""
+        raw_cat = _cell("category")
 
         # Amount logic: separate debit/credit OR single amount column
         debit_raw  = _cell("debit")
@@ -1824,6 +1910,10 @@ def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) 
             balance = 0.0
 
         merchant, category = _classify(desc)
+        norm_cat = _normalize_category(raw_cat)
+        if norm_cat:
+            category = norm_cat
+
         seq += 1
         out.append({
             "txn_date": iso, "month": iso[:7],
@@ -1831,6 +1921,7 @@ def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) 
             "descr": desc[:200], "merchant": merchant, "category": category,
             "debit": debit, "credit": credit, "balance": balance,
             "currency": currency, "seq": seq,
+            "raw_category": raw_cat
         })
     return out
 
@@ -1866,11 +1957,20 @@ def ingest_csv(csv_path: str, doc_name: str, user_id: str, currency: str = "INR"
     if not txns:
         return 0
 
-    # LLM categorization for "Other" categories
-    other_descs = list({t["descr"] for t in txns if t.get("category") == "Other"})
-    if other_descs:
+    # LLM categorization for "Other" categories with metadata hints
+    other_txns = []
+    seen_descs = set()
+    for t in txns:
+        if t.get("category") == "Other" and t["descr"] not in seen_descs:
+            seen_descs.add(t["descr"])
+            other_txns.append({
+                "descr": t["descr"],
+                "raw_category": t.get("raw_category", "")
+            })
+            
+    if other_txns:
         try:
-            cmap = categorize_descriptions_with_llm(other_descs)
+            cmap = categorize_descriptions_with_llm(other_txns)
             valid_cats = {"Groceries","Transport","Food & Dining","Shopping","Utilities",
                           "Entertainment","Healthcare","Investment & Insurance","Income","Other"}
             cat_lower = {c.lower(): c for c in valid_cats}
