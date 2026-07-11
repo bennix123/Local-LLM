@@ -269,7 +269,16 @@ const Landing = () => {
     setUploadedFiles({ ...uploadedFiles, [ak]: newFiles });
   };
 
-  const nextAccount = () => {
+  const nextAccount = async () => {
+    // Primary check: if every selected account already has at least one file → go to step 7.
+    const allDone = selectedAccts.every(ak => (uploadedFiles[ak] || []).length > 0);
+    if (allDone) {
+      goTo(7);
+      await startProcessingDirectly();
+      return;
+    }
+
+    // Otherwise find the first account (excluding current) that still has no files.
     let next = -1;
     for (let i = 0; i < selectedAccts.length; i++) {
       const ak = selectedAccts[i];
@@ -278,14 +287,18 @@ const Landing = () => {
         break;
       }
     }
+
     if (next >= 0) {
+      // Still more accounts needing files — stay on step 5, switch to that account.
       setCurrentAcctIdx(next);
     } else {
-      goTo(6);
+      // No other empty accounts found → go to results.
+      goTo(7);
+      await startProcessingDirectly();
     }
   };
 
-  const skipToProcessing = () => {
+  const skipToProcessing = async () => {
     const finalUploads = { ...uploadedFiles };
     selectedAccts.forEach(ak => {
       if ((finalUploads[ak] || []).length === 0) {
@@ -294,7 +307,8 @@ const Landing = () => {
       }
     });
     setUploadedFiles(finalUploads);
-    goTo(6);
+    goTo(7);
+    await startProcessingDirectly();
   };
 
   // DEMO fallback: user hit "Skip — show demo" with no real files. Keeps the
@@ -340,7 +354,43 @@ const Landing = () => {
     }, 50);
   };
 
+  const startProcessingDirectly = async () => {
+    setInsights(null);
+    const allFiles = [];
+    selectedAccts.forEach(ak => {
+      (uploadedFiles[ak] || []).forEach(f => allFiles.push({ acct: ak, file: f }));
+    });
+
+    const hasReal = allFiles.some(f => f.file && f.file.fileObj);
+    if (!hasReal) {
+      // Just run mock insight loader for demo data
+      localStorage.setItem('penny_dynamic_total_rows', 2847);
+      await loadInsights();
+      return;
+    }
+
+    let totalRows = 0;
+    for (let i = 0; i < allFiles.length; i++) {
+      const fileObj = allFiles[i].file.fileObj;
+      if (fileObj) {
+        try {
+          const res = await uploadDocument(fileObj);
+          const rows = (res && (res.rows ?? (res.parsed && res.parsed[0] && res.parsed[0].rows))) || 0;
+          totalRows += rows;
+          if (res && res.currency) setCurrency(res.currency);
+        } catch (e) {
+          console.error('Parse failed:', e);
+        }
+      }
+    }
+    if (totalRows > 0) {
+      localStorage.setItem('penny_dynamic_total_rows', totalRows);
+    }
+    await loadInsights();
+  };
+
   // REAL parse: the animation is shown WHILE each file is actually uploaded and
+
   // parsed on-device. The screen stays up until the real parse resolves — so a
   // slow LLM-parsed PDF keeps animating instead of ending on a fake timer.
   const startProcessing = async () => {

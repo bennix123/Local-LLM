@@ -11,8 +11,10 @@ from .formatters import (
     _norm_period, _mname, _dlabel, _table, _pct, MONTHS
 )
 from .parsers import (
-    ingest_pdf, is_statement_pdf, detect_currency, parse_pdf, 
+    ingest_pdf, ingest_csv, ingest_xlsx, ingest_file,
+    is_statement_pdf, detect_currency, parse_pdf,
     parse_barclays, parse_pnb, parse_wrenfield, parse_generic_statement,
+    BankProfileRegistry, classify_page, find_table_start_page,
     MERCHANT_MAP
 )
 from .queries import (

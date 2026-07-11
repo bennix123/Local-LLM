@@ -507,7 +507,7 @@ def _upload_worker(user, name, data, is_zip):
             total, parsed = 0, []
             rec_pass = rec_check = 0
             for p, lbl in statements:
-                n = ts.ingest_pdf(p, lbl, user)
+                n = ts.ingest_file(p, lbl, user)
                 rr = ts.reconciliation_rate(user, lbl)           # parse quality: % of rows that tie out
                 rec_pass += rr["checked"] - rr["breaks"]; rec_check += rr["checked"]
                 total += n

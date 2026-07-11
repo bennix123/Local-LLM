@@ -1,0 +1,23 @@
+{
+  "bank_name": "HDFC",
+  "version": 1,
+  "identifiers": {
+    "text_contains_any": ["HDFC BANK", "HDFC0", "HDFCBANK"],
+    "header_row_contains_any": ["Narration", "Withdrawal Amt", "Deposit Amt", "Chq./Ref.No."]
+  },
+  "column_map": {
+    "date":        { "header_aliases": ["Date", "Txn Date", "Value Date"] },
+    "description": { "header_aliases": ["Narration", "Particulars", "Description"] },
+    "debit":       { "header_aliases": ["Withdrawal Amt", "Debit Amount", "Dr"] },
+    "credit":      { "header_aliases": ["Deposit Amt", "Credit Amount", "Cr"] },
+    "balance":     { "header_aliases": ["Closing Balance", "Balance"] }
+  },
+  "debit_credit_style": "separate_columns",
+  "date_format": "%d/%m/%y",
+  "number_format": "indian",
+  "currency": "INR",
+  "known_banner_page_indices": [0],
+  "created_from": "manual",
+  "last_validated": "2026-07-11",
+  "success_rate": 0.95
+}

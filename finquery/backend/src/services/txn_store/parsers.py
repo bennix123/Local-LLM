@@ -1,4 +1,4 @@
-import re, os, pymupdf, json, urllib.request
+import re, os, pymupdf, json, urllib.request, csv, pathlib
 from .db import connect, init_db
 from .formatters import set_currency, _money, inr, grp
 from . import formatters
@@ -25,10 +25,183 @@ MERCHANT_MAP = {
     "paytm": ("Paytm", "Shopping"),
 }
 
+# ---------------------------------------------------------------- Bank Profile Registry (Stage 4 HLD)
+
+_PROFILES_DIR = pathlib.Path(__file__).parent / "bank_profiles"
+
+class BankProfileRegistry:
+    """Loads JSON bank profiles from bank_profiles/ and matches them against a document.
+    Falls back gracefully if the directory or individual files are missing/corrupt.
+    """
+    _profiles: list = []
+    _loaded: bool = False
+
+    @classmethod
+    def _load(cls):
+        if cls._loaded:
+            return
+        cls._profiles = []
+        if not _PROFILES_DIR.exists():
+            cls._loaded = True
+            return
+        for fp in _PROFILES_DIR.glob("*.json"):
+            try:
+                with open(fp, encoding="utf-8") as f:
+                    p = json.load(f)
+                p["_source"] = fp.stem
+                cls._profiles.append(p)
+            except Exception as e:
+                print(f"[profile-registry] Failed to load {fp.name}: {e}")
+        cls._loaded = True
+
+    @classmethod
+    def match(cls, document_text: str) -> dict | None:
+        """Score document text against all loaded profiles. Return best match above threshold."""
+        cls._load()
+        low = (document_text or "").lower()
+        best_score, best_profile = 0.0, None
+
+        for p in cls._profiles:
+            score = 0.0
+            ids = p.get("identifiers", {})
+
+            # Text identifier match (each hit = 0.5 points, capped at 1.0)
+            for phrase in ids.get("text_contains_any", []):
+                if phrase.lower() in low:
+                    score += 0.5
+            score = min(score, 1.0)
+
+            # Header row keyword match (bonus 0.5 each, capped at 1.0)
+            header_score = 0.0
+            for kw in ids.get("header_row_contains_any", []):
+                if kw.lower() in low:
+                    header_score += 0.25
+            score += min(header_score, 1.0)
+
+            if score > best_score:
+                best_score = score
+                best_profile = p
+
+        if best_score >= 0.5:
+            print(f"[profile-registry] Matched profile: {best_profile.get('bank_name')} (score={best_score:.2f})")
+            return best_profile
+        return None
+
+    @classmethod
+    def save_learned_profile(cls, bank_name: str, mapping: dict, source_file: str = ""):
+        """Persist a heuristically-discovered profile for future fast-path matching."""
+        cls._load()
+        out = _PROFILES_DIR / f"{bank_name.lower().replace(' ', '_')}_auto.json"
+        try:
+            _PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump({
+                    "bank_name": bank_name,
+                    "version": 1,
+                    "identifiers": {"text_contains_any": [bank_name]},
+                    "column_map": mapping.get("column_map", {}),
+                    "debit_credit_style": mapping.get("debit_credit_style", "separate_columns"),
+                    "date_format": mapping.get("date_format", "%d/%m/%Y"),
+                    "number_format": mapping.get("number_format", "indian"),
+                    "currency": mapping.get("currency", "INR"),
+                    "created_from": "auto",
+                    "source_file": source_file,
+                    "last_validated": __import__("datetime").date.today().isoformat(),
+                    "success_rate": 0.0
+                }, f, indent=2)
+            # Reload so next call picks it up
+            cls._loaded = False
+            print(f"[profile-registry] Saved new auto-profile: {out.name}")
+        except Exception as e:
+            print(f"[profile-registry] Failed to save profile: {e}")
+
+
+# ---------------------------------------------------------------- Page Classifier (Stage 2 HLD)
+
+_DATE_DENSITY_RE = re.compile(
+    r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}[-/ ][A-Za-z]{3}[-/ ]\d{2,4}\b",
+    re.I
+)
+_HEADER_KEYWORDS = re.compile(
+    r"\b(date|narration|particulars|description|debit|credit|withdrawal|deposit|balance|amount|remarks)\b",
+    re.I
+)
+_SUMMARY_RE = re.compile(
+    r"\b(opening balance|closing balance|statement period|total debit|total credit"
+    r"|account summary|account holder|branch|ifsc|micr|sort code|account number"
+    r"|statement of account|terms|conditions|page \d+ of \d+)\b",
+    re.I
+)
+_MONEY_TOKEN_RE = re.compile(r"^-?[£$€₹]?[\d,]+\.\d{2}$")
+
+
+def classify_page(page_text: str) -> tuple[str, float]:
+    """Score a page and return (label, confidence).
+    Labels: 'transaction_table' | 'account_summary' | 'banner' | 'disclaimer' | 'unknown'
+    """
+    lines = [l.strip() for l in page_text.splitlines() if l.strip()]
+    if not lines:
+        return "unknown", 0.0
+
+    total = len(lines)
+    # Signal 1: date pattern density (0..1)
+    date_hits = sum(1 for l in lines if _DATE_DENSITY_RE.search(l[:30]))
+    date_density = date_hits / total
+
+    # Signal 2: numeric density (tokens that look like money amounts)
+    tokens = page_text.split()
+    money_hits = sum(1 for t in tokens if _MONEY_TOKEN_RE.match(re.sub(r"[£$€₹]", "", t).strip()))
+    numeric_density = min(money_hits / max(len(tokens), 1), 1.0)
+
+    # Signal 3: has a recognisable column-header row
+    header_line = any(
+        len(re.findall(_HEADER_KEYWORDS, l)) >= 3
+        for l in lines[:8]   # headers almost always appear in first 8 lines
+    )
+    has_header = 1.0 if header_line else 0.0
+
+    # Signal 4: row repetition — many lines with similar token count (± 2)
+    tcounts = [len(l.split()) for l in lines]
+    dominant = max(set(tcounts), key=tcounts.count) if tcounts else 0
+    rep_ratio = sum(1 for c in tcounts if abs(c - dominant) <= 2) / total
+
+    # Signal 5: summary page markers (negative signal for transaction_table)
+    summary_density = sum(1 for l in lines if _SUMMARY_RE.search(l)) / total
+
+    # Weighted score for TRANSACTION_TABLE
+    txn_score = (
+        date_density    * 0.30 +
+        numeric_density * 0.20 +
+        has_header      * 0.25 +
+        rep_ratio       * 0.15 -
+        summary_density * 0.25
+    )
+
+    if txn_score >= 0.30 and date_density >= 0.05:
+        return "transaction_table", min(txn_score, 1.0)
+    if summary_density >= 0.20:
+        return "account_summary", summary_density
+    if total <= 5:
+        return "banner", 0.7
+    return "unknown", 0.0
+
+
+def find_table_start_page(doc) -> int:
+    """Return the first page index classified as 'transaction_table'.
+    Replaces the old _find_table_start() with signal-based classification (Stage 2 HLD).
+    """
+    for page_idx in range(len(doc)):
+        text = doc[page_idx].get_text("text")
+        label, conf = classify_page(text)
+        if label == "transaction_table" and conf >= 0.20:
+            return page_idx
+    return 0   # graceful fallback
 
 ROW_RE = re.compile(
     r"^(\d{2}-\d{2}-\d{4})\s{2,}(\S.*?)\s{2,}(DR|CR)\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s*$"
 )
+
 
 def is_transaction_statement(text):
     """Heuristic: many DD-MM-YYYY rows carrying DR/CR + a balance column."""
@@ -458,25 +631,9 @@ SCHEMA_MAX_VIOLATION_RATIO = 0.20
 MAX_LLM_FALLBACK_PAGES = 10
 
 def _find_table_start(doc) -> int:
-    """Finds the page index where the transaction table likely starts by scanning for dates."""
-    date_patterns = [
-        re.compile(r"\b\d{1,2}[-/][A-Za-z]{3}[-/]\d{2,4}\b", re.I),
-        re.compile(r"\b\d{2}[-/]\d{2}[-/]\d{2,4}\b"),
-        re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
-        re.compile(r"\b\d{1,2}\s+[A-Za-z]{3}\s+\d{2,4}\b", re.I),
-        re.compile(r"\b[A-Za-z]{3}\s+\d{1,2}\b", re.I)
-    ]
-    for page_idx in range(len(doc)):
-        text = doc[page_idx].get_text("text")
-        lines = text.splitlines()
-        date_lines = 0
-        for line in lines:
-            prefix = line[:25].strip()
-            if any(pat.search(prefix) for pat in date_patterns):
-                date_lines += 1
-        if date_lines >= TABLE_START_MIN_DATE_LINES:
-            return page_idx
-    return 0
+    """Backwards-compat alias → delegates to the signal-based PageClassifier (Stage 2 HLD)."""
+    return find_table_start_page(doc)
+
 
 def detect_schema(sample_lines: list[str]) -> dict | None:
     """Send sample lines to Ollama to infer the row structure. Returns dict or None."""
@@ -1442,7 +1599,7 @@ Descriptions to classify:
 
 
 def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
-    """Parse a statement PDF into SQLite (auto-detecting Barclays vs the row format).
+    """Parse a statement PDF into SQLite (auto-detecting bank via profile registry + cascade).
     Returns count of rows ingested and sets the active display currency to the data."""
     init_db()
     head = ""
@@ -1454,37 +1611,47 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     except Exception:
         pass
 
-    # Detect currency code from header text metadata
-    detected_cur = "INR"
-    low_head = head.lower()
-    if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb")):
-        detected_cur = "INR"
-    elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb", "wrenfield")):
-        detected_cur = "GBP"
-    elif any(k in low_head for k in ("oman", "muscat", "omr")):
-        detected_cur = "OMR"
-    elif any(k in low_head for k in ("chase", "routing", "$")):
-        detected_cur = "USD"
-    else:
-        detected_cur = "" # clean fallback: no symbol
+    # Stage 4 HLD: try profile registry first for known banks
+    matched_profile = BankProfileRegistry.match(head)
+    profile_currency = matched_profile.get("currency", "") if matched_profile else ""
 
-    if is_barclays(head):
+    # Detect currency code from header text (fallback if profile doesn't have it)
+    detected_cur = profile_currency or "INR"
+    if not profile_currency:
+        low_head = head.lower()
+        if any(k in low_head for k in ("ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb")):
+            detected_cur = "INR"
+        elif any(k in low_head for k in ("barclays", "sort code", "£", "iban gb", "wrenfield")):
+            detected_cur = "GBP"
+        elif any(k in low_head for k in ("oman", "muscat", "omr")):
+            detected_cur = "OMR"
+        elif any(k in low_head for k in ("chase", "routing", "$")):
+            detected_cur = "USD"
+        else:
+            detected_cur = ""  # clean fallback: no symbol
+
+    # Parser selection: profile-matched banks use their dedicated parsers,
+    # everything else falls through to the 3-layer generic cascade.
+    profile_bank = (matched_profile.get("bank_name", "") if matched_profile else "").lower()
+    if profile_bank in ("barclays",) or is_barclays(head):
         parser = parse_barclays
-    elif is_pnb(head):
+    elif profile_bank in ("pnb",) or is_pnb(head):
         parser = parse_pnb
-    elif is_wrenfield(head):
+    elif profile_bank in ("wrenfield",) or is_wrenfield(head):
         parser = parse_wrenfield
+    elif profile_bank in ("hdfc",) or is_transaction_statement(head):
+        parser = parse_pdf
     else:
-        # Check if transaction statement format (HDFC) is matched, else fallback to generic parser
-        parser = parse_pdf if is_transaction_statement(head) else parse_generic_statement
+        parser = parse_generic_statement
 
     # Local import to avoid circular dependencies
     from src.services.nl_sql_engine import extract_account_profile
-    profile = extract_account_profile(pdf_path, user_id)
-    bank_name = profile.get("bank_name")
+    acct_profile = extract_account_profile(pdf_path, user_id)
+    bank_name = acct_profile.get("bank_name") or (matched_profile.get("bank_name") if matched_profile else None)
 
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
+
     
     txns_iterable = parser(pdf_path)
     txns = list(txns_iterable)
@@ -1584,6 +1751,232 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     return n
 
 
-# ------------------------------------------------------------------ queries
+# ---------------------------------------------------------------- CSV / XLSX ingest (Stage 1 HLD)
+
+_CSV_DATE_ALIASES    = {"date", "txn date", "transaction date", "value date", "tran date", "trans date"}
+_CSV_DESC_ALIASES    = {"description", "narration", "particulars", "remarks", "details", "transaction remarks"}
+_CSV_DEBIT_ALIASES   = {"debit", "withdrawal", "withdrawal amt", "dr", "money out", "payments out", "outgoings"}
+_CSV_CREDIT_ALIASES  = {"credit", "deposit", "deposit amt", "cr", "money in", "payments in", "incomings"}
+_CSV_BALANCE_ALIASES = {"balance", "closing balance", "running balance", "outstanding amount (inr)", "balance (inr)"}
+_CSV_AMOUNT_ALIASES  = {"amount", "transaction amount"}
+
+
+def _map_csv_headers(headers: list[str]) -> dict:
+    """Map raw CSV column headers to canonical roles. Returns {role: col_index}."""
+    mapping = {}
+    for idx, h in enumerate(headers):
+        hl = h.strip().lower()
+        if hl in _CSV_DATE_ALIASES and "date" not in mapping:
+            mapping["date"] = idx
+        elif hl in _CSV_DESC_ALIASES and "desc" not in mapping:
+            mapping["desc"] = idx
+        elif hl in _CSV_DEBIT_ALIASES and "debit" not in mapping:
+            mapping["debit"] = idx
+        elif hl in _CSV_CREDIT_ALIASES and "credit" not in mapping:
+            mapping["credit"] = idx
+        elif hl in _CSV_BALANCE_ALIASES and "balance" not in mapping:
+            mapping["balance"] = idx
+        elif hl in _CSV_AMOUNT_ALIASES and "amount" not in mapping:
+            mapping["amount"] = idx
+    return mapping
+
+
+def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) -> list[dict]:
+    """Convert raw CSV rows + column mapping to canonical transaction dicts."""
+    out, seq = [], 0
+    for row in rows:
+        if not row or all(not c.strip() for c in row):
+            continue
+        def _cell(role):
+            idx = mapping.get(role)
+            return row[idx].strip() if idx is not None and idx < len(row) else ""
+
+        date_raw = _cell("date")
+        parsed_d = parse_date(date_raw)
+        if not parsed_d:
+            continue
+        yr, mon, day = parsed_d
+        iso = f"{yr:04d}-{mon:02d}-{day:02d}"
+
+        desc = _cell("desc") or _cell("description") or ""
+
+        # Amount logic: separate debit/credit OR single amount column
+        debit_raw  = _cell("debit")
+        credit_raw = _cell("credit")
+        amount_raw = _cell("amount")
+
+        try:
+            if debit_raw or credit_raw:
+                debit  = abs(_money(debit_raw))  if debit_raw  else 0.0
+                credit = abs(_money(credit_raw)) if credit_raw else 0.0
+            elif amount_raw:
+                val = _money(amount_raw)
+                debit  = abs(val) if val < 0 else 0.0
+                credit = val      if val > 0 else 0.0
+            else:
+                continue   # no money column found — skip row
+        except Exception:
+            continue
+
+        try:
+            balance = _money(_cell("balance")) if _cell("balance") else 0.0
+        except Exception:
+            balance = 0.0
+
+        merchant, category = _classify(desc)
+        seq += 1
+        out.append({
+            "txn_date": iso, "month": iso[:7],
+            "year": yr, "month_no": mon, "day": day,
+            "descr": desc[:200], "merchant": merchant, "category": category,
+            "debit": debit, "credit": credit, "balance": balance,
+            "currency": currency, "seq": seq,
+        })
+    return out
+
+
+def ingest_csv(csv_path: str, doc_name: str, user_id: str, currency: str = "INR", batch: int = 5000) -> int:
+    """Ingest a CSV bank statement into SQLite. Returns row count."""
+    init_db()
+    rows_raw: list[list[str]] = []
+    headers: list[str] = []
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            for i, row in enumerate(reader):
+                if i == 0:
+                    headers = row
+                else:
+                    rows_raw.append(row)
+    except UnicodeDecodeError:
+        with open(csv_path, newline="", encoding="latin-1") as f:
+            reader = csv.reader(f)
+            for i, row in enumerate(reader):
+                if i == 0:
+                    headers = row
+                else:
+                    rows_raw.append(row)
+
+    mapping = _map_csv_headers(headers)
+    if "date" not in mapping or ("debit" not in mapping and "credit" not in mapping and "amount" not in mapping):
+        print(f"[ingest-csv] Could not map required columns from headers: {headers}")
+        return 0
+
+    txns = _rows_from_csv_mapping(rows_raw, mapping, currency)
+    if not txns:
+        return 0
+
+    # LLM categorization for "Other" categories
+    other_descs = list({t["descr"] for t in txns if t.get("category") == "Other"})
+    if other_descs:
+        try:
+            cmap = categorize_descriptions_with_llm(other_descs)
+            valid_cats = {"Groceries","Transport","Food & Dining","Shopping","Utilities",
+                          "Entertainment","Healthcare","Investment & Insurance","Income","Other"}
+            cat_lower = {c.lower(): c for c in valid_cats}
+            for t in txns:
+                if t["descr"] in cmap:
+                    val = cmap[t["descr"]]
+                    if isinstance(val, dict):
+                        nc = cat_lower.get((val.get("category") or "").strip().lower())
+                        if nc: t["category"] = nc
+                        if isinstance(val.get("merchant"), str) and val["merchant"].strip():
+                            t["merchant"] = val["merchant"].strip()
+        except Exception as e:
+            print(f"[ingest-csv] LLM categorization failed: {e}")
+
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    con = connect()
+    con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user_id, doc_name))
+    con.execute("DELETE FROM document_metadata WHERE user_id=? AND doc_name=?", (user_id, doc_name))
+    con.execute("INSERT INTO document_metadata (user_id, doc_name, parse_confidence, upload_ts, extraction_confidence) VALUES (?,?,?,?,?)",
+                (user_id, doc_name, "high", now_str, 1.0))
+
+    sql = ("INSERT INTO transactions"
+           "(user_id,doc_name,bank_name,txn_date,month,year,month_no,day,descr,merchant,category,"
+           "debit,credit,balance,currency,seq,extraction_confidence)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    buf, n = [], 0
+    for t in txns:
+        buf.append((user_id, doc_name, None, t["txn_date"], t["month"], t["year"], t["month_no"], t["day"],
+                    t["descr"], t["merchant"], t["category"], t["debit"], t["credit"], t["balance"],
+                    t["currency"], t["seq"], 1.0))
+        if len(buf) >= batch:
+            con.executemany(sql, buf); n += len(buf); buf = []
+    if buf:
+        con.executemany(sql, buf); n += len(buf)
+    con.commit(); con.close()
+    set_currency(detect_currency(user_id))
+    print(f"[ingest-csv] Ingested {n} rows from {csv_path}")
+    return n
+
+
+def ingest_xlsx(xlsx_path: str, doc_name: str, user_id: str, currency: str = "INR", batch: int = 5000) -> int:
+    """Ingest an XLSX bank statement into SQLite. Returns row count.
+    Requires openpyxl (pip install openpyxl). Gracefully degrades to 0 if not installed.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        print("[ingest-xlsx] openpyxl not installed. Run: pip install openpyxl")
+        return 0
+
+    try:
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+    except Exception as e:
+        print(f"[ingest-xlsx] Failed to open {xlsx_path}: {e}")
+        return 0
+
+    raw_rows = []
+    headers = []
+    for i, row in enumerate(rows_iter):
+        cells = [str(c) if c is not None else "" for c in row]
+        if i == 0:
+            headers = cells
+        else:
+            raw_rows.append(cells)
+    wb.close()
+
+    # Try to convert XLSX to CSV-like and reuse the CSV pipeline
+    import io, csv as _csv
+    buf = io.StringIO()
+    writer = _csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(raw_rows)
+    buf.seek(0)
+
+    # Write to a temp file and call ingest_csv
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8") as tmp:
+        tmp.write(buf.getvalue())
+        tmp_path = tmp.name
+
+    count = ingest_csv(tmp_path, doc_name, user_id, currency=currency, batch=batch)
+    try:
+        os.unlink(tmp_path)
+    except Exception:
+        pass
+    return count
+
+
+def ingest_file(file_path: str, doc_name: str, user_id: str, batch: int = 5000) -> int:
+    """Top-level dispatcher: routes .pdf / .csv / .xlsx to the right ingest function.
+    This is the single entry point callers should use (Stage 1 HLD file normalizer).
+    Returns count of rows ingested.
+    """
+    ext = pathlib.Path(file_path).suffix.lower()
+    if ext == ".pdf":
+        return ingest_pdf(file_path, doc_name, user_id, batch=batch)
+    elif ext == ".csv":
+        return ingest_csv(file_path, doc_name, user_id, batch=batch)
+    elif ext in (".xlsx", ".xls"):
+        return ingest_xlsx(file_path, doc_name, user_id, batch=batch)
+    else:
+        print(f"[ingest-file] Unsupported file type: {ext} — attempting PDF parse")
+        return ingest_pdf(file_path, doc_name, user_id, batch=batch)
+
 
 
