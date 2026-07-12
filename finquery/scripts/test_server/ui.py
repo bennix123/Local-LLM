@@ -284,7 +284,7 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
       <span class="muted" id="txnsummary" style="font-size:11.5px"></span>
     </div>
     <div class="row" style="flex-wrap:wrap;gap:8px;margin:0">
-      <input type="text" id="tq" placeholder="search payee / description / category" style="flex:2;min-width:170px;padding:9px 12px">
+      <input type="text" id="tq" placeholder="search description / category" style="flex:2;min-width:170px;padding:9px 12px">
       <select id="tdir" style="padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:13.5px">
         <option value="">All</option><option value="out">Money out</option><option value="in">Money in</option>
       </select>
@@ -865,12 +865,13 @@ async function loadTxns(reset){
   if(reset)tOffset=0;
   let d; try{ d=await (await fetch("/transactions?"+tparams())).json(); }catch(e){ return; }
   tTotal=d.total;
-  let h='<table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Payee</th>'
+  let h='<table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Description</th>'
       +'<th style="text-align:left">Category</th><th>Out</th><th>In</th><th>Balance</th></tr></thead><tbody>';
   for(const r of d.rows){
     const desc=(r.descr||"").replace(/"/g,"&quot;");
+    const shown=(r.description||r.payee||"").replace(/</g,"&lt;");
     h+=`<tr><td style="text-align:left">${r.date}</td>`
-      +`<td style="text-align:left" title="${desc}">${r.payee||""}</td>`
+      +`<td style="text-align:left" title="${desc}">${shown}</td>`
       +`<td style="text-align:left">${r.category||""}</td>`
       +`<td>${r.out||""}</td><td style="color:#1f7a1f">${r["in"]||""}</td><td>${r.balance||""}</td></tr>`;
   }

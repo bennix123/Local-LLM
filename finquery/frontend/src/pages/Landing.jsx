@@ -37,6 +37,9 @@ const CAT_FEED = [
   { k: ['shop'],                                   cat: 'shop',  cl: 'SHOP' },
   { k: ['subscription', 'entertain'],              cat: 'sub',   cl: 'SUB' },
   { k: ['bill', 'utilit'],                         cat: 'bills', cl: 'BILLS' },
+  { k: ['cash', 'atm'],                            cat: 'inc',   cl: 'CASH' },
+  { k: ['transfer'],                               cat: 'tr',    cl: 'XFER' },
+  { k: ['rent', 'housing'],                        cat: 'bills', cl: 'RENT' },
 ];
 const feedCat = (name) => {
   const l = (name || '').toLowerCase();

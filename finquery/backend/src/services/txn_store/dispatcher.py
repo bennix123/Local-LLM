@@ -2,7 +2,7 @@ import re, sqlite3
 from .db import connect, init_db
 from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, format_money, MONTHS
 from . import formatters
-from .parsers import MERCHANT_MAP
+from .parsers import MERCHANT_MAP, clean_description
 from .queries import (
     overview, coverage, latest_balance, by_category, merchant_spend, by_month,
     income_by_source, top_merchants, txn_count, amount_filter, filtered_summary,
@@ -80,14 +80,14 @@ def dispatch_intent(intent, user_id, doc_name=None):
             return f"**No transactions found{who}{sfx}.**"
         body = []
         for d, bank, mer, descr, deb, cr, curr, cat in rows:
-            name = (mer or descr or "").strip() or "-"
+            desc = clean_description(descr, mer) or "-"
             bank_label = bank or "Unknown Bank"
             amt = format_money(deb, curr) if (deb or 0) > 0 else format_money(cr, curr)
-            body.append((_dlabel(d), bank_label, _mname(name[:34]), cat or "Other",
+            body.append((_dlabel(d), bank_label, desc[:40], cat or "Other",
                          amt, "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
         tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
-        return head + "\n\n" + _table(["Date", "Bank", "Merchant", "Category", "Amount", "Type"], body) + tail
+        return head + "\n\n" + _table(["Date", "Bank", "Description", "Category", "Amount", "Type"], body) + tail
 
     if t == "spend":
         oo = overall_overview(user_id, doc_name, period)
@@ -268,8 +268,9 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "top_expenses":
         n = intent.get("n") or 5
         rows = top_expenses(user_id, n, doc_name, period)
-        body = [(i + 1, _dlabel(d), mc, inr(v)) for i, (d, mc, v) in enumerate(rows)]
-        return f"**Top {n} expenses{sfx}**\n\n" + _table(["#", "Date", "Merchant", "Amount"], body)
+        body = [(i + 1, _dlabel(d), clean_description(descr, mc)[:40], inr(v))
+                for i, (d, mc, descr, v) in enumerate(rows)]
+        return f"**Top {n} expenses{sfx}**\n\n" + _table(["#", "Date", "Description", "Amount"], body)
 
     if t in ("largest_expense", "smallest_expense", "largest_income"):
         m = (intent.get("merchant") or "").strip()
@@ -413,8 +414,9 @@ def answer(question, user_id, doc_name=None):
     if mtop and re.search(r"expense|spend|purchase|debit|transaction", q):
         n = int(next(g for g in mtop.groups() if g))
         rows = top_expenses(user_id, n, doc_name, period)
-        body = [(i + 1, _dlabel(d), m, inr(v)) for i, (d, m, v) in enumerate(rows)]
-        return f"**Top {n} expenses{_suffix(plabel)}**\n\n" + _table(["#", "Date", "Merchant", "Amount"], body)
+        body = [(i + 1, _dlabel(d), clean_description(descr, m)[:40], inr(v))
+                for i, (d, m, descr, v) in enumerate(rows)]
+        return f"**Top {n} expenses{_suffix(plabel)}**\n\n" + _table(["#", "Date", "Description", "Amount"], body)
 
     # ---- single extremes ----
     if re.search(r"biggest|largest|highest|max", q) and re.search(r"expense|spend|purchase|debit", q):

@@ -62,6 +62,8 @@ const CATEGORY_META = [
   { keys: ['invest', 'insurance'],          icon: '📈', fill: 'var(--sky)'   },
   { keys: ['income', 'salary'],             icon: '💰', fill: 'var(--lime)'  },
   { keys: ['transfer'],                     icon: '🔄', fill: 'var(--plum)'  },
+  { keys: ['cash', 'atm'],                  icon: '💵', fill: 'var(--lime)'  },
+  { keys: ['rent', 'housing'],              icon: '🏠', fill: 'var(--peach)' },
 ];
 const CATEGORY_FALLBACK = { icon: '💳', fill: 'var(--peach)' };
 

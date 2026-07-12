@@ -372,7 +372,8 @@ async def transactions(request: Request, offset: int = 0, limit: int = 50, q: st
                     params).fetchone()
     rows = [{"date": _fmt_date(r[0]), "payee": r[1], "category": r[2],
              "out": ts.inr(r[3]) if r[3] else "", "in": ts.inr(r[4]) if r[4] else "",
-             "balance": ts.inr(r[5]) if r[5] is not None else "", "descr": r[6]} for r in con.execute(
+             "balance": ts.inr(r[5]) if r[5] is not None else "", "descr": r[6],
+             "description": ts.clean_description(r[6], r[1])} for r in con.execute(
         f"SELECT txn_date,merchant,category,debit,credit,balance,descr FROM transactions WHERE {where} "
         f"ORDER BY txn_date DESC, seq DESC LIMIT ? OFFSET ?", params + [limit, offset])]
     con.close()

@@ -15,7 +15,7 @@ from .parsers import (
     is_statement_pdf, detect_currency, parse_pdf,
     parse_barclays, parse_pnb, parse_wrenfield, parse_generic_statement,
     BankProfileRegistry, classify_page, find_table_start_page,
-    MERCHANT_MAP
+    MERCHANT_MAP, clean_description, keyword_category
 )
 from .queries import (
     reconciliation_rate,

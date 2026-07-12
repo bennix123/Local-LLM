@@ -3,27 +3,291 @@ from .db import connect, init_db
 from .formatters import set_currency, _money, inr, grp
 from . import formatters
 
+# Known payee token -> (clean display name, category). Matched with a LEADING word boundary
+# (see _MERCHANT_RE) so "swiggy" still matches "swiggyinstamart" but a token never matches
+# mid-word (no "lic" -> "licious"). Deliberately EXCLUDES bare/ambiguous tokens that are really
+# payment rails or prefixes of other brands (paytm, gpay, phonepe, google, cred, lic, and the
+# bare amazon/uber/jio which collide with amazon-prime / uber-eats / jiomart) — those are handled,
+# with correct precedence, by the ordered keyword rules below.
 MERCHANT_MAP = {
     "swiggyinstamart": ("Swiggy Instamart", "Groceries"),
     "swiggy": ("Swiggy", "Food & Dining"), "zomato": ("Zomato", "Food & Dining"),
-    "amazon": ("Amazon", "Shopping"), "flipkart": ("Flipkart", "Shopping"),
+    "flipkart": ("Flipkart", "Shopping"),
     "myntra": ("Myntra", "Shopping"), "bigbasket": ("BigBasket", "Groceries"),
     "blinkit": ("Blinkit", "Groceries"), "dmart": ("DMart", "Groceries"),
-    "uber": ("Uber", "Transport"), "ola": ("Ola", "Transport"),
+    "ola": ("Ola", "Transport"),
     "irctc": ("IRCTC", "Transport"), "netflix": ("Netflix", "Entertainment"),
     "spotify": ("Spotify", "Entertainment"), "bookmyshow": ("BookMyShow", "Entertainment"),
-    "jio": ("Jio", "Utilities"), "airtel": ("Airtel", "Utilities"),
+    "airtel": ("Airtel", "Utilities"),
     "tata_power": ("Tata Power", "Utilities"), "tata power": ("Tata Power", "Utilities"),
-    "apollo": ("Apollo Pharmacy", "Healthcare"), "pharmeasy": ("PharmEasy", "Healthcare"),
-    "lic": ("LIC Premium", "Investment & Insurance"), "zerodha": ("Zerodha", "Investment & Insurance"),
+    "pharmeasy": ("PharmEasy", "Healthcare"),
+    "zerodha": ("Zerodha", "Investment & Insurance"),
     "axis_bank_car_loan": ("Axis Bank Car Loan", "Investment & Insurance"),
-    "salary": ("Salary Credit", "Income"), "interest": ("Interest Earned", "Income"),
+    "salary": ("Salary Credit", "Income"), "interest earned": ("Interest Earned", "Income"),
     "refund": ("Refund", "Income"),
     "ekart": ("Ekart Logistics", "Shopping"),
     "vyapar": ("Vyapar Merchant", "Shopping"),
-    "google": ("Google", "Utilities"),
-    "paytm": ("Paytm", "Shopping"),
+    "zepto": ("Zepto", "Groceries"),
+    "jiomart": ("JioMart", "Groceries"), "instamart": ("Swiggy Instamart", "Groceries"),
+    "ajio": ("AJIO", "Shopping"), "meesho": ("Meesho", "Shopping"),
+    "nykaa": ("Nykaa", "Shopping"), "tatacliq": ("Tata CLiQ", "Shopping"),
+    "dominos": ("Domino's", "Food & Dining"), "mcdonald": ("McDonald's", "Food & Dining"),
+    "kfc": ("KFC", "Food & Dining"), "starbucks": ("Starbucks", "Food & Dining"),
+    "hotstar": ("JioHotstar", "Entertainment"), "jiocinema": ("JioCinema", "Entertainment"),
+    "sonyliv": ("SonyLIV", "Entertainment"), "zee5": ("ZEE5", "Entertainment"),
+    "groww": ("Groww", "Investment & Insurance"), "upstox": ("Upstox", "Investment & Insurance"),
+    "indianoil": ("Indian Oil", "Transport"), "hpcl": ("HP Petrol", "Transport"),
+    "rapido": ("Rapido", "Transport"), "redbus": ("RedBus", "Transport"),
+    "makemytrip": ("MakeMyTrip", "Transport"), "fastag": ("FASTag", "Transport"),
+    "apollo pharmacy": ("Apollo Pharmacy", "Healthcare"), "1mg": ("Tata 1mg", "Healthcare"),
+    "netmeds": ("Netmeds", "Healthcare"), "medplus": ("MedPlus", "Healthcare"),
 }
+
+# Leading-boundary compiled form so a token matches "swiggy"/"swiggyinstamart" but never mid-word.
+# Underscores in the token are treated as spaces to match "Axis_Bank_Car_Loan"-style narrations.
+_MERCHANT_RE = [(re.compile(r"\b" + re.escape(tok.replace("_", " ")), re.I), name, cat)
+                for tok, (name, cat) in MERCHANT_MAP.items()]
+
+# ---------------------------------------------------------------- Category rules (deterministic)
+# Ordered keyword -> category rules covering UK + Indian + global merchants AND transaction
+# TYPES (ATM cash, transfers, standing orders). Matching uses a LEADING word boundary, so
+# "swiggy" still matches "swiggyinstamart" but "ee" won't match "coffee". First match wins,
+# so put brand/merchant rules before the broad transaction-type buckets. Categories here stay
+# in sync with valid_categories below and the frontend category icons.
+_CATEGORY_RULES = [
+    # --- disambiguation overrides: compound brands that would otherwise hit a shorter token ---
+    ("Food & Dining", ["uber eats", "ubereats"]),
+    ("Groceries", ["jiomart", "jio mart", "reliance fresh", "reliance smart", "big bazaar"]),
+    ("Entertainment", ["jiocinema", "jio cinema", "jiohotstar", "jio tv", "amazon prime",
+                       "prime video", "apple music", "apple tv"]),
+    ("Shopping", ["reliance digital", "amazon pay", "reliance trends"]),
+    ("Investment & Insurance", [
+        "insurance", "assurance", "aviva", "axa", "admiral", "direct line", "hastings", "churchill",
+        "legal & general", "legal and general", "prudential", "esure", "hiscox", "vitality",
+        "policybazaar", "policy bazaar", "acko", "digit insurance", "star health", "hdfc ergo",
+        "icici lombard", "bajaj allianz", "new india assurance", "oriental insurance",
+        "vanguard", "blackrock", "hargreaves", "fidelity", "moneybox", "nutmeg", "freetrade",
+        "trading 212", "trading212", "etoro", "interactive investor", "coinbase", "binance", "kraken",
+        "zerodha", "groww", "upstox", "kuvera", "paytm money", "smallcase", "indmoney", "wealthsimple",
+        "mutual fund", "lic premium", "lic ", "demat", "ppf", "nps ", "elss",
+        "angel one", "angelbroking", "5paisa", "motilal oswal", "sharekhan", "hdfc securities",
+        "icici direct", "kotak securities", "iifl", "scripbox", "et money", "hdfc life", "sbi life",
+        "icici pru", "max life", "tata aia", "care insurance", "niva bupa", "ditto insurance",
+        "reliance general", "gold loan", "credit card payment", "cred ",
+        "loan", "emi", "mortgage", "repayment"]),
+    ("Healthcare", [
+        "boots", "superdrug", "well pharmacy", "lloyds pharmacy", "pharmacy", "pharmac", "nhs",
+        "bupa", "nuffield health", "specsavers", "vision express", "dental", "dentist", "optician",
+        "optical", "clinic", "hospital", "physio", "chemist", "doctor", "gp surgery", "gp practice",
+        "apollo pharmacy", "pharmeasy", "1mg", "netmeds", "medplus", "practo", "diagnostic",
+        "pathology", "medical", "healthcare", "wellness", "fortis", "manipal", "aarogya", "arogya",
+        "dr lal", "drlal", "lal path", "pathlab", "thyrocare", "metropolis", "srl diagnostic",
+        "medanta", "max healthcare", "narayana", "aster", "care hospital", "yashoda", "kims",
+        "columbia asia", "salon", "spa ", "parlour", "lakme", "vlcc", "urban company", "cult.fit",
+        "curefit", "healthifyme"]),
+    ("Utilities", [
+        "o2", "vodafone", "ee limited", "ee mobile", "three mobile", "giffgaff", "tesco mobile",
+        "sky mobile", "sky broadband", "sky digital", "virgin media", "bt group", "bt broadband",
+        "british telecom", "plusnet", "talktalk", "now broadband", "jio", "airtel", "vodafone idea",
+        "bsnl", "act fibernet", "hathway", "tata sky", "dishtv", "recharge", "british gas", "e.on",
+        "eon next", "edf energy", "octopus energy", "ovo energy", "bulb energy", "scottish power",
+        "sse", "shell energy", "utility warehouse", "thames water", "anglian water", "severn trent",
+        "united utilities", "yorkshire water", "southern water", "wessex water", "adani", "tata power",
+        "bescom", "mseb", "torrent power", "mahanagar gas", "electricity", "power bill", "gas bill",
+        "water bill", "broadband", "council tax", "borough council", "city council", "county council",
+        "council", "tv licence", "tv licensing", "tata play", "dish tv", "d2h", "sun direct", "igl ",
+        "gail", "indane", "hp gas", "bharat gas", "cesc", "postpaid", "prepaid recharge", "dth",
+        "bbps", "bharat billpay", "mobile recharge"]),
+    ("Entertainment", [
+        "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
+        "apple tv", "youtube premium", "youtube music", "audible", "kindle", "patreon", "twitch",
+        "hotstar", "jiocinema", "sonyliv", "zee5", "voot", "altbalaji", "hulu", "hbo", "paramount",
+        "youtube", "vue cinema", "odeon", "cineworld", "picturehouse", "everyman cinema",
+        "showcase cinema", "pvr", "inox", "bookmyshow", "cinema", "theatre", "concert",
+        "ticketmaster", "steam games", "playstation", "xbox", "nintendo", "epic games", "riot games",
+        "roblox", "ubisoft", "puregym", "the gym", "david lloyd", "nuffield", "virgin active",
+        "fitness first", "anytime fitness", "cult.fit", "cultfit", "cult fit", "gold's gym",
+        "golds gym", "gym", "cricket", "golf club", "rugby", "leisure centre", "bowling",
+        "gaana", "wynk", "jiosaavn", "sun nxt", "hoichoi", "mx player", "cinepolis",
+        "carnival cinema", "paytm insider", "bookmyshow", "dream11", "google play", "play store",
+        "app store", "eros now"]),
+    ("Transport", [
+        "shell", "esso", "texaco", "gulf ", "morrisons petrol", "tesco petrol", "asda petrol",
+        "sainsburys petrol", "petrol", "fuel", "indian oil", "indianoil", "iocl", "hpcl", "hp petrol",
+        "bharat petroleum", "bpcl", "nayara", "reliance petrol", "essar", "bp", "tfl",
+        "transport for london", "trainline", "national rail", "lner", "gwr", "avanti", "northern rail",
+        "southeastern", "thameslink", "stagecoach", "national express", "uber", "bolt", "addison lee",
+        "ola", "rapido", "irctc", "ixigo", "redbus", "makemytrip", "goibibo", "cleartrip", "dmrc",
+        "bmtc", "fastag", "nhai", "toll", "parking", "ncp", "ringgo", "ring go", "car park",
+        "indigo", "interglobe", "vistara", "spicejet", "air india", "akasa", "go first", "goair",
+        "easyjet", "ryanair", "british airways", "jet2", "wizz air", "lufthansa", "emirates",
+        "qatar airways", "etihad", "singapore airlines", "air asia", "airasia", "flight", "airline",
+        "air ticket", "flight booking", "oyo", "booking.com", "airbnb", "agoda", "trivago", "yatra",
+        "easemytrip", "ixigo", "abhibus", "confirmtkt", "railyatri", "meru", "namma metro",
+        "railway", "dvla", "blablacar", "car rental", "rental", "enterprise rent", "hertz", "avis",
+        "halfords", "kwik fit", "mot "]),
+    ("Groceries", [
+        "tesco", "sainsbury", "asda", "aldi", "lidl", "morrisons", "waitrose", "co-op food",
+        "coop food", "co-op", "iceland", "ocado", "m&s food", "spar", "budgens", "nisa", "farmfoods",
+        "bigbasket", "blinkit", "dmart", "d-mart", "zepto", "jiomart", "reliance fresh",
+        "reliance smart", "more supermarket", "spencer's", "spencers retail", "grofers",
+        "nature's basket", "star bazaar", "supermarket", "grocery", "kirana", "instamart", "dunzo",
+        "licious", "country delight", "fresh to home", "freshtohome", "milkbasket", "otipy",
+        "more retail", "easyday", "vishal mega", "heritage fresh", "nilgiris", "ratnadeep",
+        "metro cash", "smart bazaar"]),
+    ("Food & Dining", [
+        "deliveroo", "just eat", "justeat", "uber eats", "ubereats", "mcdonald", "greggs", "costa",
+        "starbucks", "pret", "kfc", "subway", "domino", "nando", "wagamama", "burger king", "five guys",
+        "wetherspoon", "pizza hut", "pizza express", "papa john", "zizzi", "prezzo", "franco manca",
+        "itsu", "chipotle", "taco bell", "swiggy", "zomato", "faasos", "eatsure", "dineout",
+        "cafe coffee day", "behrouz", "box8", "haldiram", "barbeque nation", "chaayos", "blue tokai",
+        "third wave", "leon", "itsu", "wetherspoons", "wow momo", "oven story", "freshmenu",
+        "rebel foods", "chai point", "barista", "theobroma", "dunkin", "baskin robbins", "keventers",
+        "bikanervala", "sagar ratna", "saravana bhavan", "mainland china", "eazydiner", "faasos",
+        "restaurant", "cafe", "coffee", "bakery", "kitchen", "dhaba", "biryani", "pizzeria",
+        "bistro", "diner", "grill", "eatery", "food court", "canteen", "tuck shop", "sweets"]),
+    ("Shopping", [
+        "amazon", "argos", "ebay", "ikea", "primark", "next retail", "asos", "zara", "h&m", "h and m",
+        "currys", "john lewis", "marks & spencer", "m&s", "apple store", "apple.com", "nike", "adidas",
+        "sports direct", "jd sports", "selfridges", "debenhams", "tk maxx", "tkmaxx", "wilko", "b&m",
+        "home bargains", "screwfix", "b&q", "wickes", "the range", "dunelm", "matalan", "river island",
+        "new look", "superdry", "flipkart", "myntra", "ajio", "meesho", "nykaa", "snapdeal", "tatacliq",
+        "tata cliq", "decathlon", "lifestyle", "pantaloons", "shoppers stop", "shopperstop", "croma",
+        "reliance digital", "reliance trends", "westside", "fabindia", "vijay sales", "firstcry",
+        "lenskart", "skechers", "bata", "titan", "tanishq", "kalyan jewel", "jeweller", "jewels",
+        "uniqlo", "wacoal", "levis", "levi strauss", "puma", "reebok", "wrangler", "allen solly",
+        "van heusen", "peter england", "us polo", "biba", "max fashion", "brand factory",
+        "urban ladder", "pepperfry", "wakefit", "home centre", "boat lifestyle", "noise", "xiaomi",
+        "mi store", "oneplus", "realme", "american tourister", "wildcraft", "malabar gold",
+        "joyalukkas", "caratlane", "bluestone", "pc jeweller", "sephora", "the body shop", "mamaearth",
+        "sugar cosmetics", "purplle", "health and glow", "hamleys", "woodland", "red tape",
+        "campus shoes", "relaxo", "crocs", "metro shoes",
+        "retail ltd", "retail", "fashion", "electronics"]),
+    ("Rent", [
+        "landlord", "rent", "letting", "property management", "estate agent", "housing assoc",
+        "tenancy", "foxtons", "savills", "purplebricks", "hamptons", "openrent", "knight frank",
+        "homeground"]),
+    ("Cash", [
+        "cash withdrawal", "atm", "link atm", "cash machine", "cash deposit", "cardless cash",
+        "withdrawal link", "cdm", "cash dep"]),
+    ("Income", [
+        "salary", "payroll", "wages", "dividend", "interest earned", "interest paid", "credit interest",
+        "cashback", "reimburs", "bonus", "pension credit", "tax refund", "refund", "reversal"]),
+    ("Transfers", [
+        "faster payment", "standing order", "p2p payment", "p2p", "bank transfer", "transfer to",
+        "transfer from", "to transfer", "by transfer", "giro", "sent to", "savings space",
+        "savings pot", "money transfer", "internal transfer", "ac xfr", "account transfer",
+        "wire transfer", "zelle", "venmo"]),
+]
+
+# Compile each rule to a leading-boundary alternation (prefix match at a word boundary).
+_COMPILED_CAT_RULES = [
+    (cat, re.compile(r"\b(?:" + "|".join(re.escape(t) for t in terms) + r")", re.I))
+    for cat, terms in _CATEGORY_RULES
+]
+
+
+def keyword_category(text, is_credit=False):
+    """Deterministic category from a description/merchant string. Falls back to Income for
+    credits and Other for everything else (the LLM mop-up handles the genuine unknowns).
+    Underscores are treated as spaces so 'LIC_Premium'/'Tata_Power' still match multi-word rules."""
+    low = (text or "").replace("_", " ")
+    for cat, pat in _COMPILED_CAT_RULES:
+        if pat.search(low):
+            return cat
+    return "Income" if is_credit else "Other"
+
+
+# Transaction-type verbs stripped from the FRONT of a UK narrative. Cash withdrawal/deposit
+# are intentionally NOT stripped — they carry meaning for the display.
+_TXN_PREFIX_RE = re.compile(
+    r"^(?:card payment(?: to)?|payment to|direct debit(?: to| payment)?|standing order(?: to)?|"
+    r"bill payment(?: to)?|faster payment(?:s)?(?: to)?|transfer to|transfer from|received from|"
+    r"paid in(?: from)?)\s+", re.I)
+_BANKCODE_RE = re.compile(r"^[A-Z]{4}\d*$")          # IFSC-ish codes: UTIB, YESB, HDFC0001
+_REF_RE = re.compile(r"^(?:ref|rrn|txn|utr)?\d+$", re.I)   # REF00001 / 123456 / UTR9999
+# ICICI OpTransactionHistory folds "<S.No> <DD.MM.YYYY> " onto the front of the remarks.
+_LEADING_SNO_DATE = re.compile(r"^\s*\d+\s+\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\s+")
+
+
+def _nice_case(s):
+    """Title-case SHOUTING words (SHELL LUTON -> Shell Luton); leave mixed-case names alone."""
+    return " ".join(w.title() if (w.isupper() and len(w) > 1) else w for w in s.split())
+
+
+# Tokens that are never the payee name in a UPI/NEFT slug (rails, directions, verbs, bank noise).
+_SLUG_SKIP = {"upi", "neft", "imps", "rtgs", "ach", "pos", "mmt", "dr", "cr", "p2m", "p2a", "p2p",
+              "to", "by", "transfer", "payment", "paid", "received", "from", "in", "na", "null",
+              "ref", "sent", "collect", "reversal"}
+_SLUG_RE = re.compile(r"\b(?:UPI|NEFT|IMPS|RTGS|MMT)\b", re.I)
+
+
+def _payee_from_slug(descr):
+    """Pull the payee NAME out of any UPI/NEFT/IMPS narration, robust to every common bank
+    layout: 'UPI/DR/RRN/NAME/BANK/vpa', 'UPI/RRN/NAME/BANK', 'UPI/P2M/RRN/NAME',
+    'TO TRANSFER-UPI/DR/RRN/NAME/...', 'UPI-NAME-vpa-REF'. Skips rails, refs, bank codes and
+    VPA handles, and returns the first real name token."""
+    for t in re.split(r"[/\-]", descr):
+        t = t.strip()
+        if not t or "@" in t:                        continue   # VPA / email handle
+        words = t.lower().split()
+        if words and all(w in _SLUG_SKIP for w in words):  continue
+        if _REF_RE.match(t):                         continue   # pure reference number
+        # NOTE: don't skip 4-letter uppercase tokens as bank codes here — the merchant name
+        # sits BEFORE the bank code in every real layout, so the first real token is the payee
+        # (this keeps 4-letter brands like ASOS / IKEA / ZARA / NEXT intact).
+        if re.search(r"[A-Za-z]", t):
+            return t.replace("_", " ").strip()
+    return ""
+
+
+def clean_description(descr, merchant=""):
+    """A human-readable description for the transactions table. UPI/NEFT slugs collapse to the
+    parsed payee name; UK narratives are stripped of the transaction-type verb, trailing date,
+    country code and reference numbers. Falls back to the merchant when nothing readable remains."""
+    s = (descr or "").strip()
+    if not s:
+        return (merchant or "").strip()
+    s = _LEADING_SNO_DATE.sub("", s)   # ICICI "<S.No> <DD.MM.YYYY> " prefix
+    # Drop a leading transaction date the parser folded into the narration ("5 Jul 2026 ...").
+    s = re.sub(r"^\d{1,2}[\s/\-][A-Za-z]{3,9}[\s/\-]\d{2,4}\s+", "", s)
+    s = re.sub(r"^\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\s+", "", s)
+    # SBI / net-banking narration: "... INB <purpose>" — the purpose is the useful description.
+    inb = re.findall(r"\bINB\b[:\s]+(.+)$", s, re.I)
+    if inb:
+        purpose = re.sub(r"\b(?:inb|neft|imps|rtgs|upi|transfer|utr\s*no.*|ref\b.*|inst)\b", " ", inb[-1], flags=re.I)
+        purpose = re.sub(r"\d+", " ", purpose)                       # drop numeric codes
+        purpose = re.sub(r"[^A-Za-z& ]", " ", purpose)               # drop punctuation
+        purpose = re.sub(r"\s{2,}", " ", purpose).strip()
+        if len(purpose.replace(" ", "")) >= 3:
+            return _nice_case(purpose)
+    # SBI generic transfer wording with no clean purpose -> a readable transfer label + rail.
+    mt = re.match(r"^(BY|TO)\s+TRANSFER\b", s, re.I)
+    if mt:
+        rail = re.search(r"\b(UPI|IMPS|NEFT|RTGS)\b", s, re.I)
+        return ("Transfer received" if mt.group(1).upper() == "BY" else "Transfer sent") + \
+               (f" ({rail.group(1).upper()})" if rail else "")
+    # Any UPI/NEFT/IMPS narration -> prefer a clean parsed merchant, else pull the name from the slug
+    if _SLUG_RE.search(s) and re.search(r"[/\-]", s):
+        m = (merchant or "").strip()
+        if m and not m.lower().startswith(("upi", "neft", "imps", "dr", "cr")) \
+                and "/" not in m and not _REF_RE.match(m):
+            return _nice_case(m)
+        name = _payee_from_slug(s)
+        return _nice_case(name or m or s)
+    s = _TXN_PREFIX_RE.sub("", s)
+    s = re.sub(r"^(?:DD|SO|VIS|Debit Card|Card Payment)\s+", "", s, flags=re.I)       # UK type abbreviations
+    s = re.sub(r"^(?:POS|ECOM|VPS|MPS|IMPS|NEFT|RTGS)\s+\d*\s*", "", s, flags=re.I)  # card-network prefix
+    s = re.sub(r"\s+On\s+\d.*$", "", s, flags=re.I)          # trailing " On 14 Feb ..."
+    s = re.sub(r"\b(?:GBR|GBP|IND|INR|USA|USD|EUR|UK)\b", "", s)
+    s = re.sub(r"\bref[:. ].*$", "", s, flags=re.I)
+    s = re.sub(r"@\S+", "", s)                                # VPA / email handles
+    s = re.sub(r"\b\d{4,}\b", "", s)                          # reference numbers (4+ digits)
+    s = re.sub(r"\s{2,}", " ", s).strip(" -:/.,")
+    if len(re.sub(r"[^A-Za-z]", "", s)) < 2:                  # nothing readable left
+        return _nice_case((merchant or descr or "").strip())
+    return _nice_case(s)
+
 
 # ---------------------------------------------------------------- Bank Profile Registry (Stage 4 HLD)
 
@@ -62,20 +326,22 @@ class BankProfileRegistry:
         best_score, best_profile = 0.0, None
 
         for p in cls._profiles:
-            score = 0.0
             ids = p.get("identifiers", {})
 
-            # Text identifier match (each hit = 0.5 points, capped at 1.0)
-            for phrase in ids.get("text_contains_any", []):
-                if phrase.lower() in low:
-                    score += 0.5
-            score = min(score, 1.0)
+            # Text identifier (the BANK NAME) match — each hit = 0.5, capped at 1.0.
+            texts = ids.get("text_contains_any", [])
+            text_hits = sum(1 for phrase in texts if phrase.lower() in low)
+            # A bank-specific profile must be identified by its distinctive name/text, NOT by
+            # generic UK header words alone ("Money Out" / "Sort Code" / "Current Account
+            # Statement" appear on EVERY UK statement). Without this, a Castlemere/Monzo/etc.
+            # statement scored 1.0 on the Barclays header keywords and got routed to the
+            # Barclays positional parser, which then returned 0 rows.
+            if texts and text_hits == 0:
+                continue
+            score = min(0.5 * text_hits, 1.0)
 
-            # Header row keyword match (bonus 0.5 each, capped at 1.0)
-            header_score = 0.0
-            for kw in ids.get("header_row_contains_any", []):
-                if kw.lower() in low:
-                    header_score += 0.25
+            # Header row keyword match (bonus 0.25 each, capped at 1.0)
+            header_score = sum(0.25 for kw in ids.get("header_row_contains_any", []) if kw.lower() in low)
             score += min(header_score, 1.0)
 
             if score > best_score:
@@ -211,21 +477,54 @@ def is_transaction_statement(text):
     return rows >= 5 or (has_cols and rows >= 1)
 
 
-def _classify(descr):
-    low = descr.lower()
-    for token, (name, cat) in MERCHANT_MAP.items():
-        if token in low:
-            return name, cat
-    # fall back to the slug between the first two slashes: TYPE/MERCHANT/REF
-    parts = descr.split("/")
-    if len(parts) >= 2:
-        # Check if this is a UPI transaction with format UPI/DR/RRN/NAME/BANK/VPA
-        if parts[0].lower() == "upi" and parts[1].lower() in ("dr", "cr") and len(parts) >= 4:
-            candidate = parts[3].strip()
-            if candidate:
-                return candidate, "Other"
-        return parts[1].replace("_", " ").strip(), "Other"
-    return descr.strip()[:40], "Other"
+def _slug_name(descr):
+    """Best-effort payee name from a raw (often UPI/NEFT) description."""
+    return _payee_from_slug(descr) or descr.strip()[:40]
+
+
+# A name word: Title-case, ALL-CAPS, or a short caps fragment (ICICI truncates payee names).
+_PERSON_RE = re.compile(r"(?:[A-Z][a-z]+|[A-Z]{2,})(?: (?:[A-Z][a-z]+|[A-Z]{2,}|[A-Z]))*$")
+_BIZ_SUFFIX = {"ltd", "limited", "pvt", "llp", "store", "stores", "traders", "enterprises", "retail",
+               "services", "solutions", "mart", "shop", "foods", "restaurant", "cafe", "hotel",
+               "motors", "agencies", "company", "co", "corp", "inc", "technologies", "tech",
+               "industries", "works", "supermarket", "pharmacy", "clinic", "hospital", "generation"}
+
+
+def _is_personish(name):
+    """True if the name looks like an individual — 2-3 words (first + last, possibly truncated),
+    Title-case or caps, no business suffix — so an unknown UPI/IMPS payment routes to Transfers.
+    Single-word names are deliberately NOT treated as people: they're ambiguous between a person
+    (Bhawna) and a one-word brand (Uniqlo, Wacoal), so they fall to Other for the LLM to decide."""
+    n = (name or "").strip()
+    if not n or any(ch.isdigit() for ch in n):
+        return False
+    words = n.split()
+    if not (2 <= len(words) <= 3) or words[-1].lower() in _BIZ_SUFFIX:
+        return False
+    return bool(_PERSON_RE.fullmatch(n))
+
+
+def _classify(descr, is_credit=False):
+    """(merchant, category) for a non-UK description. MERCHANT_MAP gives a clean name +
+    category for known payees; otherwise the deterministic keyword classifier assigns a
+    category and we extract a display name from the slug. The VPA/app handle (@paytm, @ybl)
+    is dropped before matching so a payment-app handle can't hijack the merchant/category."""
+    clean = _LEADING_SNO_DATE.sub("", re.sub(r"@\S+", "", descr).replace("_", " "))
+    name = cat = None
+    for pat, mn, mc in _MERCHANT_RE:
+        if pat.search(clean):
+            name, cat = mn, mc
+            break
+    if cat is None:
+        name = _slug_name(clean)
+        cat = keyword_category(clean, is_credit)
+        # an unknown UPI/IMPS/NEFT debit paid to a person is a peer transfer, not "Other"
+        if cat == "Other" and _SLUG_RE.search(clean) and _is_personish(name):
+            cat = "Transfers"
+    # an "Income" category on a DEBIT is a payout, not income (e.g. a business paying salary out)
+    if cat == "Income" and not is_credit:
+        cat = "Transfers" if re.search(r"\btransfer\b", clean, re.I) else "Other"
+    return name, cat
 
 
 
@@ -240,7 +539,7 @@ def parse_pdf(pdf_path):
                 continue
             d, descr, drcr, amount, balance = m.groups()
             yyyy_mm_dd = f"{d[6:10]}-{d[3:5]}-{d[0:2]}"
-            merchant, category = _classify(descr)
+            merchant, category = _classify(descr, drcr == "CR")
             amt = _money(amount)
             seq += 1
             yield {
@@ -276,17 +575,18 @@ UK_MERCHANT_CAT = {
 
 
 def _barclays_merchant(descr, is_credit):
-    """Pull the counterparty + a category from a Barclays narrative line."""
+    """Pull the counterparty + a category from a UK narrative line. The category is decided
+    from the WHOLE description (so transaction TYPES like Standing Order / Faster Payment /
+    ATM are seen, not just the extracted name) via the shared deterministic classifier."""
     m = re.search(r"(?:Card Payment to|Payment to|Direct Debit to|Standing Order to|Bill Payment to|"
                   r"Transfer to|Faster Payment to|Received From|Paid In(?: from)?|From|to)\s+(.+)",
                   descr, re.I)
     name = m.group(1) if m else descr
     name = re.split(r"\s+(?:On\s+\d|Ref:|Ref\b|on\s+\d)", name, 1)[0]
     name = re.sub(r"\s{2,}", " ", name).strip(" -:")
-    low = name.lower()
-    cat = next((c for kw, c in UK_MERCHANT_CAT.items() if kw in low), None)
-    if cat is None:
-        cat = "Income" if is_credit else "Other"
+    cat = keyword_category(re.sub(r"@\S+", "", descr), is_credit)
+    if cat == "Income" and not is_credit:              # income keyword on a debit = a payout
+        cat = "Transfers" if re.search(r"\btransfer\b", descr, re.I) else "Other"
     return (name[:60] or ("Income" if is_credit else "Other")), cat
 
 
@@ -504,7 +804,7 @@ def parse_pnb(pdf_path):
                 debit = amt if not is_credit else 0.0
                 credit = amt if is_credit else 0.0
 
-                merchant, category = _classify(desc)
+                merchant, category = _classify(desc, is_credit)
                 seq += 1
                 yield {
                     "txn_date": iso, "month": iso[:7],
@@ -861,7 +1161,7 @@ def _validate_and_convert_schema_rows(matched_rows: list[dict], schema: dict, lo
             continue
             
         seq += 1
-        merchant, category = (_barclays_merchant(desc_raw, credit > 0) if local_cur == "GBP" else _classify(desc_raw))
+        merchant, category = (_barclays_merchant(desc_raw, credit > 0) if local_cur == "GBP" else _classify(desc_raw, credit > 0))
         
         converted.append({
             "txn_date": iso, "month": iso[:7],
@@ -1063,7 +1363,7 @@ def parse_with_llm_fallback(pdf_path: str, local_cur: str) -> tuple[list[dict], 
             if key not in seen:
                 seen.add(key)
                 seq += 1
-                merchant, category = (_barclays_merchant(desc, credit > 0) if local_cur == "GBP" else _classify(desc))
+                merchant, category = (_barclays_merchant(desc, credit > 0) if local_cur == "GBP" else _classify(desc, credit > 0))
                 deduped.append({
                     "txn_date": iso, "month": iso[:7],
                     "year": yr, "month_no": mon, "day": day,
@@ -1241,7 +1541,7 @@ def _parse_generic_columnar(pdf_path):
         if local_cur == "GBP":
             merchant, category = _barclays_merchant(desc, is_credit)
         else:
-            merchant, category = _classify(desc)
+            merchant, category = _classify(desc, is_credit)
             
         yield {
             "txn_date": iso, "month": iso[:7],
@@ -1368,7 +1668,7 @@ def _parse_generic_dateinherited(pdf_path):
         yr, mm, dd = t["iso"]
         seq += 1
         desc = t["desc"][:80]
-        merchant, category = (_barclays_merchant(desc, is_credit) if cur == "GBP" else _classify(desc))
+        merchant, category = (_barclays_merchant(desc, is_credit) if cur == "GBP" else _classify(desc, is_credit))
         yield {"txn_date": f"{yr:04d}-{mm:02d}-{dd:02d}", "month": f"{yr:04d}-{mm:02d}",
                "year": yr, "month_no": mm, "day": dd, "descr": desc, "merchant": merchant,
                "category": category, "debit": 0.0 if is_credit else amt,
@@ -1549,7 +1849,8 @@ def is_statement_pdf(path):
 def categorize_descriptions_with_llm(descriptions: list[str]) -> dict[str, dict]:
     """Uses the local Ollama LLM to extract clean merchant names and classify categories for a batch of transaction descriptions."""
     valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
-                        "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"]
+                        "Entertainment", "Healthcare", "Investment & Insurance", "Income",
+                        "Cash", "Transfers", "Rent", "Other"]
     prompt = f"""You are a financial assistant. For each of the following transaction descriptions, extract the clean merchant/payee name (ignoring transaction types like DR/CR, reference numbers, VPA/handles, or UPI tags) and classify it into one of these standard categories:
 {json.dumps(valid_categories)}
 
@@ -1677,7 +1978,8 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
                 print(f"[categorizer] Batch classification failed for chunk {i}: {e}")
         
         valid_categories = {"Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
-                            "Entertainment", "Healthcare", "Investment & Insurance", "Income", "Other"}
+                            "Entertainment", "Healthcare", "Investment & Insurance", "Income",
+                            "Cash", "Transfers", "Rent", "Other"}
         cat_lower_map = {c.lower(): c for c in valid_categories}
         
         for t in txns:
@@ -1823,7 +2125,7 @@ def _rows_from_csv_mapping(rows: list[list[str]], mapping: dict, currency: str) 
         except Exception:
             balance = 0.0
 
-        merchant, category = _classify(desc)
+        merchant, category = _classify(desc, credit > 0)
         seq += 1
         out.append({
             "txn_date": iso, "month": iso[:7],

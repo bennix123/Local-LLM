@@ -3,7 +3,7 @@ from datetime import datetime
 from .db import connect
 from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname, _dlabel, _table, _pct, MONTHS
 from . import formatters
-from .parsers import MERCHANT_MAP
+from .parsers import MERCHANT_MAP, clean_description
 
 DISCRETIONARY = {"Shopping", "Entertainment", "Food & Dining", "Other"}
 SUBSCRIPTION_MERCHANTS = {"netflix", "spotify", "jio", "airtel", "tata power", "amazon prime"}
@@ -247,7 +247,7 @@ def filtered_summary(user_id, merchant=None, category=None, period=None, doc_nam
 
 # categories that are realistically discretionary (easy to trim) vs largely fixed
 DISCRETIONARY = {"Shopping", "Food & Dining", "Entertainment"}
-FIXED_CATS = {"Utilities", "Healthcare", "Investment & Insurance"}
+FIXED_CATS = {"Utilities", "Healthcare", "Investment & Insurance", "Rent"}
 
 
 def advice_context(user_id, doc_name=None, period=None):
@@ -321,7 +321,7 @@ def advice_context(user_id, doc_name=None, period=None):
 def top_expenses(user_id, n=5, doc_name=None, period=None):
     w, p = _scope(user_id, doc_name, period)
     con = connect()
-    rows = con.execute(f"""SELECT txn_date, merchant, debit FROM transactions
+    rows = con.execute(f"""SELECT txn_date, merchant, descr, debit FROM transactions
                            WHERE {w} AND debit>0 ORDER BY debit DESC LIMIT ?""", p + [n]).fetchall()
     con.close()
     return rows
@@ -707,9 +707,9 @@ def advice_facts(user_id, doc_name=None, period=None):
     tx = top_expenses(user_id, 5, doc_name, period)
     if tx:
         parts = []
-        for dt, mer, amt in tx:
+        for dt, mer, descr, amt in tx:
             lbl = (f"{dt[8:10]} {MONTHS.get(dt[5:7], dt[5:7])} {dt[:4]}" if len(str(dt)) >= 10 else str(dt))
-            parts.append(f"{inr(amt)} to {mer} on {lbl}")
+            parts.append(f"{inr(amt)} to {clean_description(descr, mer)} on {lbl}")
         L.append("LARGEST SINGLE TRANSACTIONS (top 5 by amount — the individual debits with the "
                  "biggest impact): " + "; ".join(parts) + ".")
 
