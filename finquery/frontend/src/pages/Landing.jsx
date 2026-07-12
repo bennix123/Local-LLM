@@ -119,7 +119,11 @@ const sampleTxns = [
 ];
 
 const Landing = () => {
-  const [step, setStep] = useState(1);
+  // Resume the wizard at ?step=N (the mandatory model page sends us back here after selection).
+  const [step, setStep] = useState(() => {
+    const s = parseInt(new URLSearchParams(window.location.search).get('step') || '', 10);
+    return s >= 2 && s <= 7 ? s : 1;
+  });
   const [name, setName] = useState('Alex');
   const [selectedAccts, setSelectedAccts] = useState([]);
   const [currentAcctIdx, setCurrentAcctIdx] = useState(0);
@@ -209,6 +213,17 @@ const Landing = () => {
     }
     setStep(n);
     if (n === 6) startProcessing();
+  };
+
+  // Choosing an AI model is a mandatory first step: send the user to the model page before
+  // the onboarding wizard. Once a model is confirmed they resume the wizard (via ?step=2).
+  const startSetup = () => {
+    if (sessionStorage.getItem('penny_model_confirmed')) {
+      goTo(2);
+    } else {
+      sessionStorage.setItem('penny_setup', '1');
+      navigate('/models');
+    }
   };
 
   const toggleAccountSelection = (acctKey) => {
@@ -518,8 +533,16 @@ const Landing = () => {
                   <div className="bul-r"><div className="bul-i">⚡</div><div><b>{modelLabel}</b> on your Mac's chip. Proper reasoning.</div></div>
                 </div>
                 <div className="cta">
-                  <button className="btn lime lg" onClick={() => goTo(2)}>Let's set up →</button>
+                  <button className="btn lime lg" onClick={startSetup}>Let's set up →</button>
                   <button className="btn ghost" onClick={() => navigate('/login')}>I have an account</button>
+                </div>
+                <div style={{ marginTop: '14px', display: 'flex', gap: '18px', flexWrap: 'wrap', fontSize: '13px' }}>
+                  <a onClick={() => navigate('/models')} style={{ color: 'var(--lime-d)', fontWeight: 600, cursor: 'pointer' }}>
+                    🧠 Choose / download AI model
+                  </a>
+                  <a href="/classic" style={{ color: 'var(--ink2)', fontWeight: 600, textDecoration: 'none' }}>
+                    ↺ Use the classic UI
+                  </a>
                 </div>
               </div>
             </div>
@@ -838,9 +861,6 @@ const Landing = () => {
               <div className="s5f">
                 <button className="skip" onClick={() => goTo(4)}>← back</button>
                 <div style={{ display: 'flex', gap: '9px', alignItems: 'center' }}>
-                  <button className="btn ghost" onClick={skipToProcessing} style={{ fontSize: '12.5px' }}>
-                    Skip — show demo
-                  </button>
                   {((uploadedFiles[selectedAccts[currentAcctIdx]] || []).length > 0) && (
                     <button className="btn lime" onClick={nextAccount}>
                       Next →

@@ -21,10 +21,10 @@ from .router import (
 )
 
 def _llm_words(system, user):
-    from .server import OLLAMA_URL, LLM_MODEL, _nd
+    from .server import OLLAMA_URL, active_model, _nd
     """Stream the LLM reply from Ollama, buffered into whole words."""
     payload = json.dumps({
-        "model": LLM_MODEL, "stream": True, "keep_alive": "10m",
+        "model": active_model(), "stream": True, "keep_alive": "10m",
         "options": {"temperature": 0.3, "num_predict": 80, "top_p": 0.9, "num_ctx": 2048},
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
     }).encode()
@@ -47,7 +47,7 @@ def _llm_words(system, user):
         if buf:
             yield _nd({"type": "chunk", "content": buf})
     except Exception as e:
-        yield _nd({"type": "chunk", "content": f"\n_({LLM_MODEL} unavailable: {e}.)_"})
+        yield _nd({"type": "chunk", "content": f"\n_({active_model()} unavailable: {e}.)_"})
 
 def followup_sql_answer(q, ctx):
     """SQL-FIRST grounding for the follow-up path. A referential follow-up ('when were those?',
@@ -125,11 +125,11 @@ def advice_response(q, thread="default"):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 def _llm_complete(system, user, num_predict=512, temperature=0.2):
-    from .server import OLLAMA_URL, LLM_MODEL
+    from .server import OLLAMA_URL, active_model
     """One-shot (non-streaming) LLM call -> full text, or None. Retries once so a cold
     model load doesn't surface as a failure."""
     payload = json.dumps({
-        "model": LLM_MODEL, "stream": False, "keep_alive": "30m",
+        "model": active_model(), "stream": False, "keep_alive": "30m",
         "options": {"temperature": temperature, "num_predict": num_predict,
                     "top_p": 0.9, "num_ctx": 4096},
         "messages": [{"role": "system", "content": system},

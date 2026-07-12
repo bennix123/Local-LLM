@@ -34,6 +34,7 @@ const ProtectedRoute = ({ children }) => {
 };
 
 import Landing from './pages/Landing';
+import ModelPicker from './pages/ModelPicker';
 
 function App() {
   return (
@@ -64,6 +65,7 @@ function App() {
         />
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/models" element={<ModelPicker />} />
           <Route path="/login" element={<Login />} />
           <Route path="/app" element={<Dashboard />} />
         </Routes>

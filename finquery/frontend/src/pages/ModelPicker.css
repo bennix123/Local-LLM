@@ -1,0 +1,72 @@
+.mp-wrap {
+  min-height: 100vh;
+  background: #fff8eb;
+  font-family: 'Poppins', system-ui, Arial, sans-serif;
+  color: #1a1a1a;
+  padding: 40px clamp(16px, 6vw, 80px);
+}
+.mp-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.mp-title { font-size: clamp(24px, 4vw, 34px); font-weight: 700; letter-spacing: -0.5px; }
+.mp-title em { color: #84cc16; font-style: normal; }
+.mp-sub { font-size: 14px; color: #555; margin-top: 6px; max-width: 560px; }
+.mp-skip {
+  background: none; border: none; color: #6aaa0e; font-weight: 600;
+  font-size: 14px; cursor: pointer; font-family: inherit; padding: 6px 2px;
+}
+.mp-active {
+  display: inline-block; margin: 14px 0 22px; padding: 6px 14px;
+  background: #eef7d6; border: 1px solid #cfe79a; border-radius: 99px;
+  font-size: 13px; color: #3a5a12;
+}
+.mp-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+.mp-card {
+  background: #fff; border: 1.5px solid #eaddc4; border-radius: 16px;
+  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04); transition: border-color .2s, transform .1s;
+}
+.mp-card.on { border-color: #84cc16; box-shadow: 0 4px 16px rgba(132,204,22,.15); }
+.mp-name { font-size: 17px; font-weight: 700; }
+.mp-id { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #999; }
+.mp-meta { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; flex-wrap: wrap; }
+.mp-size { font-size: 12px; font-weight: 600; background: #f3f0e6; padding: 2px 8px; border-radius: 6px; }
+.mp-note { font-size: 12px; color: #777; }
+.mp-btn {
+  margin-top: auto; width: 100%; padding: 11px; border: none; border-radius: 10px;
+  font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; transition: background .2s;
+}
+.mp-btn.dl { background: #1a1a1a; color: #fff; }
+.mp-btn.dl:hover { background: #333; }
+.mp-btn.dl:disabled { opacity: .4; cursor: default; }
+.mp-btn.use { background: #84cc16; color: #143; }
+.mp-btn.use:hover { background: #6aaa0e; }
+.mp-btn.on { background: #eef7d6; color: #3a5a12; cursor: default; }
+.mp-prog { margin-top: auto; }
+.mp-bar { height: 8px; background: #f0ead9; border-radius: 99px; overflow: hidden; }
+.mp-fill { height: 100%; background: #84cc16; transition: width .3s; }
+.mp-status { font-size: 11.5px; color: #777; margin-top: 6px; }
+.mp-msg {
+  margin-top: 20px; padding: 12px 16px; background: #fff; border: 1px solid #eaddc4;
+  border-radius: 10px; font-size: 13.5px; color: #3a5a12; max-width: 640px;
+}
+.mp-foot {
+  margin-top: 28px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.mp-ghost { background: none; border: none; color: #666; font-size: 14px; cursor: pointer; font-family: inherit; }
+.mp-hint { color: #b08a4a; font-size: 12.5px; font-weight: 500; }
+
+@media (prefers-color-scheme: dark) {
+  .mp-wrap { background: #17140d; color: #f0e9d8; }
+  .mp-card { background: #221d13; border-color: #3a3320; }
+  .mp-sub, .mp-note, .mp-status { color: #a89f88; }
+  .mp-size { background: #2e2818; }
+  .mp-btn.dl { background: #f0e9d8; color: #17140d; }
+  .mp-msg { background: #221d13; border-color: #3a3320; color: #b7d982; }
+  .mp-id { color: #776f58; }
+}

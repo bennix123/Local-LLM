@@ -7,6 +7,7 @@ import InputBar from '../components/InputBar';
 import ContextPanel from '../components/ContextPanel';
 import { listDocuments, queryDocumentsStream } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { Navigate } from 'react-router-dom';
 
 function Dashboard() {
   const [documents, setDocuments] = useState([]);
@@ -216,6 +217,11 @@ function Dashboard() {
     logout();
     toast.success('Logged out successfully');
   };
+
+  // Choosing an AI model is a mandatory step — you can't use the app without it.
+  if (!sessionStorage.getItem('penny_model_confirmed')) {
+    return <Navigate to="/models" replace />;
+  }
 
   return (
     <div className="desktop">

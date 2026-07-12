@@ -49,6 +49,23 @@ LLM_MODEL = os.getenv("LLM_MODEL") or _detect_ollama_model()
 os.environ["LLM_MODEL"] = LLM_MODEL
 USER = "local"
 
+
+def active_model():
+    """The live model every LLM call should use. Reads os.environ so /models/select can
+    switch it at runtime without a server restart (parsers.py already reads it this way)."""
+    return os.environ.get("LLM_MODEL") or LLM_MODEL
+
+
+# Curated models the user can pick + download from the model page. Sizes are approximate.
+RECOMMENDED_MODELS = [
+    {"id": "llama3.1:8b",       "name": "Llama 3.1 8B",   "size": "4.7 GB", "note": "Best reasoning · recommended"},
+    {"id": "qwen2.5:3b",        "name": "Qwen 2.5 3B",    "size": "1.9 GB", "note": "Fast · low memory"},
+    {"id": "gemma2:2b",         "name": "Gemma 2 2B",     "size": "1.6 GB", "note": "Lightest · quickest"},
+    {"id": "qwen2.5:7b",        "name": "Qwen 2.5 7B",    "size": "4.7 GB", "note": "Strong all-rounder"},
+    {"id": "phi3:latest",       "name": "Phi-3 Mini",     "size": "2.2 GB", "note": "Compact · capable"},
+    {"id": "llama3.2:3b",       "name": "Llama 3.2 3B",   "size": "2.0 GB", "note": "Balanced small model"},
+]
+
 GREETING = ("Hi! I'm **Penny**, your offline statement assistant. "
             "Ask me about totals, categories, merchants, time periods, or for saving advice. "
             "_Type \"help\" to see examples._")
@@ -210,7 +227,7 @@ def llm_route(question, history=None):
         ctx = "\n".join(f"Q: {h['q']}\nA: {h['a']}" for h in real)
         user = f"[Recent conversation:\n{ctx}]\n\nNew message: {question}"
     payload = json.dumps({
-        "model": LLM_MODEL, "stream": False, "keep_alive": "10m", "format": "json",
+        "model": active_model(), "stream": False, "keep_alive": "10m", "format": "json",
         "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 160},
         "messages": [
             {"role": "system", "content": ROUTER_SYSTEM},
@@ -263,6 +280,10 @@ async def login_page_route():
 async def register_page_route():
     return serve_index()
 
+@app.get("/models", response_class=HTMLResponse)
+async def models_page_route():
+    return serve_index()          # the React model-picker SPA route (API lives at /api/models)
+
 @app.get("/classic", response_class=HTMLResponse)
 async def classic_page():
     """The original single-file Penny parser UI (drag-drop parse + transaction
@@ -286,8 +307,74 @@ async def status(request: Request, user: str = Depends(get_current_user)):
     doc_name = _get_active_doc(tid)
     o = ts.overview(user, doc_name)
     return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
-                         "income": ts.inr(o["credit"]), "model": LLM_MODEL,
+                         "income": ts.inr(o["credit"]), "model": active_model(),
                          "currency": ts.CURRENCY})
+
+
+def _installed_models():
+    """Names of models already pulled into the local Ollama."""
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return [m["name"] for m in data.get("models", [])]
+    except Exception as e:
+        print(f"[models] Ollama tags failed: {e}")
+        return []
+
+
+@app.get("/api/models")
+async def list_models(user: str = Depends(get_current_user)):
+    """Model picker data: which model is active, which are already downloaded, and the
+    curated list a user can download to power the assistant."""
+    installed = _installed_models()
+    inst_set = {n.split(":")[0]: n for n in installed}  # base-name -> full tag, loose match
+    recs = []
+    for m in RECOMMENDED_MODELS:
+        is_inst = m["id"] in installed or m["id"].split(":")[0] in inst_set
+        recs.append({**m, "installed": is_inst})
+    return JSONResponse({"active": active_model(), "installed": installed, "recommended": recs})
+
+
+@app.post("/api/models/select")
+async def select_model(request: Request, user: str = Depends(get_current_user)):
+    """Switch the live model. Must already be downloaded (see /models/pull)."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"error": "No model name given."}, status_code=400)
+    if name not in _installed_models():
+        return JSONResponse({"error": f"'{name}' isn't downloaded yet. Download it first."},
+                            status_code=409)
+    os.environ["LLM_MODEL"] = name           # every LLM call reads this (active_model / os.getenv)
+    print(f"[models] active model -> {name}", flush=True)
+    return JSONResponse({"active": name})
+
+
+@app.post("/api/models/pull")
+async def pull_model(request: Request, user: str = Depends(get_current_user)):
+    """Download a model into the local Ollama, streaming progress (one JSON object per line)
+    straight from Ollama's /api/pull so the UI can show a progress bar."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return JSONResponse({"error": "No model name given."}, status_code=400)
+
+    def stream():
+        payload = json.dumps({"name": name, "stream": True}).encode()
+        try:
+            req = urllib.request.Request(f"{OLLAMA_URL}/api/pull", data=payload,
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3600) as resp:
+                for raw in resp:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if line:
+                        yield line + "\n"
+        except Exception as e:
+            yield json.dumps({"status": "error", "error": str(e)}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
 
 @app.get("/dashboard")
 async def dashboard(request: Request, user: str = Depends(get_current_user)):
