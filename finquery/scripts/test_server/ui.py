@@ -866,13 +866,14 @@ async function loadTxns(reset){
   let d; try{ d=await (await fetch("/transactions?"+tparams())).json(); }catch(e){ return; }
   tTotal=d.total;
   let h='<table><thead><tr><th style="text-align:left">Date</th><th style="text-align:left">Description</th>'
-      +'<th style="text-align:left">Category</th><th>Out</th><th>In</th><th>Balance</th></tr></thead><tbody>';
+      +'<th style="text-align:left">Category</th><th style="text-align:left">Bank</th><th>Out</th><th>In</th><th>Balance</th></tr></thead><tbody>';
   for(const r of d.rows){
     const desc=(r.descr||"").replace(/"/g,"&quot;");
     const shown=(r.description||r.payee||"").replace(/</g,"&lt;");
     h+=`<tr><td style="text-align:left">${r.date}</td>`
       +`<td style="text-align:left" title="${desc}">${shown}</td>`
       +`<td style="text-align:left">${r.category||""}</td>`
+      +`<td style="text-align:left; font-size:12px; font-weight:500;">${r.bank||""}</td>`
       +`<td>${r.out||""}</td><td style="color:#1f7a1f">${r["in"]||""}</td><td>${r.balance||""}</td></tr>`;
   }
   h+="</tbody></table>";
