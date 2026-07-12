@@ -1976,6 +1976,16 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
     txns_iterable = parser(pdf_path)
     txns = list(txns_iterable)
 
+    # Robustness across every bank: a profile may route to a dedicated parser that only handles
+    # ONE of that bank's layouts (e.g. an HDFC statement with Withdrawal/Deposit columns instead
+    # of DR/CR, or a UK statement that isn't the exact Barclays grid). If the dedicated parser
+    # returns nothing, fall back to the generic 3-layer cascade rather than yielding 0 rows.
+    if not txns and parser is not parse_generic_statement:
+        print(f"[cascade] {getattr(parser, '__name__', 'dedicated parser')} produced 0 rows — "
+              f"falling back to generic cascade", flush=True)
+        txns_iterable = parse_generic_statement(pdf_path)
+        txns = list(txns_iterable)
+
     # Extract category hints from description text ends for PDF rows
     for t in txns:
         if "descr" in t:
