@@ -438,7 +438,15 @@ async def transactions(request: Request, offset: int = 0, limit: int = 50, q: st
     tid = request.query_params.get("thread", "default")
     doc_name = _get_active_doc(tid)
     from src.services.txn_store.queries import _scope
-    where, params = _scope(user, doc_name)
+    # FIX: Jab koi active doc nahi (thread naya hai ya server restart hua),
+    # toh currency filter bypass karo aur sab user ki transactions dikhao.
+    # doc_name=None hone par _scope currency filter lagata tha jo multi-bank users
+    # ke liye sirf ek currency ka data dikha raha tha.
+    if doc_name is None:
+        where = "user_id=?"
+        params = [user]
+    else:
+        where, params = _scope(user, doc_name)
     if q:
         where += " AND (LOWER(merchant) LIKE ? OR LOWER(descr) LIKE ? OR LOWER(category) LIKE ?)"
         like = f"%{q.lower()}%"; params += [like, like, like]
@@ -532,6 +540,51 @@ async def select_bank(request: Request, user: str = Depends(get_current_user)):
         ctx.pop("pinned_doc_name", None)
         
     return JSONResponse({"status": "ok", "active_doc_name": ctx["default_doc_name"]})
+
+@app.delete("/document")
+async def delete_document(request: Request, user: str = Depends(get_current_user)):
+    """Delete a specific statement (doc_name) from the database.
+    Removes all transactions + metadata for that document.
+    Also removes it from the active session context if it was selected."""
+    _switch_db(user)
+    body = await request.json()
+    doc_name = (body.get("doc_name") or "").strip()
+    tid = (body.get("thread") or "default")
+
+    if not doc_name:
+        return JSONResponse({"error": "doc_name required"}, status_code=400)
+
+    con = ts.connect()
+    # DB se transactions aur metadata dono delete karo
+    txn_count = con.execute(
+        "SELECT COUNT(*) FROM transactions WHERE user_id=? AND doc_name=?",
+        (user, doc_name)
+    ).fetchone()[0]
+    con.execute("DELETE FROM transactions WHERE user_id=? AND doc_name=?", (user, doc_name))
+    con.execute("DELETE FROM document_metadata WHERE user_id=? AND doc_name=?", (user, doc_name))
+    con.commit()
+    con.close()
+
+    # Session context se bhi remove karo agar active tha
+    if tid in THREADS:
+        ctx = THREADS[tid]["ctx"]
+        current = ctx.get("default_doc_name")
+        if isinstance(current, list) and doc_name in current:
+            current.remove(doc_name)
+            ctx["default_doc_name"] = current if current else None
+            ctx["pinned_doc_name"] = ctx["default_doc_name"]
+        elif current == doc_name:
+            ctx["default_doc_name"] = None
+            ctx.pop("pinned_doc_name", None)
+
+    print(f"[delete] Deleted '{doc_name}' for user '{user}' ({txn_count} transactions removed)", flush=True)
+    return JSONResponse({
+        "status": "ok",
+        "deleted": doc_name,
+        "txns_removed": txn_count
+    })
+
+
 
 @app.get("/insights")
 async def insights_endpoint(user: str = Depends(get_current_user)):
@@ -1062,8 +1115,13 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         intent = _apply_guards(intent, rq)
         t = (intent.get("type") or "").lower()
         if t == "smalltalk":
-            _append_log(tid, q, GREETING, "chat")
-            return stream_text("chat", GREETING)
+            # Safety override: if the LLM wrongly classified a referential follow-up as smalltalk,
+            # force it to "followup".
+            if any(w in q.lower() for w in ("name", "bank", "which", "who", "whom", "it", "that", "then")):
+                t = "followup"
+            else:
+                _append_log(tid, q, GREETING, "chat")
+                return stream_text("chat", GREETING)
         if t == "help":
             cap = _capabilities()
             _append_log(tid, q, cap, "chat")

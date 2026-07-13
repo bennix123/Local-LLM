@@ -412,7 +412,7 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
     con = connect()
     total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
     rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency, category {base}
-                           ORDER BY txn_date, seq LIMIT ?""", p + params + [limit]).fetchall()
+                           ORDER BY txn_date DESC, seq DESC LIMIT ?""", p + params + [limit]).fetchall()
     con.close()
     return rows, total
 

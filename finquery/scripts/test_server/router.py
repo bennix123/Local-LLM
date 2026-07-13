@@ -88,7 +88,7 @@ _RANGE_RE = re.compile(rf"({_DATE_EXPR})\s*(?:\-|to|till|until|through|thru|and)
 
 _SINGLE_RE = re.compile(_DATE_EXPR, re.I)
 
-_INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|recei?ve?d?|recie?ve?d?)\b", re.I)
+_INCOME_RE = re.compile(r"\b(income|earn(?:ed|ings|t)?|salary|salaries|inflow|r[ae]cei?ve?d?|r[ae]cie?ve?d?|recevied|racevied)\b", re.I)
 
 _COUNTQ_RE = re.compile(r"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow much time\b|\bhow many times\b|\bhow much\s+(?:trans[ac]*ti(?:on|no|o|n)s?|txns?|purchases?)\b", re.I)
 
@@ -483,7 +483,8 @@ _LIST_ENT_RE = re.compile(
 
 _LIST_STOP = frozenset((
     "all", "the", "my", "me", "these", "those", "last", "first", "recent", "latest", "newest", "oldest", "top", "only", "a", "an",
-    "some", "any", "of", "them", "it", "new", "old", "total", "individual", "every", "each"))
+    "some", "any", "of", "them", "it", "new", "old", "total", "individual", "every", "each",
+    "received", "recevied", "recieved", "receive", "credit", "debit", "spent", "spending", "payment", "payments"))
 
 def _list_entity(low):
     """The merchant/entity named in a 'show me <X> transactions' listing, or None when only
@@ -622,6 +623,22 @@ def _entity_after(low, markers):
 def _norm_name(s):
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
+def _levenshtein(s1, s2):
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
 def _resolve_merchant(phrase):
     """Map free text to a stored merchant, punctuation/suffix tolerant: 'Shein' ->
     'Shein.Com', 'Higgsfield Inc USA' -> 'Higgsfield Inc. USA'. Returns '' when nothing
@@ -644,6 +661,14 @@ def _resolve_merchant(phrase):
         mt = _norm_name(m).split()
         if toks and mt and len(toks[0]) >= 4 and toks[0] == mt[0]:
             return m
+    # character distance fuzzy fallback for common typos (like sweegy -> Swiggy)
+    best, best_dist = None, 99
+    for m in _known_merchants():
+        dist = _levenshtein(np, _norm_name(m))
+        if dist < best_dist and dist <= 2:
+            best, best_dist = m, dist
+    if best:
+        return best
     return ""
 
 def _merchant_candidates(phrase):
@@ -851,7 +876,7 @@ def _extract_slots(q):
     # answers about the right merchant, or an honest "no transactions found for X"  -  never
     # the account-wide total ("how much did I spend on <unknown>" must not read as ALL spend).
     if not merch and not cat:
-        um = re.search(r"\b(?:at|from|on|to|with|pay(?:ing)?|paid)\s+(?:to\s+|the\s+|my\s+|an?\s+)?"
+        um = re.search(r"\b(?:at|from|on|to|with|in|pay(?:ing)?|paid)\s+(?:to\s+|the\s+|my\s+|an?\s+)?"
                        r"([a-z][a-z0-9&'.\-]*(?:\s+[a-z0-9&'.\-]+){0,2}?)"
                        r"(?:\s+(?:in|on|during|for|last|this|the|over|between|per|by)\b|[?.!,]|$)", low)
         if um:

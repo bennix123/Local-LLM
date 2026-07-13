@@ -1,0 +1,50 @@
+<aside class="sb">
+<div class="sbb">
+<div class="p sm"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div class="sbbn">penny<em>.</em></div>
+</div>
+
+<div class="sbs">
+<div class="sbh">conversations</div>
+<div class="sbi on" onclick="newConvo()"><div class="sbic">💬</div>Today's chat</div>
+<div class="sbi" onclick="alert('Conversation history would show here in production')"><div class="sbic">🕐</div>History</div>
+</div>
+
+<div class="sbs">
+<div class="sbh">jump to</div>
+<div class="sbi" onclick="runFlow('roast')"><div class="sbic">🔥</div>Roast me</div>
+<div class="sbi" onclick="runFlow('ghosts')"><div class="sbic">👻</div>Ghosts<span class="sbb-badge">3</span></div>
+<div class="sbi" onclick="runFlow('patterns')"><div class="sbic">⚡</div>Patterns<span class="sbb-badge">3</span></div>
+<div class="sbi" onclick="runFlow('forecast')"><div class="sbic">⛅</div>Forecast</div>
+<div class="sbi" onclick="runFlow('compound')"><div class="sbic">📈</div>Compound math</div>
+<div class="sbi" onclick="runFlow('reports')"><div class="sbic">📊</div>Reports</div>
+<div class="sbi" onclick="runFlow('splurge')"><div class="sbic">💸</div>Can I splurge?</div>
+</div>
+
+<div class="sbs">
+<div class="sbh">accounts</div>
+<div class="acls">
+<div class="acrow"><div class="acri">🏦</div><div class="acrn">Monzo</div><div class="acra">£3,124</div></div>
+<div class="acrow"><div class="acri">💳</div><div class="acrn">Amex</div><div class="acra">-£548</div></div>
+<div class="acrow"><div class="acri">📈</div><div class="acrn">T212</div><div class="acra">£18,742</div></div>
+<div class="acrow" style="color:var(--dim);justify-content:center;font-size:10.5px;padding-top:6px">+ upload more</div>
+</div>
+</div>
+
+<div class="net offline" id="netPanel">
+<div class="neth">
+<div class="netl"><span class="dot"></span><span id="netLabel">Offline mode</span></div>
+<div class="tgl" id="netToggle" onclick="toggleNet()"></div>
+</div>
+<div class="netd" id="netDesc">Penny is <b>fully offline</b>. She'll never reach the internet. Some live answers (stock prices) won't be available.</div>
+</div>
+
+<div class="bp">
+<div class="bph">PENNY'S BRAIN</div>
+<div class="bpm">Qwen 3 14B</div>
+<div class="bps"><span>RAM in use</span><b>14.2 GB</b></div>
+<div class="bps"><span>Context</span><b>32K tokens</b></div>
+<div class="bps"><span>Transactions</span><b>2,847</b></div>
+<div class="bps"><span>Data sent out</span><b style="color:var(--lime-d)" id="dataSent">0 bytes</b></div>
+</div>
+</aside>

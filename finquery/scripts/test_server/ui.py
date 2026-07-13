@@ -323,17 +323,30 @@ async function refreshDocuments(forceShowEmpty = false){
     if(docs && docs.length>0){
       $("#loaded-files").style.display="block";
       list.innerHTML=docs.map(d=> {
-        const isActive = Array.isArray(activeDoc) ? activeDoc.includes(d.doc_name) : (d.doc_name === activeDoc);
+      const isActive = Array.isArray(activeDoc) ? activeDoc.includes(d.doc_name) : (d.doc_name === activeDoc);
         const activeIndicator = isActive ? `<span class="tag SQL" style="margin-left:6px;padding:2px 6px;font-size:10px;">Active</span>` : "";
         const style = isActive ? "background:var(--cream2);border-radius:6px;padding:6px 10px;margin-bottom:6px;" : "padding:6px 10px;margin-bottom:6px;";
+        const docEsc = d.doc_name.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        const bankEsc = d.bank_name.replace(/'/g, "\\'");
         return `
-          <li class="loaded-file-item" onclick="selectActiveBank('${d.doc_name}', '${d.bank_name.replace(/'/g, "\\'")}')" 
-              style="${style}cursor:pointer;list-style-type:none;transition:background .2s;border:1px solid var(--line);margin-top:6px;">
-            📁 <strong>${d.bank_name}</strong> <span class="muted" style="font-size:11px;">(${d.doc_name})</span>${activeIndicator}
-            <br/>
-            <span class="muted" style="font-size:11px;margin-left:18px;">${d.txn_count} txns [${d.from_date || ''} to ${d.to_date || ''}]</span>
+          <li class="loaded-file-item" onclick="selectActiveBank('${docEsc}', '${bankEsc}')" 
+              style="${style}cursor:pointer;list-style-type:none;transition:background .2s;border:1px solid var(--line);margin-top:6px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="flex:1;min-width:0;">
+              📁 <strong>${d.bank_name}</strong> <span class="muted" style="font-size:11px;">(${d.doc_name})</span>${activeIndicator}
+              <br/>
+              <span class="muted" style="font-size:11px;margin-left:18px;">${d.txn_count} txns [${d.from_date || ''} to ${d.to_date || ''}]</span>
+            </div>
+            <button onclick="event.stopPropagation();deleteDocument('${docEsc}', '${bankEsc}')"
+              title="Delete this statement"
+              style="background:transparent;border:1px solid #e88;color:#c44;border-radius:6px;
+                     padding:3px 8px;font-size:12px;cursor:pointer;margin-left:8px;flex-shrink:0;
+                     transition:background .2s;"
+              onmouseover="this.style.background='#fee'" onmouseout="this.style.background='transparent'">
+              🗑️
+            </button>
           </li>
         `;
+
       }).join('');
     } else {
       if(forceShowEmpty){
@@ -378,6 +391,30 @@ async function selectActiveBank(docName, bankName){
   }catch(e){}
 }
 window.selectActiveBank = selectActiveBank;
+
+async function deleteDocument(docName, bankName){
+  if(!confirm(`Are you sure you want to delete "${bankName}"?\n\nThis action cannot be undone — all transactions will be permanently removed.`)) return;
+  try{
+    const r = await fetch("/document", {
+      method: "DELETE",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({doc_name: docName, thread: THREAD})
+    });
+    if(r.ok){
+      const res = await r.json();
+      add("chat", `🗑️ **${bankName}** statement deleted (${res.txns_removed} transactions removed).`);
+      loadTxns(true);
+      refreshDocuments();
+    } else {
+      add("chat", `❌ Delete failed — server error.`);
+    }
+  } catch(e) {
+    add("chat", `❌ Delete failed: ${e}`);
+  }
+}
+window.deleteDocument = deleteDocument;
+
+
 
 // GATE: the chat + transactions stay hidden until a statement has been parsed.
 const reveal=()=>{ $("#chatcard").classList.remove("hidden"); $("#txncard").classList.remove("hidden"); refreshDocuments(); };

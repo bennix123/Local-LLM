@@ -1887,11 +1887,14 @@ Input items:
     }).encode("utf-8")
     
     url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    print(f"[categorizer] Calling LLM ({os.getenv('LLM_MODEL', 'llama3.1:8b')}) at {url} with {len(items_to_send)} items...")
+    print(f"[categorizer] LLM Input items:\n{json.dumps(items_to_send, indent=2)}")
     try:
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=45) as resp:
             res_data = json.loads(resp.read().decode("utf-8"))
             content = res_data.get("response", "").strip()
+            print(f"[categorizer] Raw LLM output response:\n{content}")
             
             if "```" in content:
                 first_fence = content.find("```")
@@ -1911,9 +1914,12 @@ Input items:
                 orig_desc = idx_to_desc.get(str(idx_str).strip())
                 if orig_desc:
                     mapped_res[orig_desc] = val
+            print(f"[categorizer] Successfully parsed LLM mapping:\n{json.dumps(mapped_res, indent=2)}")
             return mapped_res
     except Exception as e:
         print(f"[categorizer] LLM classification failed: {e}")
+        if 'content' in locals():
+            print(f"[categorizer] Raw content that failed parsing:\n{content}")
         return {}
 
 

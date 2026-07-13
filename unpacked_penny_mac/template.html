@@ -1,0 +1,1712 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Penny — Mac MVP</title>
+<style>/* cyrillic-ext */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("b32a9c9b-c3c1-4f73-bed0-479b65696cca") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("a21920be-3f4d-4e19-ade8-247b2de94e22") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("8de5dbd3-f6e2-4c77-a0f5-6de32ff232de") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Caveat';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("005348c3-e0bf-457a-89a9-5a77ed7a2011") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("aa471792-7467-464f-b58e-4f7302af4a2a") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("b2c4d843-69b5-4059-9a81-f60fe4df687f") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("aa471792-7467-464f-b58e-4f7302af4a2a") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("b2c4d843-69b5-4059-9a81-f60fe4df687f") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("aa471792-7467-464f-b58e-4f7302af4a2a") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("b2c4d843-69b5-4059-9a81-f60fe4df687f") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("aa471792-7467-464f-b58e-4f7302af4a2a") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("b2c4d843-69b5-4059-9a81-f60fe4df687f") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("ef61d574-18f5-4c1e-a5f2-2a807c387106") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("c0a3da50-7760-418e-8b8e-41d7aea6214f") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("cc1b7fa9-a70f-4230-950a-4fabf3d1bb11") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("ef61d574-18f5-4c1e-a5f2-2a807c387106") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("c0a3da50-7760-418e-8b8e-41d7aea6214f") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("cc1b7fa9-a70f-4230-950a-4fabf3d1bb11") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("7a9f02bb-fd38-4b5d-a008-95a0a6e23221") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("0bb43a68-b9ea-48af-8610-821b9ce88911") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("55070881-70aa-4701-9c5e-85d1b196bccd") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("2a3d885c-3a7c-4809-82b6-3dca35ee9a0e") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("957665e5-72d8-4abb-8fe9-51676922e794") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("8f98b852-378b-4690-a865-ad6bcf0f1003") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("7a9f02bb-fd38-4b5d-a008-95a0a6e23221") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("0bb43a68-b9ea-48af-8610-821b9ce88911") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("55070881-70aa-4701-9c5e-85d1b196bccd") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("2a3d885c-3a7c-4809-82b6-3dca35ee9a0e") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("957665e5-72d8-4abb-8fe9-51676922e794") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("8f98b852-378b-4690-a865-ad6bcf0f1003") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+
+<style>
+:root{--bg:#fff8e8;--bg2:#fbeec5;--paper:#fffaee;--card:#fff;--tint:#fff4d6;--line:#ecd9b0;--ink:#1a1a1a;--ink2:#2a2a2a;--dim:#7a7368;--lime:#84cc16;--lime-d:#5e9b04;--lime-s:#d4f08a;--coral:#ff5e62;--coral-s:#ffd8d8;--peach:#ff9f56;--peach-s:#ffd9b8;--mint:#34d399;--mint-s:#bbf7d0;--plum:#a855f7;--plum-s:#e9d5ff;--sky:#3b82f6;--sky-s:#cfe0ff;--sun:#fbbf24;--sun-s:#fef3c7}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+body{background:linear-gradient(135deg,#3a2a1a,#1f1810);font-family:'DM Sans',sans-serif;color:var(--ink);min-height:100vh;display:flex;justify-content:center;align-items:center;padding:24px;overflow:auto}
+.desktop{width:100%;max-width:1280px;min-width:980px;height:820px;background:var(--bg);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 60px 140px rgba(0,0,0,.6)}
+
+@keyframes pulse{50%{opacity:.4}}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes slideRight{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes blink{0%,90%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+@keyframes wave{0%,100%{transform:rotate(0)}25%{transform:rotate(20deg)}75%{transform:rotate(-15deg)}}
+@keyframes thinking{0%,33%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}66%{transform:rotate(3deg)}}
+@keyframes txnLand{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+@keyframes celebrate{0%{transform:scale(1)}50%{transform:scale(1.1) rotate(-5deg)}100%{transform:scale(1)}}
+@keyframes drop{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* PENNY */
+.p{position:relative;display:inline-block;flex-shrink:0}
+.p .body{width:100%;height:100%;background:var(--lime);border-radius:50%;box-shadow:inset -10px -14px 22px rgba(0,0,0,.1),0 8px 26px rgba(132,204,22,.35);transition:.6s}
+.p .eye{position:absolute;width:14%;height:14%;background:var(--ink);border-radius:50%;top:38%;animation:blink 5s infinite}
+.p .eye.l{left:28%}.p .eye.r{right:28%}
+.p .eye::after{content:"";position:absolute;width:35%;height:35%;background:#fff;border-radius:50%;top:18%;left:22%}
+.p .ck{position:absolute;width:11%;height:7%;background:var(--coral);border-radius:50%;opacity:.55;top:55%}
+.p .ck.l{left:18%}.p .ck.r{right:18%}
+.p .m{position:absolute;width:24%;height:14%;border:2.5px solid var(--ink);border-top:none;border-radius:0 0 30px 30px;left:50%;top:60%;transform:translateX(-50%);background:var(--coral);transition:.4s}
+.p.worried .body{background:var(--peach)}
+.p.worried .m{height:11%;border-radius:30px 30px 0 0;border-bottom:none;border-top:2.5px solid var(--ink);background:transparent;transform:translateX(-50%) rotate(180deg);top:65%}
+.p.proud .body{background:var(--mint)}
+.p.proud .m{width:30%;height:18%}
+.p.thinking{animation:thinking 2s ease-in-out infinite}
+.p.celebrate{animation:celebrate 1s}
+.p.xs{width:30px;height:30px}.p.sm{width:46px;height:46px}.p.md{width:72px;height:72px}.p.lg{width:130px;height:130px}.p.xl{width:180px;height:180px}
+.p.xl .h{position:absolute;bottom:-2%;right:-15%;font-size:40px;transform-origin:bottom left;animation:wave 1.2s infinite}
+
+/* HEADER */
+.hdr{padding:14px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);flex-shrink:0;background:var(--bg);z-index:10}
+.brnd{display:flex;align-items:center;gap:10px}
+.brnd-n{font-family:'Fraunces',serif;font-weight:900;font-size:21px;letter-spacing:-.02em}
+.brnd-n em{font-style:normal;color:var(--lime-d)}
+.pill{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--lime-d);background:var(--lime-s);padding:5px 10px;border-radius:14px;display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.pill::before{content:"";width:5px;height:5px;background:var(--lime-d);border-radius:50%;animation:pulse 2s infinite}
+.prog{display:flex;gap:5px;align-items:center}
+.pd{width:18px;height:5px;border-radius:3px;background:var(--line);transition:.3s}
+.pd.on{background:var(--ink);width:30px}.pd.done{background:var(--lime-d)}
+.pd-l{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--dim);font-weight:700;margin-left:10px}
+
+.scrn{flex:1;display:none;flex-direction:column;overflow:hidden}
+.scrn.on{display:flex;animation:fadeIn .4s}
+
+/* BUTTONS */
+.btn{background:var(--ink);color:var(--bg);border:none;padding:14px 24px;border-radius:13px;font-family:inherit;font-size:14.5px;font-weight:700;cursor:pointer;box-shadow:0 4px 0 #000;letter-spacing:-.01em}
+.btn:active{transform:translateY(2px);box-shadow:0 2px 0 #000}
+.btn.lime{background:var(--lime);color:var(--ink);box-shadow:0 4px 0 var(--lime-d)}
+.btn.lime:active{box-shadow:0 2px 0 var(--lime-d)}
+.btn.ghost{background:transparent;color:var(--ink2);font-weight:600;box-shadow:none;padding:12px 18px}
+.btn.ghost:hover{background:rgba(0,0,0,.05)}
+.btn.lg{padding:16px 28px;font-size:15.5px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.skip{font-family:inherit;font-size:12.5px;color:var(--dim);background:transparent;border:none;cursor:pointer;font-weight:600;padding:6px 10px}
+.skip:hover{color:var(--ink)}
+
+/* S1 WELCOME */
+.s1{flex:1;display:flex;align-items:center;justify-content:center;padding:32px 60px;position:relative;overflow:hidden;background:linear-gradient(135deg,#fff8e8,#fed7a8)}
+.blob{position:absolute;border-radius:50%;filter:blur(80px);pointer-events:none}
+.b1{width:380px;height:380px;background:var(--lime);top:-100px;right:-100px;opacity:.35}
+.b2{width:360px;height:360px;background:var(--coral);bottom:-120px;left:-100px;opacity:.3}
+.s1c{display:grid;grid-template-columns:1fr 1.1fr;gap:60px;align-items:center;max-width:1080px;width:100%;position:relative;z-index:1}
+.s1l{display:flex;justify-content:center;animation:float 4s ease-in-out infinite}
+.tag{font-family:'Caveat',cursive;font-size:21px;color:var(--ink);background:#fff;padding:7px 17px;border-radius:24px;margin-bottom:18px;display:inline-block;font-weight:700;transform:rotate(-2deg);box-shadow:0 4px 0 var(--ink),0 0 0 2px var(--ink)}
+.s1h{font-family:'Fraunces',serif;font-weight:900;font-size:56px;letter-spacing:-.04em;line-height:1;margin-bottom:16px}
+.s1h em{font-style:normal;color:var(--lime-d);position:relative}
+.s1h em::after{content:"";position:absolute;left:0;right:0;bottom:6px;height:12px;background:var(--lime);opacity:.45;z-index:-1;border-radius:4px}
+.s1p{font-size:15.5px;color:var(--ink2);line-height:1.6;margin-bottom:20px;max-width:500px}
+.bul{margin:14px 0 22px}
+.bul-r{display:flex;align-items:flex-start;gap:11px;margin-bottom:9px;font-size:13.5px;color:var(--ink2);line-height:1.5}
+.bul-i{width:26px;height:26px;background:#fff;border:2px solid var(--ink);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;box-shadow:0 3px 0 var(--ink)}
+.bul-r b{font-weight:800;color:var(--ink)}
+.cta{display:flex;gap:11px;align-items:center;flex-wrap:wrap}
+
+/* S2 NAME */
+.s2{flex:1;display:grid;grid-template-columns:1.1fr 1fr;background:linear-gradient(135deg,#fff8e8,#fef3c7)}
+.s2l{padding:54px 60px;display:flex;flex-direction:column;justify-content:center}
+.s2r{display:flex;align-items:center;justify-content:center;padding:40px}
+.s2h{font-family:'Fraunces',serif;font-weight:900;font-size:42px;letter-spacing:-.03em;line-height:1.05;margin-bottom:14px}
+.s2h em{font-style:normal;color:var(--lime-d)}
+.s2p{font-size:14.5px;color:var(--ink2);line-height:1.6;margin-bottom:26px;max-width:460px}
+.ni{width:100%;max-width:420px;background:#fff;border:3px solid var(--ink);border-radius:17px;padding:16px 20px;font-family:'Fraunces',serif;font-size:26px;font-weight:800;color:var(--ink);outline:none;box-shadow:0 5px 0 var(--ink);letter-spacing:-.01em}
+.nh{font-family:'Caveat',cursive;font-size:15px;color:var(--dim);font-weight:700;margin-top:10px}
+.na{display:flex;gap:11px;margin-top:26px;align-items:center}
+.sp{background:#fff;border:2.5px solid var(--ink);border-radius:17px;padding:12px 17px;font-family:'Caveat',cursive;font-size:18px;font-weight:700;box-shadow:0 4px 0 var(--ink);line-height:1.25;text-align:center;max-width:230px;position:relative;margin-bottom:22px}
+.sp::after{content:"";position:absolute;bottom:-11px;left:50%;transform:translateX(-50%);width:0;height:0;border:7px solid transparent;border-top-color:#fff;border-bottom:0}
+.sp::before{content:"";position:absolute;bottom:-14px;left:50%;transform:translateX(-50%);width:0;height:0;border:8px solid transparent;border-top-color:var(--ink);border-bottom:0}
+
+/* S3 HOW IT WORKS */
+.s3{flex:1;display:flex;flex-direction:column;padding:32px 60px 20px}
+.s3hd{margin-bottom:18px;display:flex;align-items:center;gap:18px}
+.s3h{font-family:'Fraunces',serif;font-weight:800;font-size:30px;letter-spacing:-.03em;max-width:660px;line-height:1.1}
+.s3h em{font-style:normal;color:var(--lime-d)}
+.s3s{font-size:13.5px;color:var(--dim);font-weight:500;margin-top:6px;line-height:1.5}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;flex:1;align-items:stretch;margin-bottom:16px}
+.stc{background:var(--card);border:2.5px solid var(--ink);border-radius:17px;padding:18px;box-shadow:0 6px 0 var(--ink);display:flex;flex-direction:column}
+.stn{font-family:'Fraunces',serif;font-size:40px;font-weight:900;line-height:1;color:var(--lime-d);margin-bottom:4px}
+.sti{font-size:28px;margin-bottom:10px}
+.sth{font-family:'Fraunces',serif;font-size:15.5px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px;line-height:1.2}
+.stp{font-size:12px;color:var(--dim);line-height:1.55;flex:1}
+.stp b{color:var(--ink);font-weight:700}
+.stt{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--lime-d);font-weight:700;letter-spacing:.12em;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);text-transform:uppercase}
+.stt.priv::before{content:"🔒 "}
+.s3f{display:flex;justify-content:space-between;align-items:center;padding-top:11px;border-top:1px dashed var(--line)}
+.s3ft{font-family:'Caveat',cursive;font-size:14.5px;font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:10px;max-width:660px}
+
+/* S4 ACCOUNTS */
+.s4{flex:1;display:flex;overflow:hidden}
+.s4l{flex:1.1;padding:30px 44px 18px;border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column}
+.s4l::-webkit-scrollbar{width:6px}.s4l::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.s4r{width:340px;padding:28px;background:var(--bg2);display:flex;flex-direction:column;justify-content:space-between}
+.s4h{font-family:'Fraunces',serif;font-weight:800;font-size:30px;letter-spacing:-.03em;margin-bottom:5px;line-height:1.1}
+.s4h em{font-style:normal;color:var(--lime-d)}
+.s4s{font-size:13px;color:var(--dim);margin-bottom:16px;line-height:1.5}
+.sec{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin:11px 0 8px;display:flex;align-items:center;gap:8px}
+.sec::before{content:"";flex:0 0 14px;height:2px;background:var(--line)}
+.sec::after{content:"";flex:1;height:2px;background:var(--line)}
+.ag{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.ac{background:var(--card);border:2px solid var(--ink);border-radius:11px;padding:12px;display:flex;align-items:center;gap:10px;cursor:pointer;box-shadow:0 4px 0 var(--ink);position:relative}
+.ac:hover{transform:translateY(-2px);box-shadow:0 6px 0 var(--ink)}
+.ac.sel{background:#f6fce0;border-color:var(--lime-d)}
+.ac.sel::after{content:"✓";position:absolute;top:7px;right:8px;width:16px;height:16px;background:var(--lime);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ink)}
+.ac .ai{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;background:var(--tint);border:1.5px solid var(--ink)}
+.an{flex:1;min-width:0;padding-right:14px}
+.ann{font-weight:700;font-size:13px;line-height:1.2}
+.and{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:2px;font-weight:600}
+.s4rh{font-family:'Fraunces',serif;font-weight:800;font-size:18px;margin-bottom:13px;display:flex;align-items:center;gap:9px}
+.s4i{background:#fff;border:2px solid var(--ink);border-radius:13px;padding:12px;box-shadow:0 4px 0 var(--ink);margin-bottom:10px}
+.s4ih{font-family:'Caveat',cursive;font-size:15px;font-weight:700;margin-bottom:6px}
+.s4ul{list-style:none}
+.s4ul li{padding:3px 0;font-size:11.5px;color:var(--ink2);display:flex;align-items:flex-start;gap:7px;line-height:1.5;font-weight:500}
+.s4ul li::before{content:"→";color:var(--lime-d);font-weight:800}
+.s4cnt{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--dim);font-weight:700;text-align:center;margin-bottom:7px}
+.s4cnt b{color:var(--lime-d)}
+
+/* S5 UPLOAD */
+.s5{flex:1;display:grid;grid-template-columns:280px 1fr;overflow:hidden}
+.s5l{padding:32px 22px;background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto}
+.s5l::-webkit-scrollbar{width:6px}.s5l::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.s5r{padding:32px 44px;display:flex;flex-direction:column;overflow-y:auto}
+.s5r::-webkit-scrollbar{width:6px}.s5r::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.s5lh{font-family:'Fraunces',serif;font-weight:800;font-size:18px;margin-bottom:3px}
+.s5ls{font-size:11.5px;color:var(--dim);margin-bottom:14px;line-height:1.5}
+.atab{background:#fff;border:2px solid var(--ink);border-radius:10px;padding:9px 11px;margin-bottom:6px;display:flex;align-items:center;gap:9px;cursor:pointer;box-shadow:0 3px 0 var(--ink)}
+.atab.on{background:#f6fce0;border-color:var(--lime-d);box-shadow:0 3px 0 var(--lime-d)}
+.atab.done{background:var(--mint-s)}
+.ati{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;background:var(--tint);border:1.5px solid var(--ink)}
+.atn{font-weight:700;font-size:12px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ats{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--dim);font-weight:700;text-transform:uppercase;margin-top:1px}
+.atab.done .ats{color:var(--lime-d)}
+.atc{width:16px;height:16px;border-radius:50%;background:var(--lime);display:none;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--ink);flex-shrink:0;margin-left:auto}
+.atab.done .atc{display:flex}
+.atif{flex:1;min-width:0}
+.s5h{font-family:'Fraunces',serif;font-weight:800;font-size:26px;letter-spacing:-.02em;margin-bottom:5px;line-height:1.1}
+.s5h em{font-style:normal;color:var(--lime-d)}
+.s5acs{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);margin-bottom:18px;font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+.uz{background:#fff;border:3px dashed var(--ink);border-radius:17px;padding:28px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;cursor:pointer;box-shadow:0 6px 0 var(--ink);margin-bottom:14px}
+.uz:hover{background:var(--lime-s);transform:translateY(-2px);box-shadow:0 8px 0 var(--ink)}
+.uzi{font-size:38px}
+.uzh{font-family:'Fraunces',serif;font-weight:800;font-size:18px;letter-spacing:-.01em}
+.uzp{font-size:12.5px;color:var(--dim);line-height:1.45;max-width:380px}
+.uzp b{color:var(--ink);font-weight:700}
+.fmts{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;justify-content:center}
+.fmt{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;padding:3px 7px;border-radius:5px;background:var(--tint);color:var(--ink2);border:1px solid var(--line)}
+.uf{margin-bottom:14px}
+.ufl{display:flex;flex-direction:column;gap:6px}
+.uff{background:#dcfce7;border:2px solid var(--ink);border-radius:10px;padding:8px 11px;display:flex;align-items:center;gap:9px;box-shadow:0 3px 0 var(--ink);animation:slideIn .4s}
+.uffi{width:28px;height:28px;border-radius:7px;background:#fff;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.uffn{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.uffm{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);font-weight:600}
+.uffs{font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:5px;background:var(--lime-s);color:var(--lime-d);border:1.5px solid var(--lime-d);flex-shrink:0}
+.uffr{background:transparent;border:none;cursor:pointer;color:var(--dim);font-size:13px;font-weight:700}
+.uffr:hover{color:var(--coral)}
+.eh{background:var(--tint);border:2px solid var(--ink);border-radius:13px;padding:12px 14px;box-shadow:0 4px 0 var(--ink);margin-bottom:12px}
+.ehh{font-family:'Fraunces',serif;font-weight:800;font-size:13.5px;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+.es{display:flex;align-items:flex-start;gap:9px;padding:3px 0}
+.esn{font-family:'JetBrains Mono',monospace;font-size:9.5px;font-weight:800;color:var(--lime-d);flex-shrink:0;background:#fff;border:1.5px solid var(--lime-d);width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center}
+.est{font-size:11.5px;color:var(--ink2);line-height:1.5}
+.est b{color:var(--ink);font-weight:700}
+.s5f{display:flex;justify-content:space-between;align-items:center;padding-top:11px;border-top:1px dashed var(--line);margin-top:auto}
+
+/* S6 PROCESS */
+.s6{flex:1;display:grid;grid-template-columns:1fr 1.2fr;overflow:hidden}
+.s6l{padding:32px 40px;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--line)}
+.s6r{background:var(--bg2);padding:24px;display:flex;flex-direction:column;overflow:hidden}
+.s6ps{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.s6h{font-family:'Fraunces',serif;font-weight:800;font-size:24px;letter-spacing:-.02em;margin-bottom:3px;line-height:1.15}
+.s6h em{font-style:normal;color:var(--lime-d)}
+.s6st{font-family:'Caveat',cursive;font-size:15px;color:var(--ink2);font-weight:700}
+.fl{display:flex;flex-direction:column;gap:7px;margin-bottom:20px}
+.fi{background:#fff;border:2px solid var(--ink);border-radius:11px;padding:9px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 3px 0 var(--ink)}
+.fi.proc{background:#fef3c7}.fi.done{background:#dcfce7}
+.fii{font-size:18px;width:32px;height:32px;background:var(--tint);border:1.5px solid var(--ink);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fin{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.fim{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);font-weight:600}
+.fis{font-family:'JetBrains Mono',monospace;font-size:8.5px;font-weight:800;padding:3px 6px;border-radius:5px;text-transform:uppercase;flex-shrink:0}
+.fsp{background:#fef3c7;color:#7a3a00;border:1.5px solid #d97706;animation:pulse 1s infinite}
+.fsd{background:var(--lime-s);color:var(--lime-d);border:1.5px solid var(--lime-d)}
+.fsw{background:#f5f5f5;color:var(--dim);border:1.5px solid var(--line)}
+.s6cnl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+.s6cn{font-family:'Fraunces',serif;font-size:64px;font-weight:900;letter-spacing:-.04em;line-height:1;margin-bottom:20px}
+.s6pb{padding:11px 13px;background:var(--lime-s);border:2px solid var(--lime-d);border-radius:11px;display:flex;align-items:flex-start;gap:10px}
+.s6pi{width:26px;height:26px;background:#fff;border:2px solid var(--ink);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.s6ph{font-family:'Fraunces',serif;font-weight:800;font-size:12.5px;margin-bottom:2px}
+.s6pp{font-size:11px;color:var(--ink2);line-height:1.5;font-weight:500}
+.s6pp b{color:var(--lime-d);font-weight:800}
+.s6pp code{font-family:'JetBrains Mono',monospace;font-size:10px;background:rgba(255,255,255,.5);padding:1px 4px;border-radius:3px}
+.fdh{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--dim);font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px;padding-bottom:8px;border-bottom:1.5px dashed var(--line);display:flex;justify-content:space-between}
+.fdh .c{color:var(--lime-d);font-weight:800}
+.fd{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:5px;padding-right:5px}
+.fd::-webkit-scrollbar{width:5px}.fd::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.ft{background:#fff;border:1.5px solid var(--line);border-radius:9px;padding:7px 10px;display:flex;align-items:center;gap:8px;animation:txnLand .4s}
+.fti{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--tint);flex-shrink:0}
+.ftb{flex:1;min-width:0;font-size:11px}
+.ftn{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ftm{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--dim);font-weight:600;margin-top:1px}
+.ftc{font-family:'JetBrains Mono',monospace;font-size:7.5px;font-weight:700;padding:2px 4px;border-radius:4px;text-transform:uppercase}
+.cat-food{background:var(--coral-s);color:#a30000}.cat-bills{background:var(--sky-s);color:#0c4a6e}
+.cat-tr{background:#e9d5ff;color:#6b21a8}.cat-shop{background:var(--peach-s);color:#7a3a00}
+.cat-sub{background:var(--lime-s);color:var(--lime-d)}.cat-inc{background:var(--mint-s);color:#065f46}
+.cat-inv{background:#fef3c7;color:#7a3a00}
+.fta{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;flex-shrink:0;min-width:50px;text-align:right}
+.fta.gd{color:var(--lime-d)}
+
+/* S7 MEETS DATA */
+.s7{flex:1;display:flex;align-items:center;justify-content:center;padding:32px;background:linear-gradient(135deg,#fef3c7,#fed7aa);position:relative;overflow:hidden}
+.s7c{max-width:860px;width:100%;display:grid;grid-template-columns:1fr 1.2fr;gap:44px;align-items:center}
+.s7l{display:flex;justify-content:center;position:relative}
+.th1,.th2,.th3{position:absolute;background:#fff;border:2.5px solid var(--ink);border-radius:17px;padding:9px 13px;font-family:'Caveat',cursive;font-size:15px;font-weight:700;box-shadow:0 4px 0 var(--ink);animation:drop .5s both}
+.th1{top:-10px;left:-20px;animation-delay:.3s}
+.th2{top:50%;right:-40px;animation-delay:.7s}
+.th3{bottom:0;left:-30px;animation-delay:1.1s}
+.th1 b,.th2 b,.th3 b{color:var(--lime-d);font-weight:800;font-family:'Fraunces',serif;font-size:16px}
+.s7h{font-family:'Fraunces',serif;font-weight:900;font-size:36px;letter-spacing:-.03em;line-height:1.05;margin-bottom:9px}
+.s7h em{font-style:normal;color:var(--lime-d)}
+.s7p{font-size:14.5px;color:var(--ink2);line-height:1.6;margin-bottom:20px;font-weight:500}
+.ins{display:flex;flex-direction:column;gap:7px;margin-bottom:20px}
+.in{background:#fff;border:2.5px solid var(--ink);border-radius:13px;padding:11px 14px;box-shadow:0 4px 0 var(--ink);display:flex;align-items:center;gap:11px;animation:slideRight .5s both}
+.in:nth-child(1){animation-delay:.3s}.in:nth-child(2){animation-delay:.6s}.in:nth-child(3){animation-delay:.9s}
+.ini{font-size:20px;flex-shrink:0}
+.int{font-family:'Fraunces',serif;font-size:14px;font-weight:700;line-height:1.3}
+.int b{color:var(--coral)}.int .gd{color:var(--lime-d)}
+.ind{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);font-weight:600;margin-top:2px}
+
+/* APP SHELL */
+.app{flex:1;display:none;overflow:hidden}
+.app.on{display:flex;animation:fadeIn .5s}
+
+/* SIDEBAR */
+.sb{width:230px;background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;flex-shrink:0;padding:16px 12px 12px;overflow-y:auto}
+.sb::-webkit-scrollbar{width:5px}.sb::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.sbb{display:flex;align-items:center;gap:10px;padding:0 6px 14px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.sbbn{font-family:'Fraunces',serif;font-weight:900;font-size:19px;letter-spacing:-.02em}
+.sbbn em{font-style:normal;color:var(--lime-d)}
+.sbs{padding:9px 0 4px}.sbs:first-of-type{padding-top:0}
+.sbh{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;font-weight:700;padding:0 8px 7px}
+.sbi{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;color:var(--ink2);font-size:12.5px;font-weight:600;margin-bottom:2px}
+.sbi:hover{background:rgba(255,255,255,.5)}
+.sbi.on{background:var(--ink);color:var(--bg);box-shadow:0 3px 0 rgba(0,0,0,.15)}
+.sbic{width:18px;font-size:13px;display:flex;justify-content:center;flex-shrink:0}
+.sbb-badge{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:8.5px;background:var(--coral);color:#fff;padding:2px 6px;border-radius:8px;font-weight:700}
+.acls{margin-top:3px}
+.acrow{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;font-size:11px;color:var(--ink2);font-weight:500;cursor:pointer}
+.acrow:hover{background:rgba(255,255,255,.5)}
+.acri{width:18px;height:18px;border-radius:5px;background:var(--tint);border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
+.acrn{flex:1;font-weight:600}
+.acra{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--ink)}
+.bp{margin-top:auto;background:var(--card);border:2px solid var(--ink);border-radius:13px;padding:10px 11px;box-shadow:0 3px 0 var(--ink);flex-shrink:0}
+.bph{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--lime-d);letter-spacing:.12em;font-weight:700;display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.bph::before{content:"";width:5px;height:5px;background:var(--lime);border-radius:50%;animation:pulse 2s infinite}
+.bpm{font-family:'Fraunces',serif;font-weight:800;font-size:12.5px;margin-bottom:3px}
+.bps{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);padding:1.5px 0;font-weight:600}
+.bps b{color:var(--ink);font-weight:700}
+
+/* CHAT MAIN (centre) */
+.cm{flex:1;display:flex;flex-direction:column;min-width:380px;background:var(--paper)}
+.ct{padding:13px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:11px;flex-shrink:0;background:var(--paper)}
+.ctn{font-family:'Fraunces',serif;font-weight:800;font-size:17px;letter-spacing:-.02em;flex:1}
+.ctn em{font-style:normal;color:var(--lime-d)}
+.cts{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--lime-d);font-weight:700;display:flex;align-items:center;gap:5px;margin-top:1px}
+.cts::before{content:"";width:5px;height:5px;background:var(--lime-d);border-radius:50%;animation:pulse 2s infinite}
+.cti{display:flex;flex-direction:column;flex:1}
+.cttl{display:flex;gap:5px}
+.ctt{width:30px;height:30px;border-radius:8px;background:var(--card);border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px}
+.ctt:hover{border-color:var(--lime);background:var(--lime-s)}
+
+.cb{flex:1;overflow-y:auto;padding:16px 22px 6px;display:flex;flex-direction:column;gap:10px}
+.cb::-webkit-scrollbar{width:5px}.cb::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.csep{text-align:center;font-family:'Caveat',cursive;font-size:13px;color:var(--dim);margin:3px 0;font-weight:700}
+.msg{max-width:78%;width:fit-content;animation:slideIn .35s}
+.msg.ai{align-self:flex-start;display:flex;align-items:flex-end;gap:6px}
+.msg.ai.cont{padding-left:38px;margin-top:-4px}
+.msg.us{align-self:flex-end}
+.msg .p{margin-bottom:2px}
+.typ.cont{padding-left:38px}
+.bw{display:flex;flex-direction:column;min-width:0}
+.bb{padding:10px 14px;border-radius:15px;font-size:13px;line-height:1.5}
+.ai .bb{background:#fff;border:2px solid var(--ink);border-top-left-radius:5px;box-shadow:0 3px 0 var(--ink)}
+.us .bb{background:var(--lime);border:2px solid var(--ink);border-top-right-radius:5px;font-weight:700;box-shadow:0 3px 0 var(--ink)}
+.bb b{color:var(--lime-d);font-weight:800}.us .bb b{color:var(--ink);text-decoration:underline}
+.bb .warn{color:var(--coral);font-weight:800}.bb .gd{color:var(--lime-d);font-weight:800}
+.mm{font-family:'Caveat',cursive;font-size:11.5px;color:var(--dim);margin-top:4px;padding:0 6px;font-weight:600;font-style:italic}
+.dc{background:var(--tint);border:2px solid var(--ink);border-radius:10px;padding:8px 10px;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10.5px;box-shadow:0 3px 0 var(--ink)}
+.dcr{display:flex;justify-content:space-between;padding:3px 0;color:var(--dim);font-weight:600}
+.dcr span:last-child{color:var(--ink);font-weight:700}
+.dcr.warn span:last-child{color:var(--coral)}.dcr.gd span:last-child{color:var(--lime-d)}
+.typ{display:flex;align-items:flex-end;gap:6px;align-self:flex-start;animation:slideIn .3s}
+.typb{display:flex;align-items:center;gap:5px;padding:11px 14px;background:#fff;border:2px solid var(--ink);border-radius:15px;border-top-left-radius:5px;box-shadow:0 3px 0 var(--ink)}
+.typb span{width:6px;height:6px;background:var(--lime);border-radius:50%;opacity:.4;animation:pulse 1.2s infinite}
+.typb span:nth-child(2){animation-delay:.2s}
+.typb span:nth-child(3){animation-delay:.4s}
+
+/* Quick start grid */
+.qsg{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:14px 22px 6px;animation:fadeIn .5s}
+.qs{background:var(--card);border:2.5px solid var(--ink);border-radius:13px;padding:13px;cursor:pointer;box-shadow:0 4px 0 var(--ink);text-align:left;transition:.15s}
+.qs:hover{transform:translateY(-2px);box-shadow:0 6px 0 var(--ink)}
+.qs.roast{background:linear-gradient(135deg,#ffe4e1,#ffcfc7)}
+.qs.ghosts{background:linear-gradient(135deg,#f3e8ff,#e9d5ff)}
+.qs.patterns{background:linear-gradient(135deg,#fef3c7,#fde68a)}
+.qs.compound{background:linear-gradient(135deg,#dcfce7,#bbf7d0)}
+.qs.forecast{background:linear-gradient(135deg,#cfe0ff,#bfd5fb)}
+.qs.reports{background:linear-gradient(135deg,#fff4d6,#fde9b0)}
+.qse{font-size:22px;margin-bottom:5px}
+.qsh{font-family:'Fraunces',serif;font-weight:800;font-size:13.5px;letter-spacing:-.01em;margin-bottom:2px}
+.qsp{font-size:11px;color:var(--ink2);line-height:1.4;font-weight:500}
+
+/* Chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:6px 22px 4px}
+.chip{font-size:11.5px;padding:6px 11px;background:var(--card);border:2px solid var(--ink);border-radius:16px;cursor:pointer;font-family:inherit;font-weight:700;box-shadow:0 3px 0 var(--ink);transition:.15s;display:flex;align-items:center;gap:5px}
+.chip:hover{background:var(--lime-s)}
+.chip:active{transform:translateY(1px);box-shadow:0 2px 0 var(--ink)}
+
+/* Input */
+.ciw{padding:9px 22px 14px;border-top:1px solid var(--line);background:var(--paper);flex-shrink:0}
+.ci{display:flex;gap:7px;align-items:center}
+.ci input{flex:1;background:var(--card);border:2px solid var(--ink);padding:10px 15px;border-radius:21px;font-family:inherit;font-size:13px;outline:none;font-weight:500;box-shadow:0 3px 0 var(--ink)}
+.ci input::placeholder{color:var(--dim);font-style:italic}
+.sb-btn{background:var(--lime);border:2px solid var(--ink);width:38px;height:38px;border-radius:50%;font-size:15px;cursor:pointer;font-weight:800;flex-shrink:0;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 0 var(--ink)}
+.sb-btn:active{transform:translateY(1px);box-shadow:0 2px 0 var(--ink)}
+
+/* Context panel */
+.cp{width:320px;border-left:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.cpt{padding:13px 18px 11px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.cptt{font-family:'Fraunces',serif;font-weight:800;font-size:17px;letter-spacing:-.02em}
+.cptm{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);font-weight:600;margin-top:2px}
+.cpb{flex:1;overflow-y:auto;padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px}
+.cpb::-webkit-scrollbar{width:5px}.cpb::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.cpc{background:var(--card);border:2px solid var(--ink);border-radius:12px;padding:12px 13px;box-shadow:0 3px 0 var(--ink)}
+.cpsl{font-family:'Caveat',cursive;font-size:12px;color:var(--dim);font-weight:700;line-height:1}
+.cpsv{font-family:'Fraunces',serif;font-size:22px;font-weight:800;margin-top:3px;line-height:1;letter-spacing:-.02em}
+.cpsv.warn{color:var(--coral)}.cpsv.gd{color:var(--lime-d)}
+.cpsx{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--dim);margin-top:3px;font-weight:600}
+.cph{font-family:'Fraunces',serif;font-weight:800;font-size:13.5px;letter-spacing:-.01em;margin-bottom:9px}
+.cpbar{display:flex;align-items:center;gap:7px;padding:5px 0;font-size:11px}
+.cpbi{font-size:13px;width:18px;flex-shrink:0}
+.cpbn{font-weight:600;flex-shrink:0;width:56px;color:var(--ink2);font-size:10.5px}
+.cpbb{flex:1;height:12px;background:var(--bg2);border-radius:3px;overflow:hidden}
+.cpbf{height:100%;border-radius:3px}
+.cpba{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;min-width:40px;text-align:right}
+.cpli{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed #f5e7c4;font-size:11.5px}
+.cpli:last-child{border-bottom:none}
+.cpii{font-size:13px;width:22px;height:22px;background:var(--tint);border:1px solid var(--ink);border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cpln{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.cpld{font-family:'JetBrains Mono',monospace;font-size:8.5px;color:var(--dim);font-weight:600;margin-top:1px}
+.cpla{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;flex-shrink:0}
+.cpla.warn{color:var(--coral)}.cpla.gd{color:var(--lime-d)}
+.cpe{padding:36px 18px;text-align:center;color:var(--dim);font-size:12.5px;font-style:italic;line-height:1.5}
+
+/* Privacy / connectivity toggle */
+.net{background:var(--card);border:2px solid var(--ink);border-radius:13px;padding:11px 12px;box-shadow:0 3px 0 var(--ink);margin-bottom:10px;flex-shrink:0}
+.net.online{background:#eefbe0;border-color:var(--lime-d)}
+.net.offline{background:#f4f0e6}
+.neth{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.netl{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;font-weight:700;display:flex;align-items:center;gap:5px;text-transform:uppercase}
+.net.online .netl{color:var(--lime-d)}
+.net.offline .netl{color:var(--dim)}
+.netl .dot{width:6px;height:6px;border-radius:50%}
+.net.online .dot{background:var(--lime-d);animation:pulse 2s infinite}
+.net.offline .dot{background:var(--dim)}
+.tgl{width:38px;height:22px;border-radius:12px;border:2px solid var(--ink);cursor:pointer;position:relative;flex-shrink:0;transition:.2s;background:var(--dim2)}
+.tgl.on{background:var(--lime)}
+.tgl::after{content:"";position:absolute;top:1px;left:1px;width:16px;height:16px;background:#fff;border:1.5px solid var(--ink);border-radius:50%;transition:.2s}
+.tgl.on::after{left:17px}
+.netd{font-size:10.5px;color:var(--ink2);line-height:1.5;font-weight:500}
+.netd b{font-weight:700}
+.net.online .netd b{color:var(--lime-d)}
+
+/* Network fetch badge in messages */
+.nbadge{display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;padding:3px 8px;border-radius:8px;margin-top:6px;border:1.5px solid}
+.nbadge.local{background:var(--lime-s);color:var(--lime-d);border-color:var(--lime-d)}
+.nbadge.web{background:var(--sky-s);color:#0c4a6e;border-color:var(--sky)}
+/* Fetch animation card */
+.fetchc{background:var(--tint);border:2px solid var(--ink);border-radius:10px;padding:9px 11px;margin-top:6px;box-shadow:0 2px 0 var(--ink)}
+.fetchr{display:flex;align-items:center;gap:8px;padding:3px 0;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;color:var(--ink2)}
+.fetchr .ico{width:16px;text-align:center;flex-shrink:0}
+.fetchr .out{color:var(--sky);font-weight:700}
+.fetchr .ok{color:var(--lime-d);font-weight:700;margin-left:auto}
+.fetchsep{border-top:1px dashed var(--line);margin:5px 0}
+.fetchnote{font-size:9.5px;color:var(--dim);font-weight:600;font-style:italic;margin-top:4px;line-height:1.4}
+</style></head><body>
+<div class="desktop">
+
+<div class="hdr">
+<div class="brnd">
+<div class="p xs"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div class="brnd-n">penny<em>.</em></div>
+</div>
+<div class="prog" id="prog">
+<div class="pd on"></div><div class="pd"></div><div class="pd"></div><div class="pd"></div><div class="pd"></div><div class="pd"></div><div class="pd"></div>
+<div class="pd-l" id="stepL">Step 1 of 7</div>
+</div>
+<div class="pill" id="hdrPill">running locally · M3 Mac</div>
+</div>
+
+<!-- S1 WELCOME -->
+<div class="scrn on" id="s1">
+<div class="s1">
+<div class="blob b1"></div><div class="blob b2"></div>
+<div class="s1c">
+<div class="s1l">
+<div class="p xl"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div><div class="h">👋</div></div>
+</div>
+<div>
+<div class="tag">hi 👋 i'm penny</div>
+<div class="s1h">Your money,<br>but make it <em>fun.</em></div>
+<div class="s1p">A tiny AI on your Mac. Drop in your statements and investment reports — I'll find where your money goes, banish zombie subs, and roast you when you deserve it.</div>
+<div class="bul">
+<div class="bul-r"><div class="bul-i">🔒</div><div><b>Lives on your Mac.</b> Files never leave. Ever.</div></div>
+<div class="bul-r"><div class="bul-i">📄</div><div><b>You upload files.</b> CSV, PDF, Excel — no passwords.</div></div>
+<div class="bul-r"><div class="bul-i">⚡</div><div><b>Qwen 3 14B</b> on your Mac's chip. Proper reasoning.</div></div>
+</div>
+<div class="cta">
+<button class="btn lime lg" onclick="goTo(2)">Let's set up →</button>
+<button class="btn ghost">I have an account</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S2 NAME -->
+<div class="scrn" id="s2">
+<div class="s2">
+<div class="s2l">
+<div class="s2h">First — what should<br>I <em>call you?</em></div>
+<div class="s2p">I'll use your first name when I talk to you. Doesn't need to be your legal one.</div>
+<input class="ni" id="nameInput" type="text" placeholder="Alex" value="Alex">
+<div class="nh">📌 stays on this Mac · never shared</div>
+<div class="na">
+<button class="skip" onclick="goTo(1)">← back</button>
+<button class="btn lime" onclick="goTo(3)">Nice to meet you →</button>
+</div>
+</div>
+<div class="s2r">
+<div style="display:flex;flex-direction:column;align-items:center">
+<div class="sp">eee, a new friend! 🥹<br>what's your name?</div>
+<div class="p lg celebrate"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S3 HOW IT WORKS -->
+<div class="scrn" id="s3">
+<div class="s3">
+<div class="s3hd">
+<div class="p md"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div>
+<div class="s3h">How this <em>works</em>, in four steps</div>
+<div class="s3s">No bank logins. No passwords shared. No data leaving your Mac. Just drop files in.</div>
+</div>
+</div>
+<div class="steps">
+<div class="stc"><div class="stn">1</div><div class="sti">🗂️</div><div class="sth">Pick what to track</div><div class="stp">Current accounts, credit cards, savings, investments — any account you can export from.</div><div class="stt">~30 SECONDS</div></div>
+<div class="stc"><div class="stn">2</div><div class="sti">📥</div><div class="sth">Drop in your files</div><div class="stp"><b>CSV, PDF, Excel, or QIF/OFX.</b> Export from your bank or investment app, drag into Penny.</div><div class="stt">~3 MINUTES</div></div>
+<div class="stc"><div class="stn">3</div><div class="sti">🧠</div><div class="sth">I read everything locally</div><div class="stp">Qwen 3 14B on your Mac's chip categorises, finds patterns, spots subs.</div><div class="stt">~30 SECONDS</div></div>
+<div class="stc"><div class="stn">4</div><div class="sti">🔒</div><div class="sth">Stays on this Mac</div><div class="stp">Encrypted in <code style="font-family:JetBrains Mono;font-size:10.5px">~/Library/Penny</code>. Wipe anytime.</div><div class="stt priv">FOREVER LOCAL</div></div>
+</div>
+<div class="s3f">
+<div class="s3ft">
+<div class="p xs"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+You re-drop fresh files when you want me to see the latest. Once a month is plenty.
+</div>
+<div style="display:flex;gap:10px;align-items:center">
+<button class="skip" onclick="goTo(2)">← back</button>
+<button class="btn lime" onclick="goTo(4)">Got it, let's go →</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S4 ACCOUNTS -->
+<div class="scrn" id="s4">
+<div class="s4">
+<div class="s4l">
+<div class="s4h">What should I <em>track</em><br>for you?</div>
+<div class="s4s">Pick everything you want in your money picture. Add/remove anytime.</div>
+<div class="sec">SPENDING</div>
+<div class="ag">
+<div class="ac sel" data-acct="current" onclick="togAcct(this)"><div class="ai">🏦</div><div class="an"><div class="ann">Current account</div><div class="and">Day-to-day</div></div></div>
+<div class="ac sel" data-acct="credit" onclick="togAcct(this)"><div class="ai">💳</div><div class="an"><div class="ann">Credit card</div><div class="and">Visa / Mastercard / Amex</div></div></div>
+</div>
+<div class="sec">SAVINGS</div>
+<div class="ag">
+<div class="ac" data-acct="savings" onclick="togAcct(this)"><div class="ai">🐖</div><div class="an"><div class="ann">Savings account</div><div class="and">Easy-access or notice</div></div></div>
+<div class="ac" data-acct="isa" onclick="togAcct(this)"><div class="ai">🛡️</div><div class="an"><div class="ann">Cash ISA</div><div class="and">Tax-free savings</div></div></div>
+</div>
+<div class="sec">INVESTMENTS</div>
+<div class="ag">
+<div class="ac sel" data-acct="stocks" onclick="togAcct(this)"><div class="ai">📈</div><div class="an"><div class="ann">Stocks &amp; shares</div><div class="and">Vanguard, T212, HL</div></div></div>
+<div class="ac" data-acct="crypto" onclick="togAcct(this)"><div class="ai">🪙</div><div class="an"><div class="ann">Crypto wallet</div><div class="and">Coinbase, Kraken</div></div></div>
+<div class="ac" data-acct="pension" onclick="togAcct(this)"><div class="ai">🏛</div><div class="an"><div class="ann">Pension</div><div class="and">Nest, PenFold, workplace</div></div></div>
+<div class="ac" data-acct="property" onclick="togAcct(this)"><div class="ai">🏠</div><div class="an"><div class="ann">Property / mortgage</div><div class="and">Statement-based</div></div></div>
+</div>
+<div class="sec">OTHER</div>
+<div class="ag">
+<div class="ac" data-acct="business" onclick="togAcct(this)"><div class="ai">💼</div><div class="an"><div class="ann">Business account</div><div class="and">Ltd co or sole trader</div></div></div>
+<div class="ac" data-acct="other" onclick="togAcct(this)"><div class="ai">+</div><div class="an"><div class="ann">Something else</div><div class="and">Any financial file</div></div></div>
+</div>
+<div style="padding-bottom:14px"></div>
+</div>
+<div class="s4r">
+<div>
+<div class="s4rh">
+<div class="p sm"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+What I read
+</div>
+<div class="s4i">
+<div class="s4ih">File formats I understand:</div>
+<ul class="s4ul">
+<li><b>CSV</b> — most common, fastest</li>
+<li><b>PDF</b> — statements, broker reports</li>
+<li><b>Excel</b> — XLS, XLSX</li>
+<li><b>QIF / OFX</b> — older formats</li>
+</ul>
+</div>
+<div class="s4i" style="background:var(--lime-s);border-color:var(--lime-d)">
+<div class="s4ih">What stays private:</div>
+<ul class="s4ul">
+<li>Files <b>never upload</b></li>
+<li>Processed on your Mac's chip</li>
+<li>Encrypted at rest locally</li>
+<li>You can wipe everything anytime</li>
+</ul>
+</div>
+<div style="background:var(--tint);border:1.5px dashed var(--line);border-radius:10px;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--ink2);font-weight:600;line-height:1.5">
+💡 <b>Pro tip:</b> Drop in 12 months of history first time.
+</div>
+</div>
+<div>
+<div class="s4cnt"><b id="acctCount">3</b> accounts selected</div>
+<button class="btn lime" style="width:100%;margin-bottom:7px" onclick="startUpload()">Continue to upload →</button>
+<button class="skip" style="width:100%" onclick="goTo(3)">← back</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S5 UPLOAD -->
+<div class="scrn" id="s5">
+<div class="s5">
+<div class="s5l">
+<div class="s5lh">Your accounts</div>
+<div class="s5ls">Drop in files for each. No rush — finish in your own time.</div>
+<div id="acctList"></div>
+<div style="margin-top:auto;padding-top:12px;border-top:1px dashed var(--line)">
+<div style="font-family:'Caveat',cursive;font-size:13px;color:var(--ink2);font-weight:700;line-height:1.4">Penny remembers progress — close anytime.</div>
+</div>
+</div>
+<div class="s5r">
+<div class="s5h" id="upH"><em>Current account</em></div>
+<div class="s5acs" id="upSub">drop a statement file · CSV / PDF / Excel</div>
+<div class="uz" onclick="simulateUpload()">
+<div class="uzi">📥</div>
+<div class="uzh">Drag files here</div>
+<div class="uzp">Or click to browse. <b>I process them locally — never uploaded.</b></div>
+<div class="fmts">
+<div class="fmt">.CSV</div><div class="fmt">.PDF</div><div class="fmt">.XLSX</div><div class="fmt">.QIF</div><div class="fmt">.OFX</div>
+</div>
+</div>
+<div class="uf" id="upFiles" style="display:none">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim);font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:7px">FILES READY</div>
+<div class="ufl" id="upList"></div>
+</div>
+<div class="eh">
+<div class="ehh">💡 How to export</div>
+<div id="exSteps"></div>
+</div>
+<div class="s5f">
+<button class="skip" onclick="goTo(4)">← back</button>
+<div style="display:flex;gap:9px;align-items:center">
+<button class="btn ghost" onclick="skipToProcessing()" style="font-size:12.5px">Skip — show demo</button>
+<button class="btn lime" onclick="nextAccount()" id="nextBtn" style="display:none">Next →</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- S6 PROCESSING -->
+<div class="scrn" id="s6">
+<div class="s6">
+<div class="s6l">
+<div class="s6ps">
+<div class="p md thinking"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div>
+<div class="s6h">Reading your <em>files</em>...</div>
+<div class="s6st" id="procStatus">parsing locally on your Mac</div>
+</div>
+</div>
+<div class="fl" id="fileList"></div>
+<div class="s6cnl">TRANSACTIONS PARSED</div>
+<div class="s6cn" id="procCount">0</div>
+<div class="s6pb">
+<div class="s6pi">🔒</div>
+<div>
+<div class="s6ph">Where your files live</div>
+<div class="s6pp">Stored encrypted in <code>~/Library/Penny/data</code>. <b>Never uploaded.</b></div>
+</div>
+</div>
+</div>
+<div class="s6r">
+<div class="fdh"><span>LIVE FEED · DETECTED ACTIVITY</span><span class="c" id="feedCount">0 parsed</span></div>
+<div class="fd" id="feed"></div>
+</div>
+</div>
+</div>
+
+<!-- S7 MEETS DATA -->
+<div class="scrn" id="s7">
+<div class="s7">
+<div class="s7c">
+<div class="s7l">
+<div class="th1">hmm, <b>£187</b> on Deliveroo? 👀</div>
+<div class="th2">3 zombie subs spotted 🧟</div>
+<div class="th3">your <b>portfolio</b> is up 8% ✨</div>
+<div class="p lg thinking"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+</div>
+<div>
+<div class="s7h">Let me have a quick<br><em>look at this...</em></div>
+<div class="s7p">2,847 transactions and 1 investment statement read. Already found a few things — fixable.</div>
+<div class="ins">
+<div class="in"><div class="ini">🍔</div><div><div class="int">Takeaways up <b>34%</b> this month</div><div class="ind">£187 on Deliveroo · mostly late-night</div></div></div>
+<div class="in"><div class="ini">👻</div><div><div class="int">Found <b>3 zombie subs</b> wasting £34/mo</div><div class="ind">Audible · FitnessPal · Times+ · all unused</div></div></div>
+<div class="in"><div class="ini">📈</div><div><div class="int">Portfolio <span class="gd">+8.2%</span> YTD</div><div class="ind">VWRL up, GOOGL down, net £1,420 gain</div></div></div>
+</div>
+<div style="display:flex;justify-content:flex-end"><button class="btn lime lg" onclick="enterApp()">Take me to Penny →</button></div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ====== APP SHELL ====== -->
+<div class="app" id="app">
+
+<aside class="sb">
+<div class="sbb">
+<div class="p sm"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div class="sbbn">penny<em>.</em></div>
+</div>
+
+<div class="sbs">
+<div class="sbh">conversations</div>
+<div class="sbi on" onclick="newConvo()"><div class="sbic">💬</div>Today's chat</div>
+<div class="sbi" onclick="alert('Conversation history would show here in production')"><div class="sbic">🕐</div>History</div>
+</div>
+
+<div class="sbs">
+<div class="sbh">jump to</div>
+<div class="sbi" onclick="runFlow('roast')"><div class="sbic">🔥</div>Roast me</div>
+<div class="sbi" onclick="runFlow('ghosts')"><div class="sbic">👻</div>Ghosts<span class="sbb-badge">3</span></div>
+<div class="sbi" onclick="runFlow('patterns')"><div class="sbic">⚡</div>Patterns<span class="sbb-badge">3</span></div>
+<div class="sbi" onclick="runFlow('forecast')"><div class="sbic">⛅</div>Forecast</div>
+<div class="sbi" onclick="runFlow('compound')"><div class="sbic">📈</div>Compound math</div>
+<div class="sbi" onclick="runFlow('reports')"><div class="sbic">📊</div>Reports</div>
+<div class="sbi" onclick="runFlow('splurge')"><div class="sbic">💸</div>Can I splurge?</div>
+</div>
+
+<div class="sbs">
+<div class="sbh">accounts</div>
+<div class="acls">
+<div class="acrow"><div class="acri">🏦</div><div class="acrn">Monzo</div><div class="acra">£3,124</div></div>
+<div class="acrow"><div class="acri">💳</div><div class="acrn">Amex</div><div class="acra">-£548</div></div>
+<div class="acrow"><div class="acri">📈</div><div class="acrn">T212</div><div class="acra">£18,742</div></div>
+<div class="acrow" style="color:var(--dim);justify-content:center;font-size:10.5px;padding-top:6px">+ upload more</div>
+</div>
+</div>
+
+<div class="net offline" id="netPanel">
+<div class="neth">
+<div class="netl"><span class="dot"></span><span id="netLabel">Offline mode</span></div>
+<div class="tgl" id="netToggle" onclick="toggleNet()"></div>
+</div>
+<div class="netd" id="netDesc">Penny is <b>fully offline</b>. She'll never reach the internet. Some live answers (stock prices) won't be available.</div>
+</div>
+
+<div class="bp">
+<div class="bph">PENNY'S BRAIN</div>
+<div class="bpm">Qwen 3 14B</div>
+<div class="bps"><span>RAM in use</span><b>14.2 GB</b></div>
+<div class="bps"><span>Context</span><b>32K tokens</b></div>
+<div class="bps"><span>Transactions</span><b>2,847</b></div>
+<div class="bps"><span>Data sent out</span><b style="color:var(--lime-d)" id="dataSent">0 bytes</b></div>
+</div>
+</aside>
+
+<!-- CENTRE CHAT -->
+<div class="cm">
+<div class="ct">
+<div class="p md" id="chatPenny"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>
+<div class="cti">
+<div class="ctn">penny<em style="font-style:normal;color:var(--lime-d)">.</em></div>
+<div class="cts">running locally · ready · Qwen 3 14B</div>
+</div>
+<div class="cttl">
+<button class="ctt" title="New chat" onclick="newConvo()">+</button>
+<button class="ctt" title="History">⌄</button>
+<button class="ctt" title="Settings">⚙</button>
+</div>
+</div>
+
+<div class="cb" id="cb"></div>
+
+<div id="qsg" class="qsg">
+<div class="qs roast" onclick="runFlow('roast')"><div class="qse">🔥</div><div class="qsh">Roast me</div><div class="qsp">Brutal honesty about your spending.</div></div>
+<div class="qs ghosts" onclick="runFlow('ghosts')"><div class="qse">👻</div><div class="qsh">Banish zombie subs</div><div class="qsp">3 unused subs draining £34/mo.</div></div>
+<div class="qs forecast" onclick="runFlow('portfolio')"><div class="qse">📊</div><div class="qsh">Portfolio right now</div><div class="qsp">Live value · needs a price check.</div></div>
+<div class="qs compound" onclick="runFlow('compound')"><div class="qse">📈</div><div class="qsh">Compound my savings</div><div class="qsp">If I fix the leaks, what's it worth?</div></div>
+</div>
+
+<div class="chips" id="chips"></div>
+<div class="ciw">
+<div class="ci">
+<input id="cinp" placeholder="ask penny anything... e.g. why am i broke?" onkeydown="if(event.key==='Enter')sendMsg()">
+<button class="sb-btn" onclick="sendMsg()">→</button>
+</div>
+</div>
+</div>
+
+<!-- CONTEXT PANEL -->
+<aside class="cp">
+<div class="cpt">
+<div>
+<div class="cptt" id="cpTitle">Today</div>
+<div class="cptm" id="cpMeta">2,847 transactions · on-device</div>
+</div>
+<button class="ctt" title="Refresh">↻</button>
+</div>
+<div class="cpb" id="cpb"></div>
+</aside>
+
+</div>
+</div>
+
+<script>
+/* ================== STATE ================== */
+var currentStep=1,totalSteps=7,procInterval=null;
+var selectedAccts=[],currentAcctIdx=0,uploadedFiles={};
+var ACCTS={
+  current:{icon:"🏦",name:"Current account",sub:"drop a statement file · CSV / PDF",
+    exportSteps:["Open your bank app or website","Find <b>Statements</b> or <b>Download transactions</b>","Pick <b>last 12 months</b>, format <b>CSV</b> (PDF also works)","Save to your Mac, then drag here"],
+    sampleFile:"monzo_oct.csv",sampleMeta:"14.2 KB · 1,142 rows"},
+  credit:{icon:"💳",name:"Credit card",sub:"drop a statement file · CSV / PDF",
+    exportSteps:["Log into your card issuer (Amex, Barclaycard, etc.)","Go to <b>Statements & Activity</b>","Select <b>last 12 months</b>, choose <b>CSV/Excel</b>","Drag the file here"],
+    sampleFile:"amex_2024.csv",sampleMeta:"8.4 KB · 316 rows"},
+  savings:{icon:"🐖",name:"Savings account",sub:"drop a statement file",
+    exportSteps:["Open your savings bank","Find <b>Statements</b>","Pick <b>last 12 months</b>","Drag CSV or PDF here"],
+    sampleFile:"savings_2024.csv",sampleMeta:"3.2 KB · 24 rows"},
+  isa:{icon:"🛡️",name:"Cash ISA",sub:"drop a statement file",
+    exportSteps:["Log into your ISA provider","Find statements","Export <b>12 months</b> as CSV or PDF","Drag here"],
+    sampleFile:"isa.pdf",sampleMeta:"42 KB · PDF 4 pages"},
+  stocks:{icon:"📈",name:"Stocks & shares",sub:"drop your broker report · PDF / CSV",
+    exportSteps:["Log into broker (Vanguard, T212, HL)","Find <b>Account history</b>","Export <b>12 months</b> as CSV","Drag here — I'll read trades & dividends"],
+    sampleFile:"t212_report.csv",sampleMeta:"6.7 KB · 89 trades"},
+  crypto:{icon:"🪙",name:"Crypto wallet",sub:"drop an exchange CSV",
+    exportSteps:["Log into exchange (Coinbase, Kraken)","Go to <b>Reports</b>","Export transactions as CSV","Drag here"],
+    sampleFile:"coinbase.csv",sampleMeta:"4.1 KB · 47 txns"},
+  pension:{icon:"🏛",name:"Pension",sub:"drop annual statement · PDF",
+    exportSteps:["Log into your pension provider","Download <b>most recent statement</b>","PDF is fine","Drag here"],
+    sampleFile:"pension_2024.pdf",sampleMeta:"180 KB · PDF 12 pages"},
+  property:{icon:"🏠",name:"Property / mortgage",sub:"drop mortgage statement · PDF",
+    exportSteps:["Log into your mortgage provider","Download annual statement","Upload PDF — I track principal & equity"],
+    sampleFile:"mortgage.pdf",sampleMeta:"96 KB · PDF 6 pages"},
+  business:{icon:"💼",name:"Business account",sub:"drop a statement file",
+    exportSteps:["Log into business bank","Find <b>Statements</b>","Pick <b>12 months</b> CSV","Drag here"],
+    sampleFile:"tide_business.csv",sampleMeta:"22.4 KB · 1,847 rows"},
+  other:{icon:"+",name:"Other account",sub:"drop any financial file",
+    exportSteps:["Export from wherever the money lives","Any format works","Drag the file here"],
+    sampleFile:"statement.csv",sampleMeta:"~15 KB · ~1,000 rows"}
+};
+
+function goTo(n){
+  if(procInterval){clearInterval(procInterval);procInterval=null}
+  document.querySelectorAll('.scrn').forEach(function(s){s.classList.remove('on')});
+  document.getElementById('s'+n).classList.add('on');
+  currentStep=n;
+  updateProgress();
+  if(n===6)startProcessing();
+  if(n===7){
+    // Show last progress dot, then transition to app
+  }
+}
+
+function updateProgress(){
+  document.querySelectorAll('.pd').forEach(function(pd,i){
+    pd.classList.remove('on','done');
+    if(i<currentStep-1)pd.classList.add('done');
+    else if(i===currentStep-1)pd.classList.add('on');
+  });
+  document.getElementById('stepL').textContent='Step '+currentStep+' of '+totalSteps;
+}
+
+function togAcct(el){
+  el.classList.toggle('sel');
+  var count=document.querySelectorAll('.ac.sel').length;
+  document.getElementById('acctCount').textContent=count;
+}
+
+function startUpload(){
+  selectedAccts=[];
+  document.querySelectorAll('.ac.sel').forEach(function(el){selectedAccts.push(el.dataset.acct)});
+  currentAcctIdx=0;
+  uploadedFiles={};
+  selectedAccts.forEach(function(a){uploadedFiles[a]=[]});
+  renderAcctList();
+  loadAcctView(selectedAccts[0]);
+  goTo(5);
+}
+
+function renderAcctList(){
+  var html='';
+  selectedAccts.forEach(function(ak,i){
+    var info=ACCTS[ak];
+    var done=(uploadedFiles[ak]||[]).length>0;
+    var active=i===currentAcctIdx;
+    var cls=done?'done':(active?'on':'');
+    var fc=(uploadedFiles[ak]||[]).length;
+    html+='<div class="atab '+cls+'" onclick="switchAcct('+i+')">'+
+      '<div class="ati">'+info.icon+'</div>'+
+      '<div class="atif"><div class="atn">'+info.name+'</div>'+
+      '<div class="ats">'+(done?fc+' FILE'+(fc>1?'S':''):(active?'CURRENT':'WAITING'))+'</div></div>'+
+      '<div class="atc">✓</div></div>';
+  });
+  document.getElementById('acctList').innerHTML=html;
+}
+
+function switchAcct(idx){
+  currentAcctIdx=idx;
+  renderAcctList();
+  loadAcctView(selectedAccts[idx]);
+}
+
+function loadAcctView(ak){
+  var info=ACCTS[ak];
+  if(!info)return;
+  document.getElementById('upH').innerHTML='<em>'+info.name+'</em>';
+  document.getElementById('upSub').textContent=info.sub;
+  var html='';
+  info.exportSteps.forEach(function(s,i){
+    html+='<div class="es"><div class="esn">'+(i+1)+'</div><div class="est">'+s+'</div></div>';
+  });
+  document.getElementById('exSteps').innerHTML=html;
+  renderUploadedFiles(ak);
+}
+
+function renderUploadedFiles(ak){
+  var files=uploadedFiles[ak]||[];
+  var c=document.getElementById('upFiles');
+  var nb=document.getElementById('nextBtn');
+  if(files.length===0){c.style.display='none';nb.style.display='none';return}
+  c.style.display='block';nb.style.display='block';
+  var html='';
+  files.forEach(function(f,i){
+    html+='<div class="uff"><div class="uffi">📄</div><div style="flex:1;min-width:0"><div class="uffn">'+f.name+'</div><div class="uffm">'+f.meta+'</div></div><div class="uffs">READY ✓</div><button class="uffr" onclick="removeFile(\''+ak+'\','+i+')">×</button></div>';
+  });
+  document.getElementById('upList').innerHTML=html;
+}
+
+function simulateUpload(){
+  var ak=selectedAccts[currentAcctIdx];
+  var info=ACCTS[ak];
+  uploadedFiles[ak].push({name:info.sampleFile,meta:info.sampleMeta});
+  renderUploadedFiles(ak);
+  renderAcctList();
+}
+
+function removeFile(ak,idx){
+  uploadedFiles[ak].splice(idx,1);
+  renderUploadedFiles(ak);
+  renderAcctList();
+}
+
+function nextAccount(){
+  var next=-1;
+  for(var i=0;i<selectedAccts.length;i++){
+    var ak=selectedAccts[i];
+    if(i!==currentAcctIdx&&(uploadedFiles[ak]||[]).length===0){next=i;break}
+  }
+  if(next>=0){currentAcctIdx=next;renderAcctList();loadAcctView(selectedAccts[next])}
+  else goTo(6);
+}
+
+function skipToProcessing(){
+  selectedAccts.forEach(function(ak){
+    if((uploadedFiles[ak]||[]).length===0){
+      var info=ACCTS[ak];
+      uploadedFiles[ak].push({name:info.sampleFile,meta:info.sampleMeta});
+    }
+  });
+  goTo(6);
+}
+
+var sampleTxns=[
+  {n:"Deliveroo",m:"oct 14 · 10:47pm",amt:"-£18.40",icon:"🍱",cat:"food",cl:"FOOD"},
+  {n:"Pret a Manger",m:"oct 14 · 8:14am",amt:"-£6.80",icon:"☕",cat:"food",cl:"FOOD"},
+  {n:"Salary · Acme",m:"oct 14 · 7am",amt:"+£3,820",icon:"💷",cat:"inc",cl:"INC"},
+  {n:"VWRL purchase",m:"oct 13 · trade",amt:"-£500",icon:"📈",cat:"inv",cl:"INV"},
+  {n:"TfL contactless",m:"oct 13 · 6:32pm",amt:"-£8.30",icon:"🚇",cat:"tr",cl:"TR"},
+  {n:"ASOS",m:"oct 12 · 3:42pm",amt:"-£87.50",icon:"🛍",cat:"shop",cl:"SHOP"},
+  {n:"Spotify",m:"oct 12",amt:"-£9.99",icon:"🎵",cat:"sub",cl:"SUB"},
+  {n:"Dividend · VWRL",m:"oct 12 · payout",amt:"+£23.40",icon:"💰",cat:"inv",cl:"DIV"},
+  {n:"Tesco Express",m:"oct 11 · 7:15pm",amt:"-£23.40",icon:"🛒",cat:"food",cl:"FOOD"},
+  {n:"Uber",m:"oct 11 · 11:23pm",amt:"-£18.50",icon:"🚕",cat:"tr",cl:"TR"},
+  {n:"Audible",m:"oct 10",amt:"-£7.99",icon:"🎧",cat:"sub",cl:"SUB"},
+  {n:"Netflix",m:"oct 10",amt:"-£10.99",icon:"🎬",cat:"sub",cl:"SUB"},
+  {n:"Octopus Energy",m:"oct 9 · DD",amt:"-£94",icon:"⚡",cat:"bills",cl:"BILLS"},
+  {n:"GOOGL · sold 2",m:"oct 9 · trade",amt:"+£287.50",icon:"📈",cat:"inv",cl:"INV"},
+  {n:"Council Tax",m:"oct 7 · DD",amt:"-£142",icon:"🏛",cat:"bills",cl:"BILLS"}
+];
+
+function startProcessing(){
+  var fl=document.getElementById('fileList');
+  var feed=document.getElementById('feed');
+  fl.innerHTML='';if(feed)feed.innerHTML='';
+  var allFiles=[];
+  selectedAccts.forEach(function(ak){(uploadedFiles[ak]||[]).forEach(function(f){allFiles.push({acct:ak,file:f})})});
+  allFiles.forEach(function(e,i){
+    var info=ACCTS[e.acct];
+    var d=document.createElement('div');
+    d.className='fi';d.id='f-'+i;
+    d.innerHTML='<div class="fii">'+info.icon+'</div><div style="flex:1;min-width:0"><div class="fin">'+e.file.name+'</div><div class="fim">'+e.file.meta+'</div></div><div class="fis fsw">queued</div>';
+    fl.appendChild(d);
+  });
+  var count=0,target=2847;
+  var statusMsgs=[
+    {at:0,t:"opening "+(allFiles[0]?allFiles[0].file.name:"first file")+"..."},
+    {at:700,t:"parsing transactions on your Mac..."},
+    {at:1400,t:"categorising with Qwen 3 14B 🧠"},
+    {at:2100,t:"reading next file..."},
+    {at:2800,t:"detecting subscriptions 🔍"},
+    {at:3500,t:"merging accounts 🔗"},
+    {at:4200,t:"analysing investments 📈"},
+    {at:4800,t:"almost ready..."}
+  ];
+  var msgIdx=0,feedIdx=0;
+  var startTime=Date.now(),dur=5400;
+  procInterval=setInterval(function(){
+    var el=Date.now()-startTime;
+    var pct=Math.min(el/dur,1);
+    count=Math.min(Math.floor(target*pct),target);
+    document.getElementById('procCount').textContent=count.toLocaleString();
+    var fps=allFiles.length>0?1/allFiles.length:1;
+    allFiles.forEach(function(_,i){
+      var s=i*fps,e=(i+1)*fps;
+      var fe=document.getElementById('f-'+i);if(!fe)return;
+      var se=fe.querySelector('.fis');
+      if(pct>=e){fe.className='fi done';se.className='fis fsd';se.textContent='done ✓'}
+      else if(pct>=s){fe.className='fi proc';se.className='fis fsp';se.textContent='processing'}
+    });
+    while(msgIdx<statusMsgs.length-1&&el>=statusMsgs[msgIdx+1].at){
+      msgIdx++;
+      document.getElementById('procStatus').textContent=statusMsgs[msgIdx].t;
+    }
+    var tf=Math.floor(pct*40);
+    while(feedIdx<tf&&feedIdx<sampleTxns.length*3&&feed){
+      var t=sampleTxns[feedIdx%sampleTxns.length];
+      var d=document.createElement('div');d.className='ft';
+      var ac=t.amt.charAt(0)==='+'?'gd':'';
+      d.innerHTML='<div class="fti">'+t.icon+'</div><div class="ftb"><div class="ftn">'+t.n+'</div><div class="ftm">'+t.m+'</div></div><div class="ftc cat-'+t.cat+'">'+t.cl+'</div><div class="fta '+ac+'">'+t.amt+'</div>';
+      feed.insertBefore(d,feed.firstChild);
+      feedIdx++;
+      while(feed.children.length>15)feed.removeChild(feed.lastChild);
+    }
+    document.getElementById('feedCount').textContent=count.toLocaleString()+' parsed';
+    if(pct>=1){
+      clearInterval(procInterval);procInterval=null;
+      document.getElementById('procStatus').textContent='✨ ready · in a moment...';
+      setTimeout(function(){if(currentStep===6)goTo(7)},800);
+    }
+  },50);
+  // Auto-advance from 7 to app
+  setTimeout(function(){
+    if(currentStep===7)enterApp();
+  },dur+5500);
+}
+
+var appEntered=false;
+function enterApp(){
+  if(appEntered)return;
+  appEntered=true;
+  if(procInterval){clearInterval(procInterval);procInterval=null}
+  document.querySelectorAll('.scrn').forEach(function(s){s.classList.remove('on')});
+  document.getElementById('app').classList.add('on');
+  document.getElementById('prog').style.display='none';
+  initChat();
+  renderCtx('home');
+}
+
+/* ============= CHAT ENGINE ============= */
+var cb,chips,cpb,qsg,chatPenny,lastSender=null;
+var netOnline=false;
+
+function toggleNet(){
+  netOnline=!netOnline;
+  var panel=document.getElementById('netPanel');
+  var toggle=document.getElementById('netToggle');
+  var label=document.getElementById('netLabel');
+  var desc=document.getElementById('netDesc');
+  if(netOnline){
+    panel.className='net online';
+    toggle.className='tgl on';
+    label.textContent='Online when needed';
+    desc.innerHTML='Penny stays local, but can fetch <b>public numbers</b> (like stock prices) when a question needs them. <b>Your data never goes out</b> — only anonymous lookups.';
+  } else {
+    panel.className='net offline';
+    toggle.className='tgl';
+    label.textContent='Offline mode';
+    desc.innerHTML='Penny is <b>fully offline</b>. She\'ll never reach the internet. Some live answers (stock prices) won\'t be available.';
+  }
+}
+
+function pennyHTML(mood){
+  mood=mood||'happy';
+  return '<div class="p xs '+(mood!=='happy'?mood:'')+'"><div class="body"></div><div class="eye l"></div><div class="eye r"></div><div class="ck l"></div><div class="ck r"></div><div class="m"></div></div>';
+}
+
+function addMsg(html,who,opts){
+  opts=opts||{};
+  var grouped=(who==='ai'&&lastSender==='ai');
+  return new Promise(function(resolve){
+    if(who==='ai'&&opts.typing){
+      var t=document.createElement('div');
+      t.className='typ'+(grouped?' cont':'');
+      t.innerHTML=(grouped?'':pennyHTML(opts.mood))+'<div class="typb"><span></span><span></span><span></span></div>';
+      cb.appendChild(t);cb.scrollTop=cb.scrollHeight;
+      setTimeout(function(){
+        t.remove();
+        var d=document.createElement('div');
+        d.className='msg ai'+(grouped?' cont':'');
+        d.innerHTML=(grouped?'':pennyHTML(opts.mood))+'<div class="bw"><div class="bb">'+html+'</div>'+(opts.meta?'<div class="mm">'+opts.meta+'</div>':'')+'</div>';
+        cb.appendChild(d);cb.scrollTop=cb.scrollHeight;
+        if(opts.mood&&chatPenny){chatPenny.className='p md '+(opts.mood==='happy'?'':opts.mood)}
+        lastSender='ai';
+        resolve();
+      },opts.delay||800);
+    } else if(who==='ai'){
+      var d=document.createElement('div');
+      d.className='msg ai'+(grouped?' cont':'');
+      d.innerHTML=(grouped?'':pennyHTML(opts.mood))+'<div class="bw"><div class="bb">'+html+'</div>'+(opts.meta?'<div class="mm">'+opts.meta+'</div>':'')+'</div>';
+      cb.appendChild(d);cb.scrollTop=cb.scrollHeight;
+      lastSender='ai';
+      resolve();
+    } else {
+      var d=document.createElement('div');d.className='msg us';
+      d.innerHTML='<div class="bb">'+html+'</div>';
+      cb.appendChild(d);cb.scrollTop=cb.scrollHeight;
+      lastSender='us';
+      if(chips)chips.innerHTML='';
+      resolve();
+    }
+  });
+}
+
+function addSep(t){var d=document.createElement('div');d.className='csep';d.textContent=t;cb.appendChild(d)}
+function setChips(items){
+  chips.innerHTML='';
+  items.forEach(function(it){
+    var b=document.createElement('button');b.className='chip';b.textContent=it.label;
+    b.onclick=function(){runFlow(it.action)};
+    chips.appendChild(b);
+  });
+}
+function hideQS(){if(qsg)qsg.style.display='none'}
+function showQS(){if(qsg)qsg.style.display='grid'}
+
+function initChat(){
+  cb=document.getElementById('cb');
+  chips=document.getElementById('chips');
+  cpb=document.getElementById('cpb');
+  qsg=document.getElementById('qsg');
+  chatPenny=document.getElementById('chatPenny');
+  
+  var name=document.getElementById('nameInput').value||'Alex';
+  addSep("TODAY · 9:42 AM");
+  addMsg("morning <b>"+name+"</b> ☀️",'ai',{typing:true,delay:500}).then(function(){
+    return addMsg("i finished reading your 2,847 transactions overnight. running on <b>Qwen 3 14B</b>, <b>fully offline</b> — nothing leaves this Mac.",'ai',{typing:true,delay:900,meta:'0 bytes sent · see the toggle on the left'});
+  }).then(function(){
+    return addMsg("pick a card below or just ask me anything 💬",'ai',{typing:true,delay:700});
+  });
+}
+
+function newConvo(){
+  cb.innerHTML='';
+  chips.innerHTML='';
+  lastSender=null;
+  showQS();
+  renderCtx('home');
+  initChat();
+}
+
+/* ============= CONTEXT PANEL ============= */
+function renderCtx(view){
+  var t=document.getElementById('cpTitle'),m=document.getElementById('cpMeta');
+  if(view==='home'){
+    t.textContent='Today';m.textContent='2,847 transactions · on-device';
+    cpb.innerHTML=
+      '<div class="cpc"><div class="cpsl">total balance</div><div class="cpsv">£8,432</div><div class="cpsx">across 3 accounts</div></div>'+
+      '<div class="cpc"><div class="cpsl">spent · this month</div><div class="cpsv warn">£2,148</div><div class="cpsx">↑14% vs 6-mo avg</div></div>'+
+      '<div class="cpc"><div class="cpsl">portfolio</div><div class="cpsv gd">£18,742</div><div class="cpsx">+8.2% YTD · £1,420 gain</div></div>'+
+      '<div class="cpc"><div class="cph">spend by category · may</div>'+
+        catBar('🍔','Food','#ff5e62',900,42)+
+        catBar('🏠','Bills','#3b82f6',388,18)+
+        catBar('🚇','Trans',  '#a855f7',301,14)+
+        catBar('🛍','Shop',   '#ff9f56',258,12)+
+        catBar('🎬','Subs',   '#84cc16',171,8)+
+      '</div>';
+  } else if(view==='roast'){
+    t.textContent='Roast mode';m.textContent='honest about every quid';
+    cpb.innerHTML=
+      '<div class="cpc"><div class="cph">today\'s villains 😬</div>'+
+        '<div class="cpli"><div class="cpii">☕</div><div style="flex:1;min-width:0"><div class="cpln">Pret oat lattes</div><div class="cpld">£6.80 × ~32 visits</div></div><div class="cpla warn">£218</div></div>'+
+        '<div class="cpli"><div class="cpii">🍱</div><div style="flex:1;min-width:0"><div class="cpln">Deliveroo · late-night</div><div class="cpld">14 orders in 30 days</div></div><div class="cpla warn">£187</div></div>'+
+        '<div class="cpli"><div class="cpii">🛍</div><div style="flex:1;min-width:0"><div class="cpln">ASOS · weekend impulse</div><div class="cpld">3 orders · 40% returned</div></div><div class="cpla warn">£87</div></div>'+
+        '<div class="cpli"><div class="cpii">🚕</div><div style="flex:1;min-width:0"><div class="cpln">Late-night Ubers</div><div class="cpld">9 trips after midnight</div></div><div class="cpla warn">£156</div></div>'+
+      '</div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0)"><div class="cph">if you fix this 💚</div><div style="font-family:Fraunces,serif;font-size:24px;font-weight:800;color:var(--lime-d)">£648/mo back</div><div style="font-size:11px;color:var(--ink2);margin-top:4px;font-weight:500">straight to your lisbon fund</div></div>';
+  } else if(view==='ghosts'){
+    t.textContent='Zombie subs';m.textContent='3 ghosts haunting your card';
+    cpb.innerHTML=
+      '<div class="cpc"><div class="cpsl">total ghosts</div><div class="cpsv warn">3 👻</div><div class="cpsx">£34/mo · £408/yr</div></div>'+
+      '<div class="cpc"><div class="cph">the haunting</div>'+
+        '<div class="cpli"><div class="cpii">🎧</div><div style="flex:1;min-width:0"><div class="cpln">Audible</div><div class="cpld">4 months · 0 listens</div></div><div class="cpla warn">£7.99</div></div>'+
+        '<div class="cpli"><div class="cpii">🍽</div><div style="flex:1;min-width:0"><div class="cpln">MyFitnessPal Pro</div><div class="cpld">last open February</div></div><div class="cpla warn">£9.99</div></div>'+
+        '<div class="cpli"><div class="cpii">📰</div><div style="flex:1;min-width:0"><div class="cpln">Times+</div><div class="cpld">0 articles · 3 months</div></div><div class="cpla warn">£16</div></div>'+
+      '</div>'+
+      '<div class="cpc"><div class="cph">your active subs ✓</div>'+
+        '<div class="cpli"><div class="cpii">🎵</div><div style="flex:1;min-width:0"><div class="cpln">Spotify</div><div class="cpld">daily use</div></div><div class="cpla gd">£9.99</div></div>'+
+        '<div class="cpli"><div class="cpii">🎬</div><div style="flex:1;min-width:0"><div class="cpln">Netflix</div><div class="cpld">18 hours/mo</div></div><div class="cpla gd">£10.99</div></div>'+
+        '<div class="cpli"><div class="cpii">☁️</div><div style="flex:1;min-width:0"><div class="cpln">iCloud+</div><div class="cpld">core storage</div></div><div class="cpla gd">£6.99</div></div>'+
+      '</div>';
+  } else if(view==='patterns'){
+    t.textContent='Patterns';m.textContent='3 loops found';
+    cpb.innerHTML=
+      '<div class="cpc" style="background:linear-gradient(135deg,#fef3c7,#fde68a)"><div style="font-family:JetBrains Mono;font-size:8.5px;color:#7a3a00;letter-spacing:.12em;font-weight:800;margin-bottom:6px">PATTERN · LATE-NIGHT LOOP</div><div style="font-family:Fraunces,serif;font-weight:800;font-size:14px;margin-bottom:6px">Deliveroo, like clockwork 🌙</div><div style="font-size:11.5px;color:var(--ink2);line-height:1.5">14 orders in 30 days · 12 between 9pm-midnight · <b style="color:var(--coral)">86% reliability</b></div></div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#fef3c7,#fde68a)"><div style="font-family:JetBrains Mono;font-size:8.5px;color:#7a3a00;letter-spacing:.12em;font-weight:800;margin-bottom:6px">PATTERN · WEEKEND</div><div style="font-family:Fraunces,serif;font-weight:800;font-size:14px;margin-bottom:6px">Saturday ASOS habit 🛍</div><div style="font-size:11.5px;color:var(--ink2);line-height:1.5">4 Saturdays, 2-6pm · <b style="color:var(--coral)">£307 spent</b> · 40% returned</div></div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#fef3c7,#fde68a)"><div style="font-family:JetBrains Mono;font-size:8.5px;color:#7a3a00;letter-spacing:.12em;font-weight:800;margin-bottom:6px">PATTERN · ANXIETY</div><div style="font-family:Fraunces,serif;font-weight:800;font-size:14px;margin-bottom:6px">31 bank-app opens/week 😅</div><div style="font-size:11.5px;color:var(--ink2);line-height:1.5">Up from 18 two weeks ago · usually anxiety, not budgeting need</div></div>';
+  } else if(view==='forecast'){
+    t.textContent='Forecast';m.textContent='stormy week · clears by sunday';
+    cpb.innerHTML=
+      '<div class="cpc" style="background:linear-gradient(135deg,#cbd5e1,#94a3b8);color:#fff;border-color:var(--ink)"><div class="cpsl" style="color:rgba(255,255,255,.8)">leaving this week</div><div class="cpsv" style="color:#fff">£264</div><div class="cpsx" style="color:rgba(255,255,255,.9)">stormy ⛈️ until sunday</div></div>'+
+      '<div class="cpc"><div class="cpsl">after bills</div><div class="cpsv gd">£8,167</div><div class="cpsx">comfortably above target</div></div>'+
+      '<div class="cpc"><div class="cph">7-day forecast</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:6px">'+
+          fcDay('Tue','☁️','£12')+fcDay('Wed','⛅','£18')+fcDay('Thu','⛈️','£142',true)+fcDay('Fri','🌧','£28',true)+fcDay('Sat','🌧','£94',true)+fcDay('Sun','☀️','£0')+fcDay('Mon','☀️','+£3,820',false,true)+
+        '</div>'+
+      '</div>';
+  } else if(view==='compound'){
+    t.textContent='Compound math';m.textContent='14B reasoning · multi-step sim';
+    cpb.innerHTML=
+      '<div class="cpc"><div class="cpsl">monthly leaks</div><div class="cpsv warn">£94</div><div class="cpsx">redirected to ISA</div></div>'+
+      '<div class="cpc"><div class="cph">at 6% real return</div>'+
+        '<div class="cpli"><div class="cpii">📅</div><div style="flex:1"><div class="cpln">Year 1</div></div><div class="cpla">£1,160</div></div>'+
+        '<div class="cpli"><div class="cpii">📅</div><div style="flex:1"><div class="cpln">Year 3</div></div><div class="cpla">£3,690</div></div>'+
+        '<div class="cpli"><div class="cpii">📅</div><div style="flex:1"><div class="cpln">Year 5</div></div><div class="cpla">£6,560</div></div>'+
+        '<div class="cpli"><div class="cpii">📅</div><div style="flex:1"><div class="cpln">Year 10</div></div><div class="cpla gd">£15,300</div></div>'+
+        '<div class="cpli"><div class="cpii">📅</div><div style="flex:1"><div class="cpln">Year 20</div></div><div class="cpla gd">£43,500</div></div>'+
+      '</div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0)"><div style="font-family:Caveat,cursive;font-size:14px;font-weight:700;color:var(--lime-d);line-height:1.4">"The 14B model can hold all 2,847 transactions in context. The phone model couldn\'t simulate this." — Penny</div></div>';
+  } else if(view==='reports'){
+    t.textContent='Reports';m.textContent='monthly report · may 2026';
+    cpb.innerHTML=
+      '<div class="cpc"><div class="cph">May 2026 · How the month went</div>'+
+        '<p style="font-family:Fraunces,serif;font-size:12.5px;line-height:1.6;color:var(--ink2);margin-top:4px">May was <b>£258 over your usual</b>, mostly <span style="color:var(--coral);font-weight:800">takeaways</span>. <b>£900 on food</b>, of which £187 was Deliveroo alone.</p>'+
+        '<p style="font-family:Fraunces,serif;font-size:12.5px;line-height:1.6;color:var(--ink2);margin-top:8px">Good news: savings discipline held. <span style="color:var(--lime-d);font-weight:800">£15/week into Lisbon fund</span>, 65% of the way there. Emergency fund grew to £2,100.</p>'+
+        '<p style="font-family:Fraunces,serif;font-size:12.5px;line-height:1.6;color:var(--ink2);margin-top:8px">One pattern worth noting: <b>bank app opens hit 31 this week</b>, up from 18. Usually anxiety. Morning summary is on.</p>'+
+      '</div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0)"><div class="cph">wins ✨</div><div style="font-size:11.5px;line-height:1.7;color:var(--ink2);font-weight:500">• 2 nights no late-night Deliveroo<br>• Lisbon fund 65% (on track)<br>• Auto-saves never missed<br>• Under £100 on transport</div></div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#ffe4e1,#ffd5d0)"><div class="cph">work on 🛠</div><div style="font-size:11.5px;line-height:1.7;color:var(--ink2);font-weight:500">• 3 zombie subs (£34/mo)<br>• Saturday ASOS habit<br>• Bank-checking anxiety<br>• Late-night ordering trigger</div></div>';
+  } else if(view==='splurge'){
+    t.textContent='Splurge check';m.textContent='can you afford it?';
+    cpb.innerHTML=
+      '<div class="cpc" style="background:linear-gradient(135deg,#dcfce7,#bbf7d0)"><div class="cpsl">safe to spend</div><div class="cpsv gd">£420</div><div class="cpsx">after bills + savings</div></div>'+
+      '<div class="cpc"><div class="cph">what\'s already going out</div>'+
+        '<div class="cpli"><div class="cpii">🏠</div><div style="flex:1"><div class="cpln">Bills (DD)</div></div><div class="cpla">£478</div></div>'+
+        '<div class="cpli"><div class="cpii">💰</div><div style="flex:1"><div class="cpln">Auto-save</div></div><div class="cpla">£260</div></div>'+
+        '<div class="cpli"><div class="cpii">🎟</div><div style="flex:1"><div class="cpln">Subs (kept)</div></div><div class="cpla">£93</div></div>'+
+        '<div class="cpli"><div class="cpii">🍔</div><div style="flex:1"><div class="cpln">Food (avg)</div></div><div class="cpla">£600</div></div>'+
+      '</div>'+
+      '<div class="cpc" style="background:linear-gradient(135deg,#fef3c7,#fde68a)"><div class="cph">but watch</div><div style="font-size:11.5px;line-height:1.6;color:var(--ink2);font-weight:500">Takeaways are <b style="color:var(--coral)">already +34%</b>. Splurge OK — but maybe not on more Deliveroo.</div></div>';
+  }
+}
+
+function catBar(icon,name,color,amt,pct){
+  return '<div class="cpbar"><div class="cpbi">'+icon+'</div><div class="cpbn">'+name+'</div>'+
+    '<div class="cpbb"><div class="cpbf" style="width:'+pct+'%;background:'+color+'"></div></div>'+
+    '<div class="cpba">£'+amt+'</div></div>';
+}
+function fcDay(name,emoji,amt,bad,good){
+  var bg=bad?'background:linear-gradient(135deg,#ffe4e1,#ffd5d0)':(good?'background:linear-gradient(135deg,#dcfce7,#bbf7d0)':'');
+  var c=bad?'color:var(--coral)':(good?'color:var(--lime-d)':'');
+  return '<div style="background:#fff;border:1.5px solid var(--ink);border-radius:7px;padding:6px 3px;text-align:center;box-shadow:0 2px 0 var(--ink);'+bg+'"><div style="font-family:JetBrains Mono;font-size:7.5px;color:var(--dim);font-weight:700;text-transform:uppercase">'+name+'</div><div style="font-size:14px;margin:2px 0">'+emoji+'</div><div style="font-family:Fraunces,serif;font-size:9.5px;font-weight:800;'+c+'">'+amt+'</div></div>';
+}
+
+/* ============= FLOW LIBRARY ============= */
+var FLOWS={
+  portfolio:function(){
+    hideQS();setChips([]);
+    addMsg("what's my portfolio worth right now?",'us').then(function(){
+      renderCtx('home');
+      if(netOnline){
+        return addMsg("let me grab live prices — one sec 🌐",'ai',{typing:true,delay:600});
+      } else {
+        return addMsg("i'm in <b>offline mode</b> right now, so I can't pull live prices 🔒",'ai',{typing:true,delay:600});
+      }
+    }).then(function(){
+      if(netOnline){
+        // Show the anonymous fetch happening
+        return addMsg('<div class="fetchc"><div class="fetchr"><span class="ico">📤</span><span class="out">asking for:</span> VWRL, GOOGL, VUSA prices</div><div class="fetchr"><span class="ico">🕵️</span>sent with <b>no account, no holdings, no name</b></div><div class="fetchsep"></div><div class="fetchr"><span class="ico">📥</span>3 prices back <span class="ok">✓ 240ms</span></div><div class="fetchnote">Only public tickers left your Mac. The maths — how many you own, what it\'s worth to you — happened here.</div></div>','ai',{typing:true,delay:1400});
+      } else {
+        return addMsg("i can still show you your <b>last-known value</b> from your uploaded broker file though 👇",'ai',{typing:true,delay:900});
+      }
+    }).then(function(){
+      if(netOnline){
+        return addMsg('here you go:<div class="dc"><div class="dcr"><span>VWRL · 180 units</span><span>£17,024</span></div><div class="dcr"><span>GOOGL · 12 units</span><span>£1,438</span></div><div class="dcr"><span>VUSA · 4 units</span><span>£312</span></div><div class="dcr gd"><span>Total · live</span><span>£18,774</span></div><div class="dcr gd"><span>Today</span><span>+£32 (+0.17%)</span></div></div><span class="nbadge web">🌐 fetched live prices · no personal data sent</span>','ai',{typing:true,delay:1500,mood:'proud'});
+      } else {
+        return addMsg('from your last upload:<div class="dc"><div class="dcr"><span>Portfolio · at last file</span><span>£18,742</span></div><div class="dcr gd"><span>Cost basis</span><span>+8.2% YTD</span></div></div><span class="nbadge local">🔒 100% on-device · 0 bytes sent</span>','ai',{typing:true,delay:1400,mood:'happy'});
+      }
+    }).then(function(){
+      if(netOnline){
+        setChips([{label:"how's it doing vs cost?",action:'reset'},{label:"best/worst holding",action:'reset'},{label:"go offline again",action:'goOffline'}]);
+      } else {
+        setChips([{label:"turn on live prices",action:'goOnline'},{label:"that's fine, stay private",action:'reset'}]);
+      }
+    });
+  },
+  goOnline:function(){
+    if(!netOnline)toggleNet();
+    addSep("— live prices enabled —");
+    lastSender=null;
+    addMsg("nice — live prices on 🌐 want me to value your portfolio now?",'ai',{typing:true,delay:600,mood:'happy'}).then(function(){
+      setChips([{label:"yes, value it now",action:'portfolio'},{label:"maybe later",action:'reset'}]);
+    });
+  },
+  goOffline:function(){
+    if(netOnline)toggleNet();
+    addSep("— back to fully offline —");
+    lastSender=null;
+    addMsg("done — fully offline again 🔒 nothing leaves this Mac.",'ai',{typing:true,delay:500,mood:'happy'}).then(function(){
+      setChips([{label:"roast me 🔥",action:'roast'},{label:"banish ghosts",action:'ghosts'},{label:"compound math",action:'compound'}]);
+    });
+  },
+  roast:function(){
+    hideQS();setChips([]);
+    addMsg("roast me 🔥",'us').then(function(){
+      renderCtx('roast');
+      return addMsg("ok babe, deep breath 💅",'ai',{typing:true,delay:500});
+    }).then(function(){
+      return addMsg('<b>£6.80 oat lattes. EVERY day.</b> 😬<br><br>that\'s <span class="warn">£2,482/year</span>. your future self at the lisbon airbnb is glaring through the window of a hostel rn.','ai',{typing:true,delay:1200,mood:'worried'});
+    }).then(function(){
+      return addMsg('Audible: 4 months, 0 listens. <span class="warn">pure guilt money.</span> 📚 literally a ghost.','ai',{typing:true,delay:1100,mood:'worried'});
+    }).then(function(){
+      return addMsg("want to fix it, or just sit in the shame?",'ai',{typing:true,delay:800});
+    }).then(function(){
+      setChips([{label:"fix everything 🛠",action:'fixall'},{label:"just the lattes",action:'capcoffee'},{label:"i\'ll take the shame",action:'shame'}]);
+    });
+  },
+  ghosts:function(){
+    hideQS();setChips([]);
+    addMsg("show me the zombie subs 👻",'us').then(function(){
+      renderCtx('ghosts');
+      return addMsg("ok this is depressing. 3 subs you haven't touched in months:",'ai',{typing:true,delay:600,mood:'worried'});
+    }).then(function(){
+      return addMsg('<div class="dc"><div class="dcr warn"><span>Audible · 4mo unused</span><span>£7.99</span></div><div class="dcr warn"><span>MyFitnessPal Pro · 4mo</span><span>£9.99</span></div><div class="dcr warn"><span>Times+ · 3mo unused</span><span>£16.00</span></div><div class="dcr gd"><span>total saved if killed</span><span>£34/mo</span></div></div>that\'s <b>£408/year</b> straight to your lisbon fund.','ai',{typing:true,delay:1300});
+    }).then(function(){
+      return addMsg("want me to set up the cancellations?",'ai',{typing:true,delay:700});
+    }).then(function(){
+      setChips([{label:"yes banish them all 👋",action:'killsubs'},{label:"keep Audible, kill others",action:'killpart'},{label:"actually let me think",action:'reset'}]);
+    });
+  },
+  killsubs:function(){
+    addMsg("yes banish them all",'us').then(function(){
+      return addMsg('👋 BYE GHOSTS. all 3 cancellation links queued in <b>Reminders</b>.<br><br>redirect that £34/mo to your Lisbon fund?','ai',{typing:true,delay:1000,mood:'proud'});
+    }).then(function(){
+      setChips([{label:"yes redirect ✨",action:'redirect'},{label:"keep it free for now",action:'reset'}]);
+    });
+  },
+  killpart:function(){
+    addMsg("keep Audible, kill others",'us').then(function(){
+      return addMsg('done. Audible stays, MyFitnessPal + Times+ queued for cancellation. saves you <b>£26/mo</b>.','ai',{typing:true,delay:900,mood:'happy'});
+    }).then(function(){
+      setChips([{label:"thanks penny 💚",action:'reset'}]);
+    });
+  },
+  redirect:function(){
+    addMsg("yes redirect",'us').then(function(){
+      return addMsg('<span class="gd">DONE.</span> Lisbon fund target now hits <b>may 18</b> — 12 days early ✈️','ai',{typing:true,delay:1000,mood:'proud'});
+    }).then(function(){
+      setChips([{label:"you legend",action:'reset'},{label:"what else can I fix?",action:'roast'}]);
+    });
+  },
+  patterns:function(){
+    hideQS();setChips([]);
+    addMsg("show me patterns",'us').then(function(){
+      renderCtx('patterns');
+      return addMsg("ok, three patterns. these come from joining your screen time with bank data — only an on-device AI can see these 👇",'ai',{typing:true,delay:700});
+    }).then(function(){
+      return addMsg('<b>1. Late-night Deliveroo loop 🌙</b><br>14 orders in 30 days, 12 between 9pm-midnight. <b>86% reliable.</b>','ai',{typing:true,delay:1100,mood:'worried'});
+    }).then(function(){
+      return addMsg('<b>2. Saturday ASOS habit 🛍</b><br>4 Saturdays, 2-6pm: <span class="warn">£307</span>. 40% returned (incl. £13 return shipping wasted).','ai',{typing:true,delay:1100,mood:'worried'});
+    }).then(function(){
+      return addMsg('<b>3. Anxiety pattern 😅</b><br>31 bank-app opens this week (up from 18). Usually means anxiety, not need. Daily summary helps.','ai',{typing:true,delay:1100});
+    }).then(function(){
+      setChips([{label:"set takeaway cap",action:'capfood'},{label:"24h cool-off on ASOS",action:'cooloff'},{label:"morning summary on",action:'morning'},{label:"all three",action:'fixall'}]);
+    });
+  },
+  forecast:function(){
+    hideQS();setChips([]);
+    addMsg("what's coming up this week?",'us').then(function(){
+      renderCtx('forecast');
+      return addMsg("stormy week ⛈️ then sun returns:",'ai',{typing:true,delay:600});
+    }).then(function(){
+      return addMsg('<b>£264 leaving this week:</b><div class="dc"><div class="dcr warn"><span>Council Tax · Thu</span><span>£142</span></div><div class="dcr warn"><span>EE mobile · Fri</span><span>£28</span></div><div class="dcr warn"><span>Octopus energy · Sat</span><span>£94</span></div><div class="dcr gd"><span>Salary lands · Mon</span><span>+£3,820</span></div><div class="dcr gd"><span>Net week-end balance</span><span>£8,167</span></div></div>you\'re fine 🎯','ai',{typing:true,delay:1400});
+    }).then(function(){
+      setChips([{label:"can I splurge?",action:'splurge'},{label:"what about next week?",action:'reset'}]);
+    });
+  },
+  compound:function(){
+    hideQS();setChips([]);
+    addMsg("compound my savings",'us').then(function(){
+      renderCtx('compound');
+      return addMsg("oh good question. let me actually do the math 🧮",'ai',{typing:true,delay:600});
+    }).then(function(){
+      return addMsg('If you redirect the <b>£94/mo</b> in leaks I found into your ISA at 6% real return:<div class="dc"><div class="dcr"><span>Year 1</span><span>£1,160</span></div><div class="dcr"><span>Year 3</span><span>£3,690</span></div><div class="dcr"><span>Year 5</span><span>£6,560</span></div><div class="dcr gd"><span>Year 10</span><span>£15,300</span></div><div class="dcr gd"><span>Year 20</span><span>£43,500</span></div></div>vs <span class="warn">£0</span> if it keeps leaking as Deliveroo & dead subs.','ai',{typing:true,delay:1700,meta:'14B compound math · 18ms on M3'});
+    }).then(function(){
+      return addMsg("this is what desktop 14B is for — multi-step financial sims the phone can\'t do. want me to set up the redirect?",'ai',{typing:true,delay:1000,mood:'proud'});
+    }).then(function(){
+      setChips([{label:"yes set up redirect",action:'redirect'},{label:"adjust the amount",action:'reset'}]);
+    });
+  },
+  reports:function(){
+    hideQS();setChips([]);
+    addMsg("show me my monthly report",'us').then(function(){
+      renderCtx('reports');
+      return addMsg("ok, May was eventful 📝. drafting your monthly report locally... here\'s the summary:",'ai',{typing:true,delay:800});
+    }).then(function(){
+      return addMsg('<b>May 2026: £258 over your usual</b>, mostly takeaways. £900 on food, £187 of that Deliveroo alone (+34% on the 6-mo average).<br><br>Good news: Lisbon fund auto-saves never missed, you\'re 65% there. Portfolio +8.2% YTD (£1,420 gain).<br><br>One thing to fix: 31 bank app opens this week (anxiety, not budgeting). I\'ve turned on morning summary.','ai',{typing:true,delay:1700,meta:'full report on the right →'});
+    }).then(function(){
+      setChips([{label:"export as PDF",action:'export'},{label:"compare to April",action:'reset'},{label:"any wins to celebrate?",action:'wins'}]);
+    });
+  },
+  splurge:function(){
+    hideQS();setChips([]);
+    addMsg("can I splurge?",'us').then(function(){
+      renderCtx('splurge');
+      return addMsg("hmm let me peek at the books 🧐",'ai',{typing:true,delay:600});
+    }).then(function(){
+      return addMsg('<b>yes, kinda.</b> 🎉<div class="dc"><div class="dcr gd"><span>after bills + savings</span><span>£420 free</span></div><div class="dcr"><span>Lisbon goal · on track</span><span>✓</span></div><div class="dcr warn"><span>but takeaways</span><span>already +34%</span></div></div>you can spend <span class="gd">~£200 guilt-free</span>. just not more Deliveroo ✋','ai',{typing:true,delay:1400,meta:'simulated locally · 14B'});
+    }).then(function(){
+      setChips([{label:"concert £80 🎟",action:'spY'},{label:"jacket £150",action:'spM'},{label:"weekend trip £350",action:'spN'}]);
+    });
+  },
+  spY:function(){addMsg("concert £80 🎟",'us').then(function(){return addMsg('<span class="gd">YES. go.</span> 🎶 £80 in your splurge zone, concerts are memories ✨','ai',{typing:true,delay:900,mood:'proud'})}).then(function(){setChips([{label:"thanks penny",action:'reset'}])})},
+  spM:function(){addMsg("jacket £150",'us').then(function(){return addMsg('<b>maybe.</b> 🤔 shopping is already up 60%. let me put it in 24h cool-off.','ai',{typing:true,delay:1100})}).then(function(){setChips([{label:"yes cool-off",action:'cooloff'}])})},
+  spN:function(){addMsg("weekend trip £350",'us').then(function(){return addMsg('<span class="warn">girl no</span> 😬 £350 > your £200 free zone. wait 2 weeks → £400+ free.','ai',{typing:true,delay:1000,mood:'worried'})}).then(function(){setChips([{label:"wait 2 weeks",action:'reset'}])})},
+  fixall:function(){
+    addMsg("fix it all 🛠",'us').then(function(){
+      return addMsg('<span class="gd">DONE.</span> ✨ three rules active:<div class="dc"><div class="dcr gd"><span>9pm Deliveroo nudge</span><span>ON</span></div><div class="dcr gd"><span>24h cool-off on ASOS</span><span>ON</span></div><div class="dcr gd"><span>3 zombie subs queued</span><span>cancellation links sent</span></div><div class="dcr gd"><span>est. monthly savings</span><span>£94+</span></div></div>that\'s £1,128/year going to compound interest instead of waste 📈','ai',{typing:true,delay:1700,mood:'proud',meta:'all rules on-device'});
+    }).then(function(){
+      setChips([{label:"you're the best 💚",action:'reset'},{label:"what's the 10-year impact?",action:'compound'}]);
+    });
+  },
+  capfood:function(){addMsg("set takeaway cap",'us').then(function(){return addMsg("how much per week? you\'re at £55 avg right now.",'ai',{typing:true,delay:600})}).then(function(){setChips([{label:"£40",action:'cap40'},{label:"£25 — strict",action:'cap25'},{label:"£50 — chill",action:'cap50'}])})},
+  cap40:function(){addMsg("£40",'us').then(function(){return addMsg('<span class="gd">£40/week cap</span> set 🎯 I\'ll nudge at 80%.','ai',{typing:true,delay:800,mood:'happy'})}).then(function(){setChips([{label:"done",action:'reset'}])})},
+  cap25:function(){addMsg("£25 strict",'us').then(function(){return addMsg('<span class="gd">£25/week cap</span> · strict mode. I\'ll lock you at 100%.','ai',{typing:true,delay:800,mood:'proud'})}).then(function(){setChips([{label:"done",action:'reset'}])})},
+  cap50:function(){addMsg("£50 chill",'us').then(function(){return addMsg('£50/week. <span class="gd">small reduction</span>, you can do this 💚','ai',{typing:true,delay:800,mood:'happy'})}).then(function(){setChips([{label:"done",action:'reset'}])})},
+  capcoffee:function(){addMsg("just the lattes",'us').then(function(){return addMsg('ok, let\'s try <b>3 lattes/week max</b> = £20/wk savings = <b>£1,040/year</b>. that\'s a flight ✈️','ai',{typing:true,delay:1000,mood:'happy'})}).then(function(){setChips([{label:"set the rule",action:'reset'}])})},
+  cooloff:function(){addMsg("24h cool-off",'us').then(function(){return addMsg('<span class="gd">24h cool-off rule active.</span> Anything over £30 on ASOS/Zara/Urban → I\'ll ping you in 24h. you usually forget by then 😉','ai',{typing:true,delay:1000})}).then(function(){setChips([{label:"thanks",action:'reset'}])})},
+  morning:function(){addMsg("morning summary on",'us').then(function(){return addMsg('<span class="gd">8am summary on.</span> balance + alerts + any patterns I spotted overnight. you\'ll check less ✨','ai',{typing:true,delay:900})}).then(function(){setChips([{label:"done",action:'reset'}])})},
+  export:function(){addMsg("export as PDF",'us').then(function(){return addMsg('exporting now... 📄<br><br><span class="gd">May_2026_Report.pdf</span> saved to <code style="font-family:JetBrains Mono;font-size:11px">~/Documents</code>. all locally — no cloud printer involved.','ai',{typing:true,delay:1100})}).then(function(){setChips([{label:"thanks",action:'reset'}])})},
+  wins:function(){addMsg("any wins?",'us').then(function(){return addMsg('YES ✨<div class="dc"><div class="dcr gd"><span>No-Deliveroo nights</span><span>2</span></div><div class="dcr gd"><span>Lisbon fund progress</span><span>+£60</span></div><div class="dcr gd"><span>Auto-saves on time</span><span>4/4</span></div><div class="dcr gd"><span>Portfolio</span><span>+£287</span></div></div>celebrate it 🎉','ai',{typing:true,delay:1200,mood:'proud'})}).then(function(){setChips([{label:"thanks penny",action:'reset'}])})},
+  shame:function(){addMsg("i'll take the shame",'us').then(function(){return addMsg("respect 🫡 sit with it. i'm here when you're ready.",'ai',{typing:true,delay:600})}).then(function(){setChips([{label:"actually fix it",action:'fixall'}])})},
+  reset:function(){
+    addSep("— back to start —");
+    lastSender=null;
+    setChips([{label:"roast me 🔥",action:'roast'},{label:"banish ghosts",action:'ghosts'},{label:"show patterns",action:'patterns'},{label:"compound math",action:'compound'}]);
+    renderCtx('home');
+  }
+};
+
+function runFlow(name){
+  if(FLOWS[name])FLOWS[name]();
+}
+
+function sendMsg(){
+  var el=document.getElementById('cinp');
+  var t=el.value.trim();
+  if(!t)return;
+  el.value='';
+  hideQS();
+  var k=t.toLowerCase();
+  // If keyword matches, the flow will add its own canned user msg
+  if(k.indexOf('roast')>=0||k.indexOf('broke')>=0||k.indexOf('leak')>=0){FLOWS.roast();return}
+  if(k.indexOf('splurge')>=0||k.indexOf('afford')>=0){FLOWS.splurge();return}
+  if(k.indexOf('portfolio')>=0||k.indexOf('worth')>=0||k.indexOf('stocks')>=0||k.indexOf('shares')>=0||k.indexOf('right now')>=0){FLOWS.portfolio();return}
+  if(k.indexOf('compound')>=0||k.indexOf('invest')>=0||k.indexOf('isa')>=0){FLOWS.compound();return}
+  if(k.indexOf('sub')>=0||k.indexOf('ghost')>=0){FLOWS.ghosts();return}
+  if(k.indexOf('pattern')>=0){FLOWS.patterns();return}
+  if(k.indexOf('forecast')>=0||k.indexOf('week')>=0||k.indexOf('upcoming')>=0){FLOWS.forecast();return}
+  if(k.indexOf('report')>=0||k.indexOf('month')>=0){FLOWS.reports();return}
+  // No match — generic response with user's literal text
+  addMsg(t,'us').then(function(){
+    return addMsg("hmm let me have a think about that...",'ai',{typing:true,delay:700});
+  }).then(function(){
+    return addMsg("here's what I can help with — pick one and I'll dig in:",'ai',{typing:true,delay:900});
+  }).then(function(){
+    setChips([{label:"roast me 🔥",action:'roast'},{label:"banish ghosts 👻",action:'ghosts'},{label:"show patterns ⚡",action:'patterns'},{label:"compound math 📈",action:'compound'},{label:"can I splurge?",action:'splurge'},{label:"this week's forecast",action:'forecast'}]);
+  });
+}
+</script>
+
+</body></html>
