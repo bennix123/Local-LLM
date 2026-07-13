@@ -850,7 +850,10 @@ def needs_bank_clarification(user_id, q, ctx):
         return matched_doc, None
         
     # Check for combine-keywords with word boundaries
-    if any(re.search(rf"\b{w}\b", low) for w in ("overall", "combined", "all accounts", "all banks", "everything", "across all", "sum of all")):
+    if any(re.search(rf"\b{w}\b", low) for w in (
+        "overall", "combined", "all accounts", "all banks", "everything", "across all", "sum of all",
+        "each bank", "each banks", "which bank", "which banks", "compare", "highest", "lowest", "more"
+    )):
         return None, None
         
     # Check for smalltalk / help / system keywords with word boundaries

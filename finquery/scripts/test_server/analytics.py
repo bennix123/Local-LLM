@@ -156,15 +156,23 @@ def _amounts_in(s):
     return out
 
 def _advice_grounded(reply, facts):
-    """True iff every ₹-amount and percentage in `reply` matches one in `facts`
+    """True iff every ₹/£-amount and percentage in `reply` matches one in `facts`
     (amounts within 0.5% or ₹1; percentages within 0.5 pt). Catches the model
-    inventing or computing a figure."""
+    inventing or computing a figure.
+    Also rejects replies with no financial numbers to force deterministic fallback."""
     fa = _amounts_in(facts)
     fp = [float(x) for x in _PCT_RE.findall(facts)]
-    for v in _amounts_in(reply):
+    ra = _amounts_in(reply)
+    rp = [float(x) for x in _PCT_RE.findall(reply)]
+    
+    # Reject if no financial numbers are cited to ensure we don't return generic advice
+    if not ra and not rp:
+        return False, "no financial numbers/amounts in reply"
+        
+    for v in ra:
         if not any(abs(v - f) <= max(1.0, 0.005 * max(v, f)) for f in fa):
             return False, f"amount {v:,.2f} not in facts"
-    for v in (float(x) for x in _PCT_RE.findall(reply)):
+    for v in rp:
         if not any(abs(v - f) <= 0.5 for f in fp):
             return False, f"percentage {v}% not in facts"
     return True, ""
