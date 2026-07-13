@@ -191,11 +191,12 @@ def _advice_fallback(q):
     cats = ts.by_category(ts.USER)
     disc = [(c, a) for c, a, _n in cats if c in ts.DISCRETIONARY][:3]
 
-    if re.search(r"\b(ratio|ration|proportion|percent|percentage|share|breakdown)\b", low) or (cats and any(c[0].lower() in low for c in cats)):
+    if re.search(r"\b(ratio|ration|proportion|percent|percentage|share|breakdown)\b", low) or (cats and _find_categories(low)):
         lines = ["**Your spending ratio by category:**"]
         # If the user named specific categories (like grocery/shopping), only show those!
         # Otherwise, show all categories.
-        mentioned_cats = [c for c in cats if c[0].lower() in low or (c[0] == "Food & Dining" and "dining" in low)]
+        mentioned_names = _find_categories(low)
+        mentioned_cats = [c for c in cats if c[0] in mentioned_names]
         targets = mentioned_cats if mentioned_cats else cats
         sorted_cats = sorted(targets, key=lambda x: -x[1])
         for c, a, _n in sorted_cats:
