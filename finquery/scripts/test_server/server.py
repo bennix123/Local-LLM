@@ -943,6 +943,11 @@ async def query(request: Request, user: str = Depends(get_current_user)):
                 resolved_doc_name = None
         else:
             resolved_doc_name = doc_names
+        if ctx.get("default_doc_name") != resolved_doc_name:
+            for k in ("start", "end", "merchant", "category", "metric", "txn_type", "comparison"):
+                ctx.pop(k, None)
+        ctx["default_doc_name"] = resolved_doc_name
+        ctx["pinned_doc_name"] = resolved_doc_name
     elif body.get("clarification_response"):
         selected_ids = body.get("selected_ids") or []
         if "overall" in selected_ids:
