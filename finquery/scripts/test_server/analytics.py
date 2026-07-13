@@ -191,6 +191,15 @@ def _advice_fallback(q):
     cats = ts.by_category(ts.USER)
     disc = [(c, a) for c, a, _n in cats if c in ts.DISCRETIONARY][:3]
 
+    if re.search(r"\b(ratio|ration|proportion|percent|percentage|share|breakdown)\b", low) or (cats and any(c[0].lower() in low for c in cats)):
+        lines = ["**Your spending ratio by category:**"]
+        sorted_cats = sorted(cats, key=lambda x: -x[1])
+        for c, a, _n in sorted_cats:
+            if sp > 0:
+                pct = (a / sp) * 100
+                lines.append(f"  - **{c}**: {inr(a)} ({pct:.1f}% of total spending)")
+        return "\n".join(lines)
+
     if re.search(r"\btransactions?\b|biggest impact|impact on (?:my )?(?:financial|finances|health)", low):
         tx = ts.top_expenses(ts.USER, 5)
         if tx:
