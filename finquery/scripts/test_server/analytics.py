@@ -193,7 +193,11 @@ def _advice_fallback(q):
 
     if re.search(r"\b(ratio|ration|proportion|percent|percentage|share|breakdown)\b", low) or (cats and any(c[0].lower() in low for c in cats)):
         lines = ["**Your spending ratio by category:**"]
-        sorted_cats = sorted(cats, key=lambda x: -x[1])
+        # If the user named specific categories (like grocery/shopping), only show those!
+        # Otherwise, show all categories.
+        mentioned_cats = [c for c in cats if c[0].lower() in low or (c[0] == "Food & Dining" and "dining" in low)]
+        targets = mentioned_cats if mentioned_cats else cats
+        sorted_cats = sorted(targets, key=lambda x: -x[1])
         for c, a, _n in sorted_cats:
             if sp > 0:
                 pct = (a / sp) * 100
