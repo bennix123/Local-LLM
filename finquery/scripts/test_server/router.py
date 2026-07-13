@@ -450,9 +450,9 @@ _GUARD_STOP = frozenset((
     "month", "months", "year", "years", "quarter", "monday", "tuesday", "wednesday",
     "thursday", "friday", "saturday", "sunday", "saving", "savings",
     "shopping", "buying", "anything", "something", "everything", "nothing", "stuff",
-    "things", "average", "total", "credit", "debit", "card", "account", "bank", "cash",
+    "things", "average", "total", "credit", "debit", "card", "cards", "account", "accounts", "bank", "banks", "cash",
     "another", "other", "others", "category", "categories", "merchant", "merchants", "different", "difference",
-    "what", "which", "how", "when", "where"))
+    "what", "which", "how", "when", "where", "details", "detail", "statement", "statements", "transaction", "transactions", "txns", "txn", "payment", "payments"))
 
 _BIG_RE = re.compile(r"\b(big+e?st|larg+e?st|highest|maximum|priciest|most expensive|dearest|sabse bada|sabse zyada)\b", re.I)
 
