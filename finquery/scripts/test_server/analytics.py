@@ -20,34 +20,121 @@ from .router import (
     _COUNT_X, _INCOME_RE2, _SPEND_RE, _LIST_RE, _WHICH_TXN_RE, _LIST_N_RE, _BAL_RE
 )
 
+_GROQ_KEY_INDEX = 0
+
+def _get_groq_keys():
+    raw = os.getenv("GROQ_API_KEY", "")
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    i = 2
+    while True:
+        key = os.getenv(f"GROQ_API_KEY{i}")
+        if not key:
+            break
+        key = key.strip()
+        if key and key not in keys:
+            keys.append(key)
+        i += 1
+    return keys
+
+def _execute_groq_request(url, payload_dict):
+    global _GROQ_KEY_INDEX
+    keys = _get_groq_keys()
+    if not keys:
+        raise ValueError("GROQ_API_KEY is not set.")
+    
+    last_err = None
+    for attempt in range(len(keys)):
+        idx = (_GROQ_KEY_INDEX + attempt) % len(keys)
+        key = keys[idx]
+        
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload_dict).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+            _GROQ_KEY_INDEX = idx
+            return resp
+        except Exception as e:
+            last_err = e
+            if hasattr(e, "code") and e.code == 429:
+                print(f"[groq] Key index {idx} rate limited (429). Trying next key...", flush=True)
+                continue
+            raise e
+    raise ValueError(f"All Groq API keys are currently rate limited (429). Details: {last_err}")
+
 def _llm_words(system, user):
-    from .server import OLLAMA_URL, active_model, _nd
-    """Stream the LLM reply from Ollama, buffered into whole words."""
-    payload = json.dumps({
-        "model": active_model(), "stream": True, "keep_alive": "10m",
-        "options": {"temperature": 0.3, "num_predict": 80, "top_p": 0.9, "num_ctx": 2048},
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-    }).encode()
-    buf = ""
-    try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            for line in resp:
-                line = line.strip()
-                if not line:
-                    continue
-                d = json.loads(line)
-                buf += d.get("message", {}).get("content", "")
-                while " " in buf:
-                    word, buf = buf.split(" ", 1)
-                    yield _nd({"type": "chunk", "content": word + " "})
-                if d.get("done"):
-                    break
-        if buf:
-            yield _nd({"type": "chunk", "content": buf})
-    except Exception as e:
-        yield _nd({"type": "chunk", "content": f"\n_({active_model()} unavailable: {e}.)_"})
+    from .server import OLLAMA_URL, active_model, _nd, LLM_PROVIDER
+    """Stream the LLM reply, buffered into whole words."""
+    if LLM_PROVIDER == "groq":
+        keys = _get_groq_keys()
+        if not keys:
+            yield _nd({"type": "chunk", "content": "\n_(Error: GROQ_API_KEY is not set.)_"})
+            return
+        payload = {
+            "model": active_model(),
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": 0.3,
+            "max_tokens": 512,
+            "stream": True
+        }
+        buf = ""
+        try:
+            resp = _execute_groq_request("https://api.groq.com/openai/v1/chat/completions", payload)
+            with resp:
+                for line in resp:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    line_str = line.decode("utf-8")
+                    if line_str.startswith("data: "):
+                        data_part = line_str[6:]
+                        if data_part == "[DONE]":
+                            break
+                        try:
+                            d = json.loads(data_part)
+                            chunk = d.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                            buf += chunk
+                            while " " in buf:
+                                word, buf = buf.split(" ", 1)
+                                yield _nd({"type": "chunk", "content": word + " "})
+                        except Exception:
+                            continue
+            if buf:
+                yield _nd({"type": "chunk", "content": buf})
+        except Exception as e:
+            yield _nd({"type": "chunk", "content": f"\n_(Groq API error: {e})_"})
+    else:
+        payload = json.dumps({
+            "model": active_model(), "stream": True, "keep_alive": "10m",
+            "options": {"temperature": 0.3, "num_predict": 80, "top_p": 0.9, "num_ctx": 2048},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        }).encode()
+        buf = ""
+        try:
+            req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                for line in resp:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    d = json.loads(line)
+                    buf += d.get("message", {}).get("content", "")
+                    while " " in buf:
+                        word, buf = buf.split(" ", 1)
+                        yield _nd({"type": "chunk", "content": word + " "})
+                    if d.get("done"):
+                        break
+            if buf:
+                yield _nd({"type": "chunk", "content": buf})
+        except Exception as e:
+            yield _nd({"type": "chunk", "content": f"\n_({active_model()} unavailable: {e}.)_"})
 
 def followup_sql_answer(q, ctx):
     """SQL-FIRST grounding for the follow-up path. A referential follow-up ('when were those?',
@@ -125,26 +212,47 @@ def advice_response(q, thread="default"):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 def _llm_complete(system, user, num_predict=512, temperature=0.2):
-    from .server import OLLAMA_URL, active_model
-    """One-shot (non-streaming) LLM call -> full text, or None. Retries once so a cold
-    model load doesn't surface as a failure."""
-    payload = json.dumps({
-        "model": active_model(), "stream": False, "keep_alive": "30m",
-        "options": {"temperature": temperature, "num_predict": num_predict,
-                    "top_p": 0.9, "num_ctx": 4096},
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": user}],
-    }).encode()
-    for attempt in (1, 2):
+    from .server import OLLAMA_URL, active_model, LLM_PROVIDER
+    """One-shot (non-streaming) LLM call -> full text, or None."""
+    if LLM_PROVIDER == "groq":
+        keys = _get_groq_keys()
+        if not keys:
+            print("[advice] Groq failure: GROQ_API_KEY is not set.")
+            return None
+        payload = {
+            "model": active_model(),
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": temperature,
+            "max_tokens": num_predict,
+            "stream": False
+        }
         try:
-            req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=150) as resp:
-                txt = json.loads(resp.read()).get("message", {}).get("content", "")
+            resp = _execute_groq_request("https://api.groq.com/openai/v1/chat/completions", payload)
+            with resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                txt = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             return (txt or "").strip() or None
         except Exception as e:
-            print(f"[advice] LLM attempt {attempt}/2 failed: {type(e).__name__}: {e}")
-    return None
+            print(f"[advice] Groq LLM failed: {type(e).__name__}: {e}")
+            return None
+    else:
+        payload = json.dumps({
+            "model": active_model(), "stream": False, "keep_alive": "30m",
+            "options": {"temperature": temperature, "num_predict": num_predict,
+                        "top_p": 0.9, "num_ctx": 4096},
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": user}],
+        }).encode()
+        for attempt in (1, 2):
+            try:
+                req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=150) as resp:
+                    txt = json.loads(resp.read()).get("message", {}).get("content", "")
+                return (txt or "").strip() or None
+            except Exception as e:
+                print(f"[advice] LLM attempt {attempt}/2 failed: {type(e).__name__}: {e}")
+        return None
 
 def _amounts_in(s):
     out = []
@@ -192,13 +300,23 @@ def _advice_fallback(q):
     disc = [(c, a) for c, a, _n in cats if c in ts.DISCRETIONARY][:3]
 
     if re.search(r"\b(ratio|ration|proportion|percent|percentage|share|breakdown)\b", low) or (cats and _find_categories(low)):
-        lines = ["**Your spending ratio by category:**"]
-        # If the user named specific categories (like grocery/shopping), only show those!
-        # Otherwise, show all categories.
         mentioned_names = _find_categories(low)
         mentioned_cats = [c for c in cats if c[0] in mentioned_names]
         targets = mentioned_cats if mentioned_cats else cats
         sorted_cats = sorted(targets, key=lambda x: -x[1])
+        
+        if re.search(r"\b(table|grid|chart|markdown)\b", low):
+            lines = [
+                "| Category | Amount | Percentage of Spending |",
+                "| :--- | :--- | :--- |"
+            ]
+            for c, a, _n in sorted_cats:
+                if sp > 0:
+                    pct = (a / sp) * 100
+                    lines.append(f"| **{c}** | {inr(a)} | {pct:.1f}% |")
+            return "\n".join(lines)
+            
+        lines = ["**Your spending ratio by category:**"]
         for c, a, _n in sorted_cats:
             if sp > 0:
                 pct = (a / sp) * 100

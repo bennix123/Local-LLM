@@ -2,7 +2,7 @@ import sqlite3, os
 DB_PATH = os.getenv("TXN_DB_PATH", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "live_txn.db")))
 
 def connect():
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=30.0)
     con.execute("PRAGMA journal_mode=WAL")
     return con
 

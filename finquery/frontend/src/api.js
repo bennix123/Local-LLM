@@ -63,7 +63,7 @@ export const queryDocuments = async (question, documentNames = null) => {
 };
 
 // Ask a question (streaming — token-by-token)
-export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError, onMeta) => {
+export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError, onMeta, history = null, thread = null, regenerate = false) => {
   const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
 
   const response = await fetch('/query', {
@@ -76,6 +76,9 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
       question,
       document_names: documentNames,
       n_results: 5,
+      history,
+      thread,
+      regenerate
     }),
   });
 

@@ -56,13 +56,38 @@ const mdToHtml = (md) => {
   return t;
 };
 
-const Message = ({ message }) => {
+const Message = ({ index, message, onEditMessage, onRegenerate, onFeedback }) => {
   const isUser = message.role === 'user';
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [editText, setEditText] = React.useState(message.content);
+  const [vote, setVote] = React.useState(null);
+  const [animateType, setAnimateType] = React.useState(null);
+
+  const triggerPop = (type) => {
+    setAnimateType(type);
+    setTimeout(() => setAnimateType(null), 300);
+  };
+
+  React.useEffect(() => {
+    setEditText(message.content);
+  }, [message.content]);
+
+  const handleSave = () => {
+    if (editText.trim() && editText !== message.content) {
+      onEditMessage(index, editText);
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditText(message.content);
+    setIsEditing(false);
+  };
   
   return (
     <div className={`msg ${isUser ? 'us' : 'ai'}`}>
       {!isUser && <PennyAvatar size="sm" mood={message.mood || 'happy'} />}
-      <div className="bw">
+      <div className="bw" style={{ width: isEditing ? '100%' : 'auto' }}>
         {!isUser && message.path && (
           <span style={{
             fontSize: '9px',
@@ -83,10 +108,145 @@ const Message = ({ message }) => {
             ⚡ {message.path.toUpperCase()} ENGINE
           </span>
         )}
-        <div 
-          className="bb" 
-          dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }} 
-        />
+        
+        {isEditing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '240px', padding: '10px 14px', borderRadius: '15px', background: 'var(--cream2)', border: '1px solid var(--line)' }}>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              style={{
+                width: '100%',
+                minHeight: '60px',
+                padding: '8px',
+                borderRadius: '8px',
+                border: '1px solid var(--line)',
+                fontSize: '13px',
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                background: '#fff',
+                color: 'var(--ink)'
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleCancel}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--line)',
+                  background: '#fff',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '11px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'var(--lime-d)',
+                  color: '#000',
+                  fontWeight: '700',
+                  cursor: 'pointer'
+                }}
+              >
+                Save & Resubmit
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="bb" 
+            dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }} 
+          />
+        )}
+
+        {isUser && onEditMessage && !isEditing && (
+          <div className="msg-actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2px', opacity: 0.7 }}>
+            <span 
+              onClick={() => setIsEditing(true)} 
+              style={{ fontSize: '11px', cursor: 'pointer', padding: '2px 4px' }}
+              title="Edit query"
+            >
+              ✏️
+            </span>
+          </div>
+        )}
+
+        {!isUser && onFeedback && (
+          <div className="msg-actions" style={{ display: 'flex', gap: '8px', marginTop: '4px', opacity: 0.7 }}>
+            <span 
+              onClick={() => {
+                const newVote = vote === 'like' ? null : 'like';
+                setVote(newVote);
+                onFeedback(index, newVote);
+                triggerPop('like');
+              }} 
+              style={{ 
+                fontSize: '13px', 
+                cursor: 'pointer', 
+                padding: '2px 4px',
+                background: vote === 'like' ? '#dcfce7' : 'transparent',
+                borderRadius: '4px',
+                border: vote === 'like' ? '1px solid #22c55e' : 'none',
+                transform: animateType === 'like' ? 'scale(1.3)' : 'scale(1)',
+                transition: 'transform 0.15s ease-in-out',
+                display: 'inline-block'
+              }}
+              title="Like response"
+            >
+              👍
+            </span>
+            <span 
+              onClick={() => {
+                const newVote = vote === 'dislike' ? null : 'dislike';
+                setVote(newVote);
+                onFeedback(index, newVote);
+                triggerPop('dislike');
+              }} 
+              style={{ 
+                fontSize: '13px', 
+                cursor: 'pointer', 
+                padding: '2px 4px',
+                background: vote === 'dislike' ? '#fee2e2' : 'transparent',
+                borderRadius: '4px',
+                border: vote === 'dislike' ? '1px solid #ef4444' : 'none',
+                transform: animateType === 'dislike' ? 'scale(1.3)' : 'scale(1)',
+                transition: 'transform 0.15s ease-in-out',
+                display: 'inline-block'
+              }}
+              title="Dislike response"
+            >
+              👎
+            </span>
+            {onRegenerate && (
+              <span 
+                onClick={() => {
+                  onRegenerate(index);
+                  triggerPop('regenerate');
+                }} 
+                style={{ 
+                  fontSize: '13px', 
+                  cursor: 'pointer', 
+                  padding: '2px 4px',
+                  transform: animateType === 'regenerate' ? 'scale(1.3)' : 'scale(1)',
+                  transition: 'transform 0.15s ease-in-out',
+                  display: 'inline-block'
+                }}
+                title="Regenerate response"
+              >
+                🔄
+              </span>
+            )}
+          </div>
+        )}
+
         {message.meta && <div className="mm">{message.meta}</div>}
       </div>
     </div>

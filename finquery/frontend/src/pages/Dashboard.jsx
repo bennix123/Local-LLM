@@ -132,7 +132,7 @@ function Dashboard() {
     });
   };
 
-  const handleSendMessage = async (question) => {
+  const handleSendMessage = async (question, regenerate = false) => {
     const userMessage = { role: 'user', content: question };
     setMessages((prev) => [...prev, userMessage]);
 
@@ -143,6 +143,7 @@ function Dashboard() {
     try {
       const docNameParam = selectedDocs.length > 0 ? selectedDocs : null;
 
+      const threadId = localStorage.getItem('penny_thread') || 'default';
       await queryDocumentsStream(
         question,
         docNameParam,
@@ -173,7 +174,10 @@ function Dashboard() {
               { ...lastMsg, path: meta.path }
             ];
           });
-        }
+        },
+        messages,
+        threadId,
+        regenerate
       );
     } catch (error) {
       console.error('Error querying documents:', error);
@@ -189,6 +193,47 @@ function Dashboard() {
     } finally {
       setIsLoading(false);
       fetchDashboard();   // figures may have changed (new upload / scope switch)
+    }
+  };
+
+  const handleEditMessage = async (index, newContent) => {
+    // Truncate messages to before the edited message
+    const truncated = messages.slice(0, index);
+    setMessages(truncated);
+    await handleSendMessage(newContent);
+  };
+
+  const handleRegenerateMessage = async (index) => {
+    const userMsg = messages[index - 1];
+    if (!userMsg) return;
+    const truncated = messages.slice(0, index - 1);
+    setMessages(truncated);
+    await handleSendMessage(userMsg.content, true);
+  };
+
+  const handleFeedback = async (index, vote) => {
+    try {
+      const userMsg = messages[index - 1];
+      const assistantMsg = messages[index];
+      const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
+      const threadId = localStorage.getItem('penny_thread') || 'default';
+      await fetch('/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          thread: threadId,
+          msg_index: index,
+          vote,
+          question: userMsg ? userMsg.content : '',
+          answer: assistantMsg ? assistantMsg.content : ''
+        })
+      });
+      toast.success(vote ? `Feedback submitted: ${vote}` : 'Feedback cleared');
+    } catch (e) {
+      console.error('Error logging feedback:', e);
     }
   };
 
@@ -288,6 +333,9 @@ function Dashboard() {
           messages={messages} 
           isLoading={isLoading} 
           runFlow={runFlow} 
+          onEditMessage={handleEditMessage}
+          onRegenerate={handleRegenerateMessage}
+          onFeedback={handleFeedback}
         />
 
         <InputBar 

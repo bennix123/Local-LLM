@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import Message from './Message';
 
-const ChatArea = ({ messages, isLoading, runFlow }) => {
+const ChatArea = ({ messages, isLoading, runFlow, onEditMessage, onRegenerate, onFeedback }) => {
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -40,7 +40,14 @@ const ChatArea = ({ messages, isLoading, runFlow }) => {
       ) : (
         <>
           {messages.map((message, index) => (
-            <Message key={index} message={message} />
+            <Message 
+              key={index} 
+              index={index} 
+              message={message} 
+              onEditMessage={onEditMessage} 
+              onRegenerate={onRegenerate}
+              onFeedback={onFeedback}
+            />
           ))}
           {isLoading && (
             <div className="typ">

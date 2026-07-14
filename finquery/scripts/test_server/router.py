@@ -482,7 +482,7 @@ _LIST_ENT_RE = re.compile(
     r"(?:trans[ac]*tion[s]?|txns?|purchases?|payments?|entries|charges?|deposits?)\b", re.I)
 
 _LIST_STOP = frozenset((
-    "all", "the", "my", "me", "these", "those", "last", "first", "recent", "latest", "newest", "oldest", "top", "only", "a", "an",
+    "all", "the", "my", "me", "these", "those", "that", "last", "first", "recent", "latest", "newest", "oldest", "top", "only", "a", "an",
     "some", "any", "of", "them", "it", "new", "old", "total", "individual", "every", "each",
     "received", "recevied", "recieved", "receive", "credit", "debit", "spent", "spending", "payment", "payments"))
 

@@ -208,7 +208,10 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
   .stat{display:inline-block;margin:6px 14px 0 0;font-size:13px;color:#6b5} .stat b{color:var(--ink)}
   #chat{min-height:120px}
   .msg{padding:12px 14px;border-radius:12px;margin:10px 0;max-width:90%}
-  .me{background:var(--ink);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+  .me{background:var(--ink);color:#fff;margin-left:auto;border-bottom-right-radius:4px;position:relative}
+  .msg-actions, .bot-actions { display: none; gap: 8px; margin-top: 4px; opacity: 0.8; }
+  .msg.me:hover .msg-actions { display: flex; }
+  .msg.bot:hover .bot-actions { display: flex; }
   .bot{background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
   .bot .tag{font-size:11px;font-weight:700;letter-spacing:.04em;padding:1px 7px;border-radius:99px;margin-bottom:6px;display:inline-block}
   .tag.SQL{background:var(--lime);color:#143} .tag.RAG{background:#ffe9d0;color:#8a5a1f}
@@ -240,6 +243,12 @@ PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
               padding:4px 12px;font-size:12px;font-weight:600;color:#c53030;
               cursor:pointer;margin-left:6px;transition:background .2s}
   .logout-btn:hover{background:#fff5f5}
+  @keyframes pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+  }
+  .pop-active { animation: pop 0.3s ease-in-out; display: inline-block; }
 </style></head><body>
 <header><b>Penny</b><span class="pill">SQL layer  |  offline test  |  model: __MODEL__</span>
   <span class="muted" style="margin-left:auto;font-size:12px">numbers come from SQL, never the LLM</span>
@@ -593,7 +602,15 @@ function initDynamicTables(parent) {
 }
 
 function add(cls,html,tag){ const d=document.createElement("div"); d.className="msg "+cls;
-  d.innerHTML=(tag?`<span class="tag ${tag}">${tag}</span>`:"")+html;
+  if(cls === "me") {
+    d.setAttribute("data-raw", html);
+    d.innerHTML = `<span class="content">${html}</span>
+      <div class="msg-actions" style="justify-content:flex-end;">
+        <span class="edit-btn" onclick="editMe(this)" style="font-size:12px;cursor:pointer;" title="Edit query">✏️</span>
+      </div>`;
+  } else {
+    d.innerHTML=(tag?`<span class="tag ${tag}">${tag}</span>`:"")+html;
+  }
   $("#chat").appendChild(d);
   initDynamicTables(d);
   d.scrollIntoView({behavior:"smooth",block:"end"}); }
@@ -609,11 +626,12 @@ $("#file").onchange=async e=>{
     const r=await fetch("/upload?name="+encodeURIComponent(f.name),{method:"POST",body:f});
     if(!r.ok){
       if(r.status===401){ localStorage.removeItem(TOKEN_KEY); location.href='/'; return; }
-      throw new Error("upload failed");
+      const errRes = await r.json().catch(() => ({}));
+      throw new Error(errRes.error || errRes.detail || "Upload failed - please try again.");
     }
     j=await r.json();
   }catch(err){ $("#drop").classList.remove("busy"); e.target.value="";
-    $("#dropsub").textContent="Upload failed  -  please try again."; return; }
+    $("#dropsub").textContent=err.message; return; }
   $("#drop").classList.remove("busy"); e.target.value="";
   if(j.error){                                   // no statement found -> stay locked
     $("#dropsub").innerHTML="Warning:  "+j.error+' <span class="muted"> -  the chat stays locked until a statement is parsed.</span>';
@@ -670,7 +688,12 @@ function newBubble(path){
   const tag=TAG[path]||"chat";
   d.innerHTML=`<span class="tag ${tag}">${tag}</span>`
     +(path==="advice"?`<span class="who">Penny  |  __MODEL__</span>`:"")
-    +`<div class="md"></div>`;
+    +`<div class="md"></div>`
+    +`<div class="bot-actions">
+       <span onclick="feedbackMe(this, 'like')" style="font-size:13px;cursor:pointer;padding:2px 4px;border-radius:4px;" title="Like response">👍</span>
+       <span onclick="feedbackMe(this, 'dislike')" style="font-size:13px;cursor:pointer;padding:2px 4px;border-radius:4px;" title="Dislike response">👎</span>
+       <span onclick="regenerateMe(this)" style="font-size:13px;cursor:pointer;padding:2px 4px;" title="Regenerate response">🔄</span>
+     </div>`;
   $("#chat").appendChild(d); d.scrollIntoView({behavior:"smooth",block:"end"});
   return d.querySelector(".md");
 }
@@ -768,6 +791,7 @@ async function submitClarification(btn, originalQuery){
         revealing=false;
         $("#send").disabled=false;
         initDynamicTables(md);
+        md.parentElement.classList.add("completed");
       }
       else setTimeout(reveal,18);
     };
@@ -779,7 +803,11 @@ async function submitClarification(btn, originalQuery){
         else if(m.type==="clarification"){ clearThink(); renderClarification(m.payload); }
       }
     }
-    streamDone=true; if(!revealing) $("#send").disabled=false;
+    streamDone=true; 
+    if(!revealing) {
+      $("#send").disabled=false;
+      if(md) md.parentElement.classList.add("completed");
+    }
   }catch(e){
     clearThink();
     const md=newBubble("chat");
@@ -801,13 +829,12 @@ $("#newchat").onclick=()=>{
   $("#q").focus();
 };
 
-async function ask(){
-  const q=$("#q").value.trim(); if(!q)return;
-  add("me",q); $("#q").value=""; $("#send").disabled=true;
-  const think=thinkingBubble();                     // <- loader shows immediately
+async function runQueryStream(q, regenerate = false) {
+  $("#send").disabled=true;
+  const think=thinkingBubble();
   let cleared=false; const clearThink=()=>{ if(!cleared){cleared=true; think.remove();} };
   try{
-    const r=await fetch("/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q,thread:THREAD})});
+    const r=await fetch("/query",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question:q,thread:THREAD,regenerate:regenerate})});
     const reader=r.body.getReader(), dec=new TextDecoder();
     let buf="", md=null, full="";
     const queue=[]; let streamDone=false, revealing=false;
@@ -816,23 +843,28 @@ async function ask(){
         full+=queue.shift();
         md.innerHTML=mdToHtml(full);
         md.parentElement.scrollIntoView({behavior:"smooth",block:"end"});
-        setTimeout(reveal,18);                       // ~18ms per word -> typewriter
+        setTimeout(reveal,18);
       } else if(streamDone){
         revealing=false;
         $("#send").disabled=false;
         initDynamicTables(md);
+        md.parentElement.classList.add("completed");
       }
-      else setTimeout(reveal,18);                     // wait for more network
+      else setTimeout(reveal,18);
     };
     while(true){ const {done,value}=await reader.read(); if(done)break;
       buf+=dec.decode(value,{stream:true}); const lines=buf.split("\n"); buf=lines.pop();
       for(const ln of lines){ if(!ln.trim())continue; const m=JSON.parse(ln);
-        if(m.type==="meta"){ clearThink(); md=newBubble(m.path); }   // loader -> real answer
+        if(m.type==="meta"){ clearThink(); md=newBubble(m.path); }
         else if(m.type==="chunk"){ queue.push(m.content); if(!revealing) reveal(); }
         else if(m.type==="clarification"){ clearThink(); renderClarification(m.payload); }
       }
     }
-    streamDone=true; if(!revealing) $("#send").disabled=false;
+    streamDone=true; 
+    if(!revealing) {
+      $("#send").disabled=false;
+      if(md) md.parentElement.classList.add("completed");
+    }
   }catch(e){
     clearThink();
     const md=newBubble("chat");
@@ -840,6 +872,158 @@ async function ask(){
     $("#send").disabled=false;
   }
 }
+
+async function ask(){
+  const q=$("#q").value.trim(); if(!q)return;
+  add("me",q); $("#q").value="";
+  await runQueryStream(q);
+}
+
+function editMe(btn) {
+  const d = btn.closest(".msg.me");
+  const rawText = d.getAttribute("data-raw");
+  const contentSpan = d.querySelector(".content");
+  const editBtn = d.querySelector(".edit-btn");
+  
+  editBtn.style.display = "none";
+  
+  const textarea = document.createElement("textarea");
+  textarea.value = rawText;
+  textarea.style.width = "100%";
+  textarea.style.marginTop = "8px";
+  textarea.style.padding = "6px";
+  textarea.style.borderRadius = "6px";
+  textarea.style.border = "1px solid var(--line)";
+  textarea.style.fontFamily = "inherit";
+  textarea.style.fontSize = "13px";
+  textarea.style.color = "var(--ink)";
+  textarea.style.background = "#fff";
+  
+  const btnGroup = document.createElement("div");
+  btnGroup.style.display = "flex";
+  btnGroup.style.gap = "6px";
+  btnGroup.style.justifyContent = "flex-end";
+  btnGroup.style.marginTop = "6px";
+  
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.style.background = "#fff";
+  cancelBtn.style.color = "var(--ink)";
+  cancelBtn.style.border = "1px solid var(--line)";
+  cancelBtn.style.padding = "3px 8px";
+  cancelBtn.style.fontSize = "11px";
+  cancelBtn.style.borderRadius = "4px";
+  cancelBtn.onclick = () => {
+    contentSpan.innerHTML = rawText;
+    editBtn.style.display = "";
+    textarea.remove();
+    btnGroup.remove();
+  };
+  
+  const saveBtn = document.createElement("button");
+  saveBtn.textContent = "Save & Resubmit";
+  saveBtn.style.background = "var(--lime)";
+  saveBtn.style.color = "#143";
+  saveBtn.style.padding = "3px 8px";
+  saveBtn.style.fontSize = "11px";
+  saveBtn.style.borderRadius = "4px";
+  saveBtn.onclick = async () => {
+    const newText = textarea.value.trim();
+    if (!newText) return;
+    
+    // 1. Truncate DOM from this message onwards
+    while (d.nextSibling) {
+      d.nextSibling.remove();
+    }
+    
+    // 2. Update this message's text
+    d.setAttribute("data-raw", newText);
+    contentSpan.textContent = newText;
+    textarea.remove();
+    btnGroup.remove();
+    editBtn.style.display = "";
+    
+    // 3. Resubmit
+    await runQueryStream(newText);
+  };
+  
+  btnGroup.appendChild(cancelBtn);
+  btnGroup.appendChild(saveBtn);
+  
+  d.appendChild(textarea);
+  d.appendChild(btnGroup);
+  textarea.focus();
+}
+window.editMe = editMe;
+
+async function regenerateMe(btn) {
+  const d = btn.closest(".msg.bot");
+  const prevMsg = d.previousElementSibling;
+  if (!prevMsg || !prevMsg.classList.contains("me")) return;
+  const rawText = prevMsg.getAttribute("data-raw");
+  if (!rawText) return;
+  
+  while (prevMsg.nextSibling) {
+    prevMsg.nextSibling.remove();
+  }
+  prevMsg.remove();
+  
+  add("me", rawText);
+  await runQueryStream(rawText, true);
+}
+window.regenerateMe = regenerateMe;
+
+async function feedbackMe(btn, vote) {
+  // Trigger pop micro-animation
+  btn.classList.add("pop-active");
+  setTimeout(() => btn.classList.remove("pop-active"), 300);
+
+  const d = btn.closest(".msg.bot");
+  const prevMsg = d.previousElementSibling;
+  const question = prevMsg && prevMsg.classList.contains("me") ? prevMsg.getAttribute("data-raw") : "";
+  const answer = d.querySelector(".md") ? d.querySelector(".md").innerText : "";
+  
+  const alreadySelected = btn.style.background !== "" && btn.style.background !== "transparent";
+  
+  const thumbs = d.querySelectorAll(".bot-actions span");
+  thumbs.forEach(t => {
+    if (t.innerHTML.includes("👍") || t.innerHTML.includes("👎")) {
+      t.style.background = "transparent";
+      t.style.border = "none";
+    }
+  });
+  
+  let finalVote = vote;
+  if (alreadySelected) {
+    finalVote = null;
+  } else {
+    if (vote === 'like') {
+      btn.style.background = "#dcfce7";
+      btn.style.border = "1px solid #22c55e";
+    } else if (vote === 'dislike') {
+      btn.style.background = "#fee2e2";
+      btn.style.border = "1px solid #ef4444";
+    }
+  }
+  
+  try {
+    await fetch("/feedback", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        thread: THREAD,
+        msg_index: Array.from(d.parentNode.children).indexOf(d),
+        vote: finalVote,
+        question: question,
+        answer: answer
+      })
+    });
+  } catch(e) {
+    console.error("Error submitting feedback:", e);
+  }
+}
+window.feedbackMe = feedbackMe;
+
 $("#send").onclick=ask; $("#q").addEventListener("keydown",e=>{if(e.key==="Enter")ask();});
 
 // ---- Authentication -------------------------------------------------------

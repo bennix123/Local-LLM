@@ -1,5 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
+from dotenv import load_dotenv
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env")))
 import json, os, re, sys, threading, urllib.request, html as _htmlmod
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, Depends, Response
@@ -27,6 +29,7 @@ from .analytics import (
     followup_sql_answer, followup_response, grounded_advice, _llm_complete
 )
 
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.getenv("PORT", "5667"))
 
@@ -45,7 +48,10 @@ def _detect_ollama_model():
         print(f"[ollama] Failed to auto-detect model: {e}")
     return "llama3.1:8b"
 
-LLM_MODEL = os.getenv("LLM_MODEL") or _detect_ollama_model()
+if LLM_PROVIDER == "ollama":
+    LLM_MODEL = os.getenv("LLM_MODEL") or _detect_ollama_model()
+else:
+    LLM_MODEL = os.getenv("LLM_MODEL", "llama-3.1-8b-instant")
 os.environ["LLM_MODEL"] = LLM_MODEL
 USER = "local"
 
@@ -215,7 +221,7 @@ def remember(history, q, a):
     del history[:-6]
 
 def llm_route(question, history=None):
-    """Ask the local LLM to classify the question into a structured intent (JSON).
+    """Ask the LLM to classify the question into a structured intent (JSON).
     Recent thread history is supplied so elliptical follow-ups resolve.
     Returns a dict, or None if the LLM is unavailable / output unparseable."""
     user = question
@@ -226,23 +232,51 @@ def llm_route(question, history=None):
     if real:
         ctx = "\n".join(f"Q: {h['q']}\nA: {h['a']}" for h in real)
         user = f"[Recent conversation:\n{ctx}]\n\nNew message: {question}"
-    payload = json.dumps({
-        "model": active_model(), "stream": False, "keep_alive": "10m", "format": "json",
-        "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 160},
-        "messages": [
-            {"role": "system", "content": ROUTER_SYSTEM},
-            {"role": "user", "content": user},
-        ],
-    }).encode()
-    try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            content = json.loads(resp.read()).get("message", {}).get("content", "")
-        return json.loads(content)
-    except Exception as e:
-        print(f"[router] LLM unavailable: {e}")
-        return None
+
+    if LLM_PROVIDER == "groq":
+        from .analytics import _execute_groq_request, _get_groq_keys
+        keys = _get_groq_keys()
+        if not keys:
+            print("[router] Groq failure: GROQ_API_KEY is not set.")
+            return None
+        payload = {
+            "model": active_model(),
+            "messages": [
+                {"role": "system", "content": ROUTER_SYSTEM},
+                {"role": "user", "content": user}
+            ],
+            "temperature": 0.0,
+            "max_tokens": 160,
+            "response_format": {"type": "json_object"},
+            "stream": False
+        }
+        try:
+            resp = _execute_groq_request("https://api.groq.com/openai/v1/chat/completions", payload)
+            with resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return json.loads(content)
+        except Exception as e:
+            print(f"[router] Groq classification failed: {e}")
+            return None
+    else:
+        payload = json.dumps({
+            "model": active_model(), "stream": False, "keep_alive": "10m", "format": "json",
+            "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 160},
+            "messages": [
+                {"role": "system", "content": ROUTER_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+        }).encode()
+        try:
+            req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                content = json.loads(resp.read()).get("message", {}).get("content", "")
+            return json.loads(content)
+        except Exception as e:
+            print(f"[router] LLM unavailable: {e}")
+            return None
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
@@ -262,7 +296,8 @@ def serve_index():
                 return HTMLResponse(f.read())
         except Exception as e:
             print(f"[server] Error reading index.html: {e}")
-    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+    mode_str = "online mode" if LLM_PROVIDER != "ollama" else "offline test"
+    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL).replace("offline test", mode_str))
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -289,7 +324,8 @@ async def classic_page():
     """The original single-file Penny parser UI (drag-drop parse + transaction
     table + chat) from ui.py. Kept reachable here even when the React build is
     served at /. Talks to this same server's API."""
-    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+    mode_str = "online mode" if LLM_PROVIDER != "ollama" else "offline test"
+    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL).replace("offline test", mode_str))
 
 
 def _get_active_doc(thread: str = "default"):
@@ -907,12 +943,39 @@ def needs_bank_clarification(user_id, q, ctx):
     }
     return None, payload
 
+@app.post("/feedback")
+async def feedback(request: Request, user: str = Depends(get_current_user)):
+    _switch_db(user)
+    body = await request.json()
+    tid = body.get("thread", "default")
+    msg_index = body.get("msg_index")
+    vote = body.get("vote")  # "like" or "dislike"
+    
+    feedback_file = os.path.join(LOG_DIR, "feedback.jsonl")
+    os.makedirs(os.path.dirname(feedback_file), exist_ok=True)
+    
+    log_entry = {
+        "timestamp": _now(),
+        "thread": tid,
+        "msg_index": msg_index,
+        "vote": vote,
+        "question": body.get("question"),
+        "answer": body.get("answer")
+    }
+    
+    with _log_lock:
+        with open(feedback_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+            
+    return {"status": "ok"}
+
 @app.post("/query")
 @app.post("/query/stream")
 async def query(request: Request, user: str = Depends(get_current_user)):
     _switch_db(user)
     body = await request.json()
     q = (body.get("question") or "").strip()
+    regenerate = bool(body.get("regenerate"))
     # Chat-thread model: state is scoped to a thread id from the client. "reset"
     # (New chat) starts the thread fresh. No thread id -> a single default thread.
     tid = (body.get("thread") or "default")
@@ -920,6 +983,18 @@ async def query(request: Request, user: str = Depends(get_current_user)):
         THREADS[tid] = {"ctx": {}, "history": []}
     st = _thread(tid)
     ctx, history = st["ctx"], st["history"]
+
+    if "history" in body:
+        new_hist = []
+        client_hist = body.get("history") or []
+        for i in range(0, len(client_hist) - 1, 2):
+            if client_hist[i].get("role") == "user" and client_hist[i+1].get("role") == "assistant":
+                new_hist.append({
+                    "q": client_hist[i].get("content", ""),
+                    "a": client_hist[i+1].get("content", "")
+                })
+        THREADS[tid]["history"] = new_hist
+        history = new_hist
 
     if not q:
         return stream_text("chat", GREETING)
@@ -1025,7 +1100,10 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     if sc.get("comparison"): state.comparison = sc["comparison"]
     state.prev_query = q
     state.to_ctx(ctx)
-    _log_conv(tid, q, rq, rinfo, state, before)
+    # If this is a regenerate request, bypass deterministic SQL responses and force the LLM advice engine
+    if regenerate:
+        remember(history, q, "(financial advice given)")
+        return grounded_advice(rq, tid, ctx)
 
     # 0-mon) "which months?" enumeration of the carried merchant/category (deterministic).
     #        Runs before the generic follow-up gate so it lists the months, not an LLM guess.
@@ -1142,25 +1220,23 @@ async def query(request: Request, user: str = Depends(get_current_user)):
                 return stream_text("SQL", fsa)
             remember(history, q, "(answered from conversation)")
             return followup_response(q, history, tid)
-        if t in ("unknown", ""):
+        if t not in ("unknown", ""):
+            if t == "advice" and (_FIN_RE.search(rq) or _ADVICE_RE.search(rq) or _REASON_RE.search(rq)):
+                remember(history, q, "(financial advice given)")
+                return grounded_advice(rq, tid, ctx)
+            # router said "advice" but the question has zero finance content (e.g. "should i
+            # text my ex") -> don't lecture about money; fall through to a clean nudge below.
+            ans = ts.dispatch_intent(intent, user, doc_name=resolved_doc_name)            # SQL produces every number
+            if ans is not None:
+                if ans.lstrip("* ").lower().startswith("no transactions found"):
+                    intent = {**intent, "merchant": "", "category": ""}  # zero-result → scope
+                _save_ctx(ctx, intent)
+                remember(history, q, ans)
+                _append_log(tid, q, ans, "SQL")
+                return stream_text("SQL", ans)
+            # known type but no data, or off-topic -> honest nudge, never a parroted advice dump
             _append_log(tid, q, DIDNT_CATCH, "chat")
             return stream_text("chat", DIDNT_CATCH)
-        if t == "advice" and (_FIN_RE.search(rq) or _ADVICE_RE.search(rq) or _REASON_RE.search(rq)):
-            remember(history, q, "(financial advice given)")
-            return grounded_advice(rq, tid, ctx)
-        # router said "advice" but the question has zero finance content (e.g. "should i
-        # text my ex") -> don't lecture about money; fall through to a clean nudge below.
-        ans = ts.dispatch_intent(intent, user, doc_name=resolved_doc_name)            # SQL produces every number
-        if ans is not None:
-            if ans.lstrip("* ").lower().startswith("no transactions found"):
-                intent = {**intent, "merchant": "", "category": ""}  # zero-result → scope
-            _save_ctx(ctx, intent)
-            remember(history, q, ans)
-            _append_log(tid, q, ans, "SQL")
-            return stream_text("SQL", ans)
-        # known type but no data, or off-topic -> honest nudge, never a parroted advice dump
-        _append_log(tid, q, DIDNT_CATCH, "chat")
-        return stream_text("chat", DIDNT_CATCH)
 
     # 3) Fallback when the LLM router is unavailable: regex path.
     if HELP_RE.match(q):
@@ -1170,6 +1246,9 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     if CONVO_RE.match(q):
         _append_log(tid, q, GREETING, "chat")
         return stream_text("chat", GREETING)
+    if _ADVICE_RE.search(q) or _REASON_RE.search(q) or _WHY_RE.search(q) or "plan" in q.lower():
+        remember(history, q, "(financial advice given)")
+        return grounded_advice(q, tid, ctx)
     ans = ts.answer(q, user, doc_name=resolved_doc_name)
     if ans is not None:
         remember(history, q, ans)
