@@ -936,7 +936,7 @@ def _find_table_start(doc) -> int:
 
 
 def detect_schema(sample_lines: list[str]) -> dict | None:
-    """Send sample lines to Ollama to infer the row structure. Returns dict or None."""
+    """Send sample lines to the local model to infer the row structure. Returns dict or None."""
     lines_str = "\n".join(sample_lines)
     prompt = f"""You are analyzing a bank statement text to find the transaction table row structure.
 Analyze the following lines from the transaction table and identify the schema pattern:
@@ -951,89 +951,79 @@ Return a JSON object with the following fields:
 
 Return ONLY the raw JSON object. Do not include any explanations, introduction, markdown blocks, or code fences."""
 
-    payload = json.dumps({
-        "model": os.getenv("LLM_MODEL", "qwen2.5-coder:3b"),
-        "stream": False,
-        "keep_alive": "10m",
-        "options": {"temperature": 0.0, "num_ctx": 2048},
-        "prompt": prompt
-    }).encode("utf-8")
-    
-    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            res_data = json.loads(resp.read().decode("utf-8"))
-            content = res_data.get("response", "").strip()
-            raw_content = content  # keep for debug logging
+        from src.services.llm_provider import complete as _llm_generate
+        content = _llm_generate(prompt, temperature=0.0, max_tokens=1024, json_mode=True)
+        raw_content = content  # keep for debug logging
 
-            # Strip markdown code fences (```json ... ```)
-            if "```" in content:
-                first_fence = content.find("```")
-                last_fence = content.rfind("```")
-                if first_fence != last_fence:
-                    content = content[first_fence+3:last_fence]
-                    content = re.sub(r"^[a-zA-Z0-9]*\s*", "", content).strip()
+        # Strip markdown code fences (```json ... ```)
+        if "```" in content:
+            first_fence = content.find("```")
+            last_fence = content.rfind("```")
+            if first_fence != last_fence:
+                content = content[first_fence+3:last_fence]
+                content = re.sub(r"^[a-zA-Z0-9]*\s*", "", content).strip()
 
-            # Extract the outermost {...} block
-            start = content.find("{")
-            end = content.rfind("}")
-            if start == -1 or end == -1:
-                print(f"[parser-L2] No JSON object found in LLM response. Raw: {raw_content[:200]!r}")
-                return None
-            content = content[start:end+1]
+        # Extract the outermost {...} block
+        start = content.find("{")
+        end = content.rfind("}")
+        if start == -1 or end == -1:
+            print(f"[parser-L2] No JSON object found in LLM response. Raw: {raw_content[:200]!r}")
+            return None
+        content = content[start:end+1]
 
-            # Sanitize non-standard JSON values Mistral sometimes emits
-            content = re.sub(r'\bNaN\b', '"NaN"', content)
-            content = re.sub(r'\bNone\b', 'null', content)
-            content = re.sub(r'\bTrue\b', 'true', content)
-            content = re.sub(r'\bFalse\b', 'false', content)
-            # Remove trailing commas before } or ]
-            content = re.sub(r',\s*([}\]])', r'\1', content)
-            # Fix Python raw-string literals: r"..." -> "..." (Mistral emits these in JSON)
-            # Convert r"<content>" to "<content>" by stripping the r prefix.
-            # This must handle both r"..." and r'...' variants.
-            content = re.sub(r'\br("(?:[^"\\]|\\.)*")', r'\1', content)
-            content = re.sub(r"\br('(?:[^'\\]|\\.)*')", r'\1', content)
+        # Sanitize non-standard JSON values Mistral sometimes emits
+        content = re.sub(r'\bNaN\b', '"NaN"', content)
+        content = re.sub(r'\bNone\b', 'null', content)
+        content = re.sub(r'\bTrue\b', 'true', content)
+        content = re.sub(r'\bFalse\b', 'false', content)
+        # Remove trailing commas before } or ]
+        content = re.sub(r',\s*([}\]])', r'\1', content)
+        # Fix Python raw-string literals: r"..." -> "..." (Mistral emits these in JSON)
+        # Convert r"<content>" to "<content>" by stripping the r prefix.
+        # This must handle both r"..." and r'...' variants.
+        content = re.sub(r'\br("(?:[^"\\]|\\.)*")', r'\1', content)
+        content = re.sub(r"\br('(?:[^'\\]|\\.)*')", r'\1', content)
 
-            # Doubling single backslashes in JSON string literals
-            def _double_slashes(m):
-                s = m.group(0)
-                quote_char = s[0]
-                inner = s[1:-1]
-                fixed = []
-                i = 0
-                while i < len(inner):
-                    if inner[i] == '\\':
-                        if i + 1 < len(inner):
-                            next_c = inner[i+1]
-                            if next_c in ('"', "'", '\\', '/', 'b', 'f', 'n', 'r', 't'):
-                                fixed.append('\\' + next_c)
-                                i += 2
-                                continue
-                            elif next_c == 'u' and i + 5 < len(inner) and all(c in '0123456789abcdefABCDEF' for c in inner[i+2:i+6]):
-                                fixed.append('\\' + inner[i+1:i+6])
-                                i += 6
-                                continue
-                        fixed.append('\\\\')
-                        i += 1
-                    else:
-                        fixed.append(inner[i])
-                        i += 1
-                return quote_char + "".join(fixed) + quote_char
+        # Doubling single backslashes in JSON string literals
+        def _double_slashes(m):
+            s = m.group(0)
+            quote_char = s[0]
+            inner = s[1:-1]
+            fixed = []
+            i = 0
+            while i < len(inner):
+                if inner[i] == '\\':
+                    if i + 1 < len(inner):
+                        next_c = inner[i+1]
+                        if next_c in ('"', "'", '\\', '/', 'b', 'f', 'n', 'r', 't'):
+                            fixed.append('\\' + next_c)
+                            i += 2
+                            continue
+                        elif next_c == 'u' and i + 5 < len(inner) and all(c in '0123456789abcdefABCDEF' for c in inner[i+2:i+6]):
+                            fixed.append('\\' + inner[i+1:i+6])
+                            i += 6
+                            continue
+                    fixed.append('\\\\')
+                    i += 1
+                else:
+                    fixed.append(inner[i])
+                    i += 1
+            return quote_char + "".join(fixed) + quote_char
 
-            # Double backslashes inside any single or double quoted strings in JSON
-            content = re.sub(r'"(?:[^"\\]|\\.)*"', _double_slashes, content)
-            content = re.sub(r"'(?:[^'\\]|\\.)*'", _double_slashes, content)
+        # Double backslashes inside any single or double quoted strings in JSON
+        content = re.sub(r'"(?:[^"\\]|\\.)*"', _double_slashes, content)
+        content = re.sub(r"'(?:[^'\\]|\\.)*'", _double_slashes, content)
 
-            try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError as jde:
-                print(f"[parser-L2] JSON parse error: {jde}. Cleaned content: {content[:300]!r}")
-                return None
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as jde:
+            print(f"[parser-L2] JSON parse error: {jde}. Cleaned content: {content[:300]!r}")
+            return None
 
-            print(f"[parser-L2] LLM schema response: regex={parsed.get('sample_regex','<none>')!r} style={parsed.get('debit_credit_style','?')!r} cols={parsed.get('backup_columns','?')}")
-            return parsed
+        print(f"[parser-L2] LLM schema response: regex={parsed.get('sample_regex','<none>')!r} style={parsed.get('debit_credit_style','?')!r} cols={parsed.get('backup_columns','?')}")
+        return parsed
     except Exception as e:
         print(f"[parser-L2] Schema detection failed: {e}")
         return None
@@ -1276,34 +1266,24 @@ Return a JSON array of objects. Each object represents a single transaction with
 Do not include headers, footers, summary metrics, or page numbers. Only return transactions.
 Return ONLY the raw JSON array. Do not include markdown code fences, comments, or explanations."""
 
-    payload = json.dumps({
-        "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
-        "stream": False,
-        "keep_alive": "10m",
-        "options": {"temperature": 0.0, "num_ctx": 2048},
-        "prompt": prompt
-    }).encode("utf-8")
-    
-    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
+    # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            res_data = json.loads(resp.read().decode("utf-8"))
-            content = res_data.get("response", "").strip()
+        from src.services.llm_provider import complete as _llm_generate
+        content = _llm_generate(prompt, temperature=0.0, max_tokens=2048, json_mode=True)
+        
+        if "```" in content:
+            first_fence = content.find("```")
+            last_fence = content.rfind("```")
+            if first_fence != last_fence:
+                content = content[first_fence:last_fence]
+                content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
+        
+        start = content.find("[")
+        end = content.rfind("]")
+        if start != -1 and end != -1:
+            content = content[start:end+1]
             
-            if "```" in content:
-                first_fence = content.find("```")
-                last_fence = content.rfind("```")
-                if first_fence != last_fence:
-                    content = content[first_fence:last_fence]
-                    content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
-            
-            start = content.find("[")
-            end = content.rfind("]")
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-                
-            return json.loads(content)
+        return json.loads(content)
     except Exception as e:
         print(f"[parser-L3] Chunk parsing failed: {e}")
         return []
@@ -1847,7 +1827,7 @@ def is_statement_pdf(path):
 
 
 def categorize_descriptions_with_llm(descriptions: list) -> dict[str, dict]:
-    """Uses the local Ollama LLM to extract clean merchant names and classify categories for a batch of transaction descriptions."""
+    """Uses the local MLX model to extract clean merchant names and classify categories for a batch of transaction descriptions."""
     valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
                         "Entertainment", "Healthcare", "Investment & Insurance", "Income",
                         "Cash", "Transfers", "Rent", "Other"]
@@ -1878,44 +1858,32 @@ Return ONLY the raw JSON object mapping each "id" to an object containing "merch
 Input items:
 {json.dumps(items_to_send)}"""
 
-    payload = json.dumps({
-        "model": os.getenv("LLM_MODEL", "llama3.1:8b"),
-        "stream": False,
-        "keep_alive": "10m",
-        "options": {"temperature": 0.0, "num_ctx": 2048},
-        "prompt": prompt
-    }).encode("utf-8")
-    
-    url = f'{os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")}/api/generate'
-    print(f"[categorizer] Calling LLM ({os.getenv('LLM_MODEL', 'llama3.1:8b')}) at {url} with {len(items_to_send)} items...")
-    print(f"[categorizer] LLM Input items:\n{json.dumps(items_to_send, indent=2)}")
+    # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:
-        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=45) as resp:
-            res_data = json.loads(resp.read().decode("utf-8"))
-            content = res_data.get("response", "").strip()
-            print(f"[categorizer] Raw LLM output response:\n{content}")
+        from src.services.llm_provider import complete as _llm_generate
+        content = _llm_generate(prompt, temperature=0.0, max_tokens=2048, json_mode=True)
+        print(f"[categorizer] Raw LLM output response:\n{content}")
+        
+        if "```" in content:
+            first_fence = content.find("```")
+            last_fence = content.rfind("```")
+            if first_fence != last_fence:
+                content = content[first_fence:last_fence]
+                content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
+        
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1:
+            content = content[start:end+1]
             
-            if "```" in content:
-                first_fence = content.find("```")
-                last_fence = content.rfind("```")
-                if first_fence != last_fence:
-                    content = content[first_fence:last_fence]
-                    content = re.sub(r"^```[a-zA-Z0-9]*\s*", "", content).strip()
-            
-            start = content.find("{")
-            end = content.rfind("}")
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-                
-            parsed_res = json.loads(content)
-            mapped_res = {}
-            for idx_str, val in parsed_res.items():
-                orig_desc = idx_to_desc.get(str(idx_str).strip())
-                if orig_desc:
-                    mapped_res[orig_desc] = val
-            print(f"[categorizer] Successfully parsed LLM mapping:\n{json.dumps(mapped_res, indent=2)}")
-            return mapped_res
+        parsed_res = json.loads(content)
+        mapped_res = {}
+        for idx_str, val in parsed_res.items():
+            orig_desc = idx_to_desc.get(str(idx_str).strip())
+            if orig_desc:
+                mapped_res[orig_desc] = val
+        print(f"[categorizer] Successfully parsed LLM mapping:\n{json.dumps(mapped_res, indent=2)}")
+        return mapped_res
     except Exception as e:
         print(f"[categorizer] LLM classification failed: {e}")
         if 'content' in locals():

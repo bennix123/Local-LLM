@@ -27,44 +27,18 @@ from .analytics import (
     followup_sql_answer, followup_response, grounded_advice, _llm_complete
 )
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 PORT = int(os.getenv("PORT", "5667"))
-
-def _detect_ollama_model():
-    import urllib.request
-    try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            models = data.get("models", [])
-            if models:
-                name = models[0]["name"]
-                print(f"[ollama] Detected installed model: {name}")
-                return name
-    except Exception as e:
-        print(f"[ollama] Failed to auto-detect model: {e}")
-    return "llama3.1:8b"
-
-LLM_MODEL = os.getenv("LLM_MODEL") or _detect_ollama_model()
-os.environ["LLM_MODEL"] = LLM_MODEL
 USER = "local"
+
+# The model runs IN-PROCESS via MLX (Apple Silicon). There is no Ollama, no llama.cpp,
+# no localhost model server and no subprocess — that's what makes the app self-contained
+# and is the prerequisite for a sandboxed / App Store build.
+from src.services import llm_provider as llm
 
 
 def active_model():
-    """The live model every LLM call should use. Reads os.environ so /models/select can
-    switch it at runtime without a server restart (parsers.py already reads it this way)."""
-    return os.environ.get("LLM_MODEL") or LLM_MODEL
-
-
-# Curated models the user can pick + download from the model page. Sizes are approximate.
-RECOMMENDED_MODELS = [
-    {"id": "llama3.1:8b",       "name": "Llama 3.1 8B",   "size": "4.7 GB", "note": "Best reasoning · recommended"},
-    {"id": "qwen2.5:3b",        "name": "Qwen 2.5 3B",    "size": "1.9 GB", "note": "Fast · low memory"},
-    {"id": "gemma2:2b",         "name": "Gemma 2 2B",     "size": "1.6 GB", "note": "Lightest · quickest"},
-    {"id": "qwen2.5:7b",        "name": "Qwen 2.5 7B",    "size": "4.7 GB", "note": "Strong all-rounder"},
-    {"id": "phi3:latest",       "name": "Phi-3 Mini",     "size": "2.2 GB", "note": "Compact · capable"},
-    {"id": "llama3.2:3b",       "name": "Llama 3.2 3B",   "size": "2.0 GB", "note": "Balanced small model"},
-]
+    """The live model every LLM call uses. /api/models/select swaps it at runtime."""
+    return llm.active_model()
 
 GREETING = ("Hi! I'm **Penny**, your offline statement assistant. "
             "Ask me about totals, categories, merchants, time periods, or for saving advice. "
@@ -226,19 +200,9 @@ def llm_route(question, history=None):
     if real:
         ctx = "\n".join(f"Q: {h['q']}\nA: {h['a']}" for h in real)
         user = f"[Recent conversation:\n{ctx}]\n\nNew message: {question}"
-    payload = json.dumps({
-        "model": active_model(), "stream": False, "keep_alive": "10m", "format": "json",
-        "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 160},
-        "messages": [
-            {"role": "system", "content": ROUTER_SYSTEM},
-            {"role": "user", "content": user},
-        ],
-    }).encode()
     try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            content = json.loads(resp.read()).get("message", {}).get("content", "")
+        content = llm.complete(user, system=ROUTER_SYSTEM, temperature=0.0,
+                               max_tokens=160, json_mode=True)
         return json.loads(content)
     except Exception as e:
         print(f"[router] LLM unavailable: {e}")
@@ -262,7 +226,7 @@ def serve_index():
                 return HTMLResponse(f.read())
         except Exception as e:
             print(f"[server] Error reading index.html: {e}")
-    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+    return HTMLResponse(PAGE.replace("__MODEL__", active_model()))
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -289,7 +253,7 @@ async def classic_page():
     """The original single-file Penny parser UI (drag-drop parse + transaction
     table + chat) from ui.py. Kept reachable here even when the React build is
     served at /. Talks to this same server's API."""
-    return HTMLResponse(PAGE.replace("__MODEL__", LLM_MODEL))
+    return HTMLResponse(PAGE.replace("__MODEL__", active_model()))
 
 
 def _get_active_doc(thread: str = "default"):
@@ -311,66 +275,42 @@ async def status(request: Request, user: str = Depends(get_current_user)):
                          "currency": ts.CURRENCY})
 
 
-def _installed_models():
-    """Names of models already pulled into the local Ollama."""
-    try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return [m["name"] for m in data.get("models", [])]
-    except Exception as e:
-        print(f"[models] Ollama tags failed: {e}")
-        return []
-
-
 @app.get("/api/models")
 async def list_models(user: str = Depends(get_current_user)):
-    """Model picker data: which model is active, which are already downloaded, and the
-    curated list a user can download to power the assistant."""
-    installed = _installed_models()
-    inst_set = {n.split(":")[0]: n for n in installed}  # base-name -> full tag, loose match
-    recs = []
-    for m in RECOMMENDED_MODELS:
-        is_inst = m["id"] in installed or m["id"].split(":")[0] in inst_set
-        recs.append({**m, "installed": is_inst})
-    return JSONResponse({"active": active_model(), "installed": installed, "recommended": recs})
+    """Model picker data: active model, which MLX weights are already downloaded, and what
+    this Mac's RAM can actually hold (`can_run`)."""
+    return JSONResponse(llm.list_models())
 
 
 @app.post("/api/models/select")
 async def select_model(request: Request, user: str = Depends(get_current_user)):
-    """Switch the live model. Must already be downloaded (see /models/pull)."""
+    """Switch the live model. Must already be downloaded (see /api/models/pull)."""
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
         return JSONResponse({"error": "No model name given."}, status_code=400)
-    if name not in _installed_models():
+    if not llm.is_downloaded(name):
         return JSONResponse({"error": f"'{name}' isn't downloaded yet. Download it first."},
                             status_code=409)
-    os.environ["LLM_MODEL"] = name           # every LLM call reads this (active_model / os.getenv)
-    print(f"[models] active model -> {name}", flush=True)
+    llm.set_active_model(name)               # drops the old weights; next call loads the new ones
+    print(f"[mlx] active model -> {name}", flush=True)
     return JSONResponse({"active": name})
 
 
 @app.post("/api/models/pull")
 async def pull_model(request: Request, user: str = Depends(get_current_user)):
-    """Download a model into the local Ollama, streaming progress (one JSON object per line)
-    straight from Ollama's /api/pull so the UI can show a progress bar."""
+    """Download MLX weights from HuggingFace, streaming progress (one JSON object per line)
+    so the picker can show a progress bar."""
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
         return JSONResponse({"error": "No model name given."}, status_code=400)
 
     def stream():
-        payload = json.dumps({"name": name, "stream": True}).encode()
         try:
-            req = urllib.request.Request(f"{OLLAMA_URL}/api/pull", data=payload,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=3600) as resp:
-                for raw in resp:
-                    line = raw.decode("utf-8", "replace").strip()
-                    if line:
-                        yield line + "\n"
-        except Exception as e:
+            for ev in llm.download_model(name):
+                yield json.dumps(ev) + "\n"
+        except Exception as e:                                   # noqa: BLE001
             yield json.dumps({"status": "error", "error": str(e)}) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -1281,15 +1221,18 @@ async def lld_md():
     return _raw_md("Penny_LLD.md")
 
 def _warmup():
-    """Pre-load the model so the first advisory answer isn't a cold start (which is what
-    made earlier replies show '(... unavailable)')."""
+    """Pre-load the MLX weights so the first advisory answer isn't a cold start.
+    Everything deterministic (totals/categories/merchants/dates) works with no model at all,
+    so a failure here is logged and ignored rather than fatal."""
     try:
-        if _llm_complete("Reply with the single word: ok.", "ok", num_predict=5):
-            print(f"[warmup] {LLM_MODEL} ready", flush=True)
-        else:
-            print(f"[warmup] {LLM_MODEL} not reachable yet - will retry on first question", flush=True)
-    except Exception as e:
-        print(f"[warmup] Failed: {e}", flush=True)
+        llm.ensure_loaded()
+        print(f"[mlx] {active_model()} warm", flush=True)
+    except llm.LLMUnavailable as e:
+        print(f"[mlx] no model backend: {e}", flush=True)
+        print("[mlx] deterministic answers (totals, categories, merchants, dates) still work.",
+              flush=True)
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[mlx] warmup failed (will retry on first question): {e}", flush=True)
 
 @app.on_event("startup")
 async def startup_event():

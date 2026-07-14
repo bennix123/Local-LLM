@@ -21,32 +21,19 @@ from .router import (
 )
 
 def _llm_words(system, user):
-    from .server import OLLAMA_URL, active_model, _nd
-    """Stream the LLM reply from Ollama, buffered into whole words."""
-    payload = json.dumps({
-        "model": active_model(), "stream": True, "keep_alive": "10m",
-        "options": {"temperature": 0.3, "num_predict": 80, "top_p": 0.9, "num_ctx": 2048},
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-    }).encode()
+    """Stream the reply from the in-process MLX model, buffered into whole words."""
+    from .server import active_model, _nd
+    from src.services import llm_provider as llm
     buf = ""
     try:
-        req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            for line in resp:
-                line = line.strip()
-                if not line:
-                    continue
-                d = json.loads(line)
-                buf += d.get("message", {}).get("content", "")
-                while " " in buf:
-                    word, buf = buf.split(" ", 1)
-                    yield _nd({"type": "chunk", "content": word + " "})
-                if d.get("done"):
-                    break
+        for piece in llm.stream(user, system=system, temperature=0.3, top_p=0.9, max_tokens=80):
+            buf += piece
+            while " " in buf:
+                word, buf = buf.split(" ", 1)
+                yield _nd({"type": "chunk", "content": word + " "})
         if buf:
             yield _nd({"type": "chunk", "content": buf})
-    except Exception as e:
+    except Exception as e:                                        # noqa: BLE001
         yield _nd({"type": "chunk", "content": f"\n_({active_model()} unavailable: {e}.)_"})
 
 def followup_sql_answer(q, ctx):
@@ -125,24 +112,15 @@ def advice_response(q, thread="default"):
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 def _llm_complete(system, user, num_predict=512, temperature=0.2):
-    from .server import OLLAMA_URL, active_model
-    """One-shot (non-streaming) LLM call -> full text, or None. Retries once so a cold
-    model load doesn't surface as a failure."""
-    payload = json.dumps({
-        "model": active_model(), "stream": False, "keep_alive": "30m",
-        "options": {"temperature": temperature, "num_predict": num_predict,
-                    "top_p": 0.9, "num_ctx": 4096},
-        "messages": [{"role": "system", "content": system},
-                     {"role": "user", "content": user}],
-    }).encode()
+    """One-shot MLX call -> full text, or None. Retries once so a cold model load
+    (first run downloads/loads the weights) doesn't surface as a failure."""
+    from src.services import llm_provider as llm
     for attempt in (1, 2):
         try:
-            req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=payload,
-                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=150) as resp:
-                txt = json.loads(resp.read()).get("message", {}).get("content", "")
+            txt = llm.complete(user, system=system, temperature=temperature,
+                               top_p=0.9, max_tokens=num_predict)
             return (txt or "").strip() or None
-        except Exception as e:
+        except Exception as e:                                    # noqa: BLE001
             print(f"[advice] LLM attempt {attempt}/2 failed: {type(e).__name__}: {e}")
     return None
 

@@ -7,7 +7,9 @@ from src.services import txn_store as ts
 from .prompts import ROUTER_SYSTEM
 
 USER = "local"
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")   # for capability text; server owns the live value
+# Display name only (capability text). The live model is owned by llm_provider (MLX, in-process).
+from src.services.llm_provider import active_model as _active_model, DEFAULT_MODEL
+LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_MODEL)
 CHAT_LOG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "chats.json"))
 
 _log_lock = threading.Lock()
