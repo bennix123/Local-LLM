@@ -13,6 +13,7 @@
     "start": "electron .",
     "build": "electron-builder --publish never",
     "build-mac": "electron-builder --mac dmg --publish never",
+    "build-mas": "electron-builder --mac mas --publish never",
     "build-win": "electron-builder --win nsis --publish never",
     "build-linux": "electron-builder --linux AppImage deb --publish never",
     "release-mac": "electron-builder --mac dmg --publish always",
@@ -86,6 +87,14 @@
         }
       ],
       "category": "public.app-category.finance"
+    },
+    "mas": {
+      "type": "distribution",
+      "hardenedRuntime": false,
+      "category": "public.app-category.finance",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "build/embedded.provisionprofile"
     },
     "linux": {
       "target": [
