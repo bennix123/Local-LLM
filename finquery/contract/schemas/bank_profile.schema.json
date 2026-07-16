@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BankProfile",
+  "type": "object",
+  "properties": {
+    "bank_name": { "type": "string" },
+    "version": { "type": "integer" },
+    "identifiers": {
+      "type": "object",
+      "properties": {
+        "text_contains_any": { "type": "array", "items": { "type": "string" } },
+        "header_row_contains_any": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "column_map": {
+      "type": "object",
+      "patternProperties": {
+        "^(date|description|debit|credit|balance|amount)$": {
+          "type": "object",
+          "properties": {
+            "header_aliases": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["header_aliases"]
+        }
+      }
+    },
+    "debit_credit_style": { "type": "string" },
+    "date_format": { "type": "string" },
+    "number_format": { "type": "string" },
+    "currency": { "type": "string" },
+    "known_banner_page_indices": { "type": "array", "items": { "type": "integer" } },
+    "use_positional_parser": { "type": "boolean" },
+    "created_from": { "type": "string" },
+    "last_validated": { "type": "string" },
+    "success_rate": { "type": "number" }
+  },
+  "required": ["bank_name", "version", "identifiers", "column_map", "debit_credit_style"]
+}

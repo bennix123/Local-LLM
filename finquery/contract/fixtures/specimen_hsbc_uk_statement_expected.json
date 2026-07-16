@@ -1,0 +1,1082 @@
+[
+  {
+    "date": "2026-01-02",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 168.74,
+    "credit": 0.0,
+    "balance": 1082.01,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-03",
+    "description": "DEMO BOOKSHOP",
+    "debit": 128.81,
+    "credit": 0.0,
+    "balance": 953.2,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-05",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 2091.49,
+    "balance": 3044.69,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-06",
+    "description": "FAKE COFFEE CO",
+    "debit": 183.74,
+    "credit": 0.0,
+    "balance": 2860.95,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-06",
+    "description": "TEST HOME",
+    "debit": 158.17,
+    "credit": 0.0,
+    "balance": 2702.78,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-07",
+    "description": "SAMPLE RENT LTD",
+    "debit": 193.65,
+    "credit": 0.0,
+    "balance": 2509.13,
+    "category": "Rent",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-07",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 28.8,
+    "credit": 0.0,
+    "balance": 2480.33,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "DEMO MOBILE NETWORK REAL",
+    "debit": 45.75,
+    "credit": 0.0,
+    "balance": 2434.58,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "SAMPLE RENT LTD",
+    "debit": 2.09,
+    "credit": 0.0,
+    "balance": 2432.49,
+    "category": "Rent",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 2088.71,
+    "balance": 4521.2,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 349.98,
+    "credit": 0.0,
+    "balance": 4171.22,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 254.5,
+    "credit": 0.0,
+    "balance": 3916.72,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-08",
+    "description": "FAKE TAXI SERVICE",
+    "debit": 146.94,
+    "credit": 0.0,
+    "balance": 3769.78,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-09",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 2184.96,
+    "balance": 5954.74,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-09",
+    "description": "SAMPLE WATER COMPANY A",
+    "debit": 126.12,
+    "credit": 0.0,
+    "balance": 5828.62,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-09",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 766.95,
+    "balance": 6595.57,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-09",
+    "description": "DEMO MOBILE NETWORK",
+    "debit": 207.5,
+    "credit": 0.0,
+    "balance": 6388.07,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-10",
+    "description": "NOT SPECIMEN COUNCIL TAX",
+    "debit": 145.98,
+    "credit": 0.0,
+    "balance": 6242.09,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-10",
+    "description": "DEMO SUPERMARKET",
+    "debit": 303.74,
+    "credit": 0.0,
+    "balance": 5938.35,
+    "category": "Groceries",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-10",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 279.09,
+    "credit": 0.0,
+    "balance": 5659.26,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-11",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 363.49,
+    "credit": 0.0,
+    "balance": 5295.77,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-11",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 213.97,
+    "credit": 0.0,
+    "balance": 5081.8,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-11",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 255.3,
+    "credit": 0.0,
+    "balance": 4826.5,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-12",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 322.82,
+    "credit": 0.0,
+    "balance": 4503.68,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-12",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 81.57,
+    "credit": 0.0,
+    "balance": 4422.11,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-12",
+    "description": "DEMO SUPERMARKET",
+    "debit": 395.86,
+    "credit": 0.0,
+    "balance": 4026.25,
+    "category": "Groceries",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-13",
+    "description": "SAMPLE WATER COMPANY Fictional SPECIMEN data - not a real person, account, or tr",
+    "debit": 105.15,
+    "credit": 0.0,
+    "balance": 3921.1,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-13",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 180.0,
+    "credit": 0.0,
+    "balance": 3741.1,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-14",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 382.09,
+    "credit": 0.0,
+    "balance": 3359.01,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-15",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 42.66,
+    "credit": 0.0,
+    "balance": 3316.35,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-16",
+    "description": "SAMPLE GYM MEMBERSHIP DOCUMENT",
+    "debit": 83.34,
+    "credit": 0.0,
+    "balance": 3233.01,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-16",
+    "description": "FAKE TAXI SERVICE",
+    "debit": 336.49,
+    "credit": 0.0,
+    "balance": 2896.52,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-16",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 320.26,
+    "credit": 0.0,
+    "balance": 2576.26,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-17",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 281.39,
+    "balance": 2857.65,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-18",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 192.26,
+    "credit": 0.0,
+    "balance": 2665.39,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-18",
+    "description": "TRANSFER SPECIMEN IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 744.89,
+    "balance": 3410.28,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-19",
+    "description": "SPECIMEN BRANCH ATM",
+    "debit": 186.34,
+    "credit": 0.0,
+    "balance": 3223.94,
+    "category": "Cash",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-20",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 290.47,
+    "credit": 0.0,
+    "balance": 2933.47,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-20",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 80.06,
+    "balance": 3013.53,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-20",
+    "description": "FAKE CINEMA LTD",
+    "debit": 322.99,
+    "credit": 0.0,
+    "balance": 2690.54,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-20",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 2157.07,
+    "balance": 4847.61,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-22",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 64.05,
+    "credit": 0.0,
+    "balance": 4783.56,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-22",
+    "description": "DEMO SUPERMARKET",
+    "debit": 7.67,
+    "credit": 0.0,
+    "balance": 4775.89,
+    "category": "Groceries",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-22",
+    "description": "SAMPLE RENT LTD",
+    "debit": 211.58,
+    "credit": 0.0,
+    "balance": 4564.31,
+    "category": "Rent",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-23",
+    "description": "DEMO HARDWARE STORE REAL",
+    "debit": 394.65,
+    "credit": 0.0,
+    "balance": 4169.66,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-24",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 13.14,
+    "credit": 0.0,
+    "balance": 4156.52,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-24",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 97.73,
+    "credit": 0.0,
+    "balance": 4058.79,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-24",
+    "description": "DEMO PHARMACY",
+    "debit": 218.65,
+    "credit": 0.0,
+    "balance": 3840.14,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-25",
+    "description": "FAKE COFFEE CO",
+    "debit": 364.19,
+    "credit": 0.0,
+    "balance": 3475.95,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-27",
+    "description": "FAKE CINEMA LTD",
+    "debit": 265.66,
+    "credit": 0.0,
+    "balance": 3210.29,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-28",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 169.41,
+    "credit": 0.0,
+    "balance": 3040.88,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-28",
+    "description": "SPECIMEN COUNCIL TAX A",
+    "debit": 54.04,
+    "credit": 0.0,
+    "balance": 2986.84,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-29",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 60.78,
+    "balance": 3047.62,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-29",
+    "description": "DEMO MOBILE NETWORK NOT",
+    "debit": 244.2,
+    "credit": 0.0,
+    "balance": 2803.42,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-30",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 70.59,
+    "credit": 0.0,
+    "balance": 2732.83,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-30",
+    "description": "SAMPLE RENT LTD",
+    "debit": 223.48,
+    "credit": 0.0,
+    "balance": 2509.35,
+    "category": "Rent",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-30",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 213.23,
+    "credit": 0.0,
+    "balance": 2296.12,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-01-31",
+    "description": "SAMPLE RENT LTD",
+    "debit": 353.52,
+    "credit": 0.0,
+    "balance": 1942.6,
+    "category": "Rent",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-01",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 623.68,
+    "balance": 2566.28,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-01",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 181.97,
+    "credit": 0.0,
+    "balance": 2384.31,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-01",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 986.28,
+    "balance": 3370.59,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-03",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 243.24,
+    "credit": 0.0,
+    "balance": 3127.35,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-04",
+    "description": "DEMO PHARMACY",
+    "debit": 182.03,
+    "credit": 0.0,
+    "balance": 2945.32,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-05",
+    "description": "SAMPLE WATER COMPANY Fictional SPECIMEN data - not a real person, account, or tr",
+    "debit": 204.09,
+    "credit": 0.0,
+    "balance": 2741.23,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-05",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 350.86,
+    "credit": 0.0,
+    "balance": 2390.37,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-06",
+    "description": "DEMO PHARMACY",
+    "debit": 369.27,
+    "credit": 0.0,
+    "balance": 2021.1,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-06",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 336.32,
+    "credit": 0.0,
+    "balance": 1684.78,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-06",
+    "description": "SAMPLE EMPLOYER LTD - SALARY DOCUMENT",
+    "debit": 0.0,
+    "credit": 875.35,
+    "balance": 2560.13,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-07",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 172.48,
+    "credit": 0.0,
+    "balance": 2387.65,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-08",
+    "description": "FAKE PETROL STATION",
+    "debit": 314.01,
+    "credit": 0.0,
+    "balance": 2073.64,
+    "category": "Transport",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-08",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 375.92,
+    "credit": 0.0,
+    "balance": 1697.72,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-09",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 58.91,
+    "credit": 0.0,
+    "balance": 1638.81,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-09",
+    "description": "FAKE CINEMA SPECIMEN LTD",
+    "debit": 89.4,
+    "credit": 0.0,
+    "balance": 1549.41,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-10",
+    "description": "SPECIMEN BRANCH ATM",
+    "debit": 354.2,
+    "credit": 0.0,
+    "balance": 1195.21,
+    "category": "Cash",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-10",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 1834.73,
+    "balance": 3029.94,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-11",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 2187.08,
+    "balance": 5217.02,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-13",
+    "description": "DEMO HARDWARE STORE",
+    "debit": 79.91,
+    "credit": 0.0,
+    "balance": 5137.11,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-13",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 9.75,
+    "credit": 0.0,
+    "balance": 5127.36,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-13",
+    "description": "FAKE CINEMA LTD",
+    "debit": 281.85,
+    "credit": 0.0,
+    "balance": 4845.51,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-14",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 250.32,
+    "credit": 0.0,
+    "balance": 4595.19,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-14",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 46.91,
+    "credit": 0.0,
+    "balance": 4548.28,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-15",
+    "description": "SPECIMEN INSURANCE CO REAL",
+    "debit": 388.73,
+    "credit": 0.0,
+    "balance": 4159.55,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-15",
+    "description": "TRANSFER IN - TEST PAYER B SAMPLE",
+    "debit": 0.0,
+    "credit": 612.79,
+    "balance": 4772.34,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-16",
+    "description": "DEMO MOBILE NETWORK",
+    "debit": 109.64,
+    "credit": 0.0,
+    "balance": 4662.7,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-16",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 1872.1,
+    "balance": 6534.8,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-17",
+    "description": "DEMO PHARMACY",
+    "debit": 163.57,
+    "credit": 0.0,
+    "balance": 6371.23,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-18",
+    "description": "SPECIMEN COUNCIL TAX",
+    "debit": 229.1,
+    "credit": 0.0,
+    "balance": 6142.13,
+    "category": "Utilities",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-19",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 113.07,
+    "credit": 0.0,
+    "balance": 6029.06,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-20",
+    "description": "DEMO MOBILE NETWORK A",
+    "debit": 171.28,
+    "credit": 0.0,
+    "balance": 5857.78,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-20",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 1403.08,
+    "balance": 7260.86,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-20",
+    "description": "SPECIMEN ENERGY CO NOT",
+    "debit": 244.05,
+    "credit": 0.0,
+    "balance": 7016.81,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-20",
+    "description": "DEMO PHARMACY",
+    "debit": 345.38,
+    "credit": 0.0,
+    "balance": 6671.43,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-21",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 397.73,
+    "credit": 0.0,
+    "balance": 6273.7,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-23",
+    "description": "DEMO PHARMACY",
+    "debit": 249.44,
+    "credit": 0.0,
+    "balance": 6024.26,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-23",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 539.79,
+    "balance": 6564.05,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-23",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 590.93,
+    "balance": 7154.98,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-23",
+    "description": "FAKE PETROL STATION",
+    "debit": 252.21,
+    "credit": 0.0,
+    "balance": 6902.77,
+    "category": "Transport",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-23",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 117.4,
+    "credit": 0.0,
+    "balance": 6785.37,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-24",
+    "description": "DEMO MOBILE NETWORK",
+    "debit": 109.67,
+    "credit": 0.0,
+    "balance": 6675.7,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-24",
+    "description": "DEMO PHARMACY",
+    "debit": 16.71,
+    "credit": 0.0,
+    "balance": 6658.99,
+    "category": "Healthcare",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-25",
+    "description": "REFUND - DEMO RETAILER Fictional SPECIMEN data - not a real person, account, or ",
+    "debit": 0.0,
+    "credit": 1221.29,
+    "balance": 7880.28,
+    "category": "Shopping",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-25",
+    "description": "SAMPLE WATER COMPANY",
+    "debit": 99.78,
+    "credit": 0.0,
+    "balance": 7780.5,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-27",
+    "description": "DEMO HARDWARE STORE",
+    "debit": 263.29,
+    "credit": 0.0,
+    "balance": 7517.21,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-27",
+    "description": "SPECIMEN BRANCH ATM",
+    "debit": 388.18,
+    "credit": 0.0,
+    "balance": 7129.03,
+    "category": "Cash",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-27",
+    "description": "TEST STREAMING SERVICE DOCUMENT",
+    "debit": 393.01,
+    "credit": 0.0,
+    "balance": 6736.02,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-28",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 163.07,
+    "credit": 0.0,
+    "balance": 6572.95,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-02-28",
+    "description": "FAKE COFFEE CO",
+    "debit": 335.12,
+    "credit": 0.0,
+    "balance": 6237.83,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-01",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+    "debit": 0.0,
+    "credit": 1635.14,
+    "balance": 7872.97,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-01",
+    "description": "DEMO MOBILE NETWORK",
+    "debit": 24.05,
+    "credit": 0.0,
+    "balance": 7848.92,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-02",
+    "description": "SPECIMEN SPECIMEN BRANCH ATM",
+    "debit": 348.47,
+    "credit": 0.0,
+    "balance": 7500.45,
+    "category": "Cash",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-04",
+    "description": "FAKE PETROL STATION",
+    "debit": 240.31,
+    "credit": 0.0,
+    "balance": 7260.14,
+    "category": "Transport",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-04",
+    "description": "FAKE COFFEE CO",
+    "debit": 184.86,
+    "credit": 0.0,
+    "balance": 7075.28,
+    "category": "Food & Dining",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 27.9,
+    "balance": 7103.18,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 389.1,
+    "credit": 0.0,
+    "balance": 6714.08,
+    "category": "Entertainment",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 15.71,
+    "credit": 0.0,
+    "balance": 6698.37,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 143.92,
+    "credit": 0.0,
+    "balance": 6554.45,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 202.88,
+    "balance": 6757.33,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-06",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 100.78,
+    "credit": 0.0,
+    "balance": 6656.55,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-07",
+    "description": "SPECIMEN ENERGY CO REAL",
+    "debit": 107.14,
+    "credit": 0.0,
+    "balance": 6549.41,
+    "category": "Other",
+    "bank": "Specimen Hsbc Uk"
+  },
+  {
+    "date": "2026-03-09",
+    "description": "INTEREST PAID (SPECIMEN) A NOT Fictional SPECIMEN data - not a real person, acco",
+    "debit": 0.0,
+    "credit": 1299.23,
+    "balance": 7848.64,
+    "category": "Income",
+    "bank": "Specimen Hsbc Uk"
+  }
+]

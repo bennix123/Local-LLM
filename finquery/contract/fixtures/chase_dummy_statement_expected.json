@@ -1,0 +1,299 @@
+[
+  {
+    "date": "2026-06-07",
+    "description": "ENDING BALANCE",
+    "debit": 0.0,
+    "credit": 5851.46,
+    "balance": 0.0,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-07",
+    "description": "AT&T WIRELESS",
+    "debit": 129.67,
+    "credit": 0.0,
+    "balance": 5851.46,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-05-07",
+    "description": "SHELL OIL",
+    "debit": 0.0,
+    "credit": 224.01,
+    "balance": 5981.13,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-04-07",
+    "description": "CHEWY.COM",
+    "debit": 0.0,
+    "credit": 138.74,
+    "balance": 6205.14,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-03-07",
+    "description": "CHEWY.COM",
+    "debit": 0.0,
+    "credit": 150.77,
+    "balance": 6343.88,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-02-07",
+    "description": "INTEREST PAYMENT",
+    "debit": 0.0,
+    "credit": 2197.1,
+    "balance": 6494.65,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-01-07",
+    "description": "ZELLE TRANSFER RECEIVED",
+    "debit": 1032.85,
+    "credit": 0.0,
+    "balance": 4297.55,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-30-06",
+    "description": "TARGET",
+    "debit": 70.26,
+    "credit": 0.0,
+    "balance": 3264.7,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-29-06",
+    "description": "TRADER JOES",
+    "debit": 0.0,
+    "credit": 167.97,
+    "balance": 3334.96,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-28-06",
+    "description": "APPLE.COM/BILL",
+    "debit": 0.0,
+    "credit": 82.44,
+    "balance": 3502.93,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-27-06",
+    "description": "CON EDISON",
+    "debit": 0.0,
+    "credit": 219.28,
+    "balance": 3585.37,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-26-06",
+    "description": "CHEWY.COM",
+    "debit": 0.0,
+    "credit": 23.28,
+    "balance": 3804.65,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-25-06",
+    "description": "HOME DEPOT",
+    "debit": 0.0,
+    "credit": 81.56,
+    "balance": 3827.93,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-24-06",
+    "description": "COSTCO WHSE",
+    "debit": 0.0,
+    "credit": 50.47,
+    "balance": 3909.49,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-23-06",
+    "description": "APPLE.COM/BILL",
+    "debit": 0.0,
+    "credit": 84.84,
+    "balance": 3959.96,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-22-06",
+    "description": "AMAZON.COM",
+    "debit": 0.0,
+    "credit": 256.88,
+    "balance": 4044.8,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-21-06",
+    "description": "REFUND - AMAZON.COM",
+    "debit": 0.0,
+    "credit": 608.35,
+    "balance": 4301.68,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-20-06",
+    "description": "SAMPLE AT&T WIRELESS",
+    "debit": 59.3,
+    "credit": 0.0,
+    "balance": 3693.33,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-19-06",
+    "description": "CHEWY.COM REAL",
+    "debit": 0.0,
+    "credit": 186.32,
+    "balance": 3752.63,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-18-06",
+    "description": "APPLE.COM/BILL",
+    "debit": 0.0,
+    "credit": 25.48,
+    "balance": 3938.95,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-17-06",
+    "description": "TARGET",
+    "debit": 0.0,
+    "credit": 219.46,
+    "balance": 3964.43,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-16-06",
+    "description": "VENMO CASHOUT",
+    "debit": 0.0,
+    "credit": 892.69,
+    "balance": 4183.89,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-15-06",
+    "description": "UBER TRIP",
+    "debit": 29.64,
+    "credit": 0.0,
+    "balance": 3291.2,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-14-06",
+    "description": "STARBUCKS",
+    "debit": 0.0,
+    "credit": 66.16,
+    "balance": 3320.84,
+    "category": "Food & Dining",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-13-06",
+    "description": "NETFLIX.COM",
+    "debit": 0.0,
+    "credit": 210.05,
+    "balance": 3387.0,
+    "category": "Entertainment",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-12-06",
+    "description": "AT&T WIRELESS",
+    "debit": 0.0,
+    "credit": 84.9,
+    "balance": 3597.05,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-11-06",
+    "description": "TRADER JOES",
+    "debit": 0.0,
+    "credit": 164.39,
+    "balance": 3681.95,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "WALMART",
+    "debit": 0.0,
+    "credit": 169.25,
+    "balance": 3846.34,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-09-06",
+    "description": "PAYROLL - EMPLOYER INC",
+    "debit": 0.0,
+    "credit": 585.66,
+    "balance": 4015.59,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-08-06",
+    "description": "AMAZON.COM",
+    "debit": 177.97,
+    "credit": 0.0,
+    "balance": 3429.93,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "PAYROLL - EMPLOYER INC",
+    "debit": 0.0,
+    "credit": 1707.91,
+    "balance": 3607.9,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "ZELLE TRANSFER RECEIVED",
+    "debit": 649.99,
+    "credit": 0.0,
+    "balance": 1899.99,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "BEGINNING BALANCE",
+    "debit": 0.0,
+    "credit": 1250.0,
+    "balance": 3149.99,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  }
+]

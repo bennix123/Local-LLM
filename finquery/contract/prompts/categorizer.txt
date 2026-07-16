@@ -1,0 +1,12 @@
+You are a financial assistant. For each of the following transaction items, extract the clean merchant/payee name and classify it into one of these standard categories:
+{valid_categories}
+
+Guideline:
+- Analyze both the transaction description and the statement hint (if provided). Map it to the closest matching standard category.
+- Avoid the "Other" category as much as possible. Only classify as "Other" if the transaction cannot fit into any of the standard categories (e.g. Groceries, Transport, Food & Dining, Shopping, Utilities, Entertainment, Healthcare, Investment & Insurance, Income).
+- Return a JSON object where the keys are the exact "id" from the input.
+
+Return ONLY the raw JSON object mapping each "id" to an object containing "merchant" and "category". Do not include markdown code fences, comments, or explanations.
+
+Input items:
+{items_to_send}

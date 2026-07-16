@@ -3,182 +3,28 @@ from .db import connect, init_db
 from .formatters import set_currency, _money, inr, grp
 from . import formatters
 
-# Known payee token -> (clean display name, category). Matched with a LEADING word boundary
-# (see _MERCHANT_RE) so "swiggy" still matches "swiggyinstamart" but a token never matches
-# mid-word (no "lic" -> "licious"). Deliberately EXCLUDES bare/ambiguous tokens that are really
-# payment rails or prefixes of other brands (paytm, gpay, phonepe, google, cred, lic, and the
-# bare amazon/uber/jio which collide with amazon-prime / uber-eats / jiomart) — those are handled,
-# with correct precedence, by the ordered keyword rules below.
-MERCHANT_MAP = {
-    "swiggyinstamart": ("Swiggy Instamart", "Groceries"),
-    "swiggy": ("Swiggy", "Food & Dining"), "zomato": ("Zomato", "Food & Dining"),
-    "flipkart": ("Flipkart", "Shopping"),
-    "myntra": ("Myntra", "Shopping"), "bigbasket": ("BigBasket", "Groceries"),
-    "blinkit": ("Blinkit", "Groceries"), "dmart": ("DMart", "Groceries"),
-    "ola": ("Ola", "Transport"),
-    "irctc": ("IRCTC", "Transport"), "netflix": ("Netflix", "Entertainment"),
-    "spotify": ("Spotify", "Entertainment"), "bookmyshow": ("BookMyShow", "Entertainment"),
-    "airtel": ("Airtel", "Utilities"),
-    "tata_power": ("Tata Power", "Utilities"), "tata power": ("Tata Power", "Utilities"),
-    "pharmeasy": ("PharmEasy", "Healthcare"),
-    "zerodha": ("Zerodha", "Investment & Insurance"),
-    "axis_bank_car_loan": ("Axis Bank Car Loan", "Investment & Insurance"),
-    "salary": ("Salary Credit", "Income"), "interest earned": ("Interest Earned", "Income"),
-    "refund": ("Refund", "Income"),
-    "ekart": ("Ekart Logistics", "Shopping"),
-    "vyapar": ("Vyapar Merchant", "Shopping"),
-    "zepto": ("Zepto", "Groceries"),
-    "jiomart": ("JioMart", "Groceries"), "instamart": ("Swiggy Instamart", "Groceries"),
-    "ajio": ("AJIO", "Shopping"), "meesho": ("Meesho", "Shopping"),
-    "nykaa": ("Nykaa", "Shopping"), "tatacliq": ("Tata CLiQ", "Shopping"),
-    "dominos": ("Domino's", "Food & Dining"), "mcdonald": ("McDonald's", "Food & Dining"),
-    "kfc": ("KFC", "Food & Dining"), "starbucks": ("Starbucks", "Food & Dining"),
-    "hotstar": ("JioHotstar", "Entertainment"), "jiocinema": ("JioCinema", "Entertainment"),
-    "sonyliv": ("SonyLIV", "Entertainment"), "zee5": ("ZEE5", "Entertainment"),
-    "groww": ("Groww", "Investment & Insurance"), "upstox": ("Upstox", "Investment & Insurance"),
-    "indianoil": ("Indian Oil", "Transport"), "hpcl": ("HP Petrol", "Transport"),
-    "rapido": ("Rapido", "Transport"), "redbus": ("RedBus", "Transport"),
-    "makemytrip": ("MakeMyTrip", "Transport"), "fastag": ("FASTag", "Transport"),
-    "apollo pharmacy": ("Apollo Pharmacy", "Healthcare"), "1mg": ("Tata 1mg", "Healthcare"),
-    "netmeds": ("Netmeds", "Healthcare"), "medplus": ("MedPlus", "Healthcare"),
-}
+# Load MERCHANT_MAP and _CATEGORY_RULES from contract/categories.json
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_CONTRACT_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "..", "..", "..", "..", "contract"))
+if not os.path.isdir(_CONTRACT_DIR):
+    _CONTRACT_DIR = os.path.abspath(os.path.join(_CURRENT_DIR, "contract"))
+
+_CATEGORIES_FILE = os.path.join(_CONTRACT_DIR, "categories.json")
+
+try:
+    with open(_CATEGORIES_FILE, "r", encoding="utf-8") as _f:
+        _cat_data = json.load(_f)
+        MERCHANT_MAP = _cat_data["merchant_map"]
+        _CATEGORY_RULES = _cat_data["category_rules"]
+except Exception as _e:
+    print(f"[parsers.py] Warning: Could not load categories from {_CATEGORIES_FILE}: {_e}")
+    MERCHANT_MAP = {}
+    _CATEGORY_RULES = []
 
 # Leading-boundary compiled form so a token matches "swiggy"/"swiggyinstamart" but never mid-word.
 # Underscores in the token are treated as spaces to match "Axis_Bank_Car_Loan"-style narrations.
 _MERCHANT_RE = [(re.compile(r"\b" + re.escape(tok.replace("_", " ")), re.I), name, cat)
                 for tok, (name, cat) in MERCHANT_MAP.items()]
-
-# ---------------------------------------------------------------- Category rules (deterministic)
-# Ordered keyword -> category rules covering UK + Indian + global merchants AND transaction
-# TYPES (ATM cash, transfers, standing orders). Matching uses a LEADING word boundary, so
-# "swiggy" still matches "swiggyinstamart" but "ee" won't match "coffee". First match wins,
-# so put brand/merchant rules before the broad transaction-type buckets. Categories here stay
-# in sync with valid_categories below and the frontend category icons.
-_CATEGORY_RULES = [
-    # --- disambiguation overrides: compound brands that would otherwise hit a shorter token ---
-    ("Food & Dining", ["uber eats", "ubereats"]),
-    ("Groceries", ["jiomart", "jio mart", "reliance fresh", "reliance smart", "big bazaar"]),
-    ("Entertainment", ["jiocinema", "jio cinema", "jiohotstar", "jio tv", "amazon prime",
-                       "prime video", "apple music", "apple tv"]),
-    ("Shopping", ["reliance digital", "amazon pay", "reliance trends"]),
-    ("Investment & Insurance", [
-        "insurance", "assurance", "aviva", "axa", "admiral", "direct line", "hastings", "churchill",
-        "legal & general", "legal and general", "prudential", "esure", "hiscox", "vitality",
-        "policybazaar", "policy bazaar", "acko", "digit insurance", "star health", "hdfc ergo",
-        "icici lombard", "bajaj allianz", "new india assurance", "oriental insurance",
-        "vanguard", "blackrock", "hargreaves", "fidelity", "moneybox", "nutmeg", "freetrade",
-        "trading 212", "trading212", "etoro", "interactive investor", "coinbase", "binance", "kraken",
-        "zerodha", "groww", "upstox", "kuvera", "paytm money", "smallcase", "indmoney", "wealthsimple",
-        "mutual fund", "lic premium", "lic ", "demat", "ppf", "nps ", "elss",
-        "angel one", "angelbroking", "5paisa", "motilal oswal", "sharekhan", "hdfc securities",
-        "icici direct", "kotak securities", "iifl", "scripbox", "et money", "hdfc life", "sbi life",
-        "icici pru", "max life", "tata aia", "care insurance", "niva bupa", "ditto insurance",
-        "reliance general", "gold loan", "credit card payment", "cred ",
-        "loan", "emi", "mortgage", "repayment"]),
-    ("Healthcare", [
-        "boots", "superdrug", "well pharmacy", "lloyds pharmacy", "pharmacy", "pharmac", "nhs",
-        "bupa", "nuffield health", "specsavers", "vision express", "dental", "dentist", "optician",
-        "optical", "clinic", "hospital", "physio", "chemist", "doctor", "gp surgery", "gp practice",
-        "apollo pharmacy", "pharmeasy", "1mg", "netmeds", "medplus", "practo", "diagnostic",
-        "pathology", "medical", "healthcare", "wellness", "fortis", "manipal", "aarogya", "arogya",
-        "dr lal", "drlal", "lal path", "pathlab", "thyrocare", "metropolis", "srl diagnostic",
-        "medanta", "max healthcare", "narayana", "aster", "care hospital", "yashoda", "kims",
-        "columbia asia", "salon", "spa ", "parlour", "lakme", "vlcc", "urban company", "cult.fit",
-        "curefit", "healthifyme"]),
-    ("Utilities", [
-        "o2", "vodafone", "ee limited", "ee mobile", "three mobile", "giffgaff", "tesco mobile",
-        "sky mobile", "sky broadband", "sky digital", "virgin media", "bt group", "bt broadband",
-        "british telecom", "plusnet", "talktalk", "now broadband", "jio", "airtel", "vodafone idea",
-        "bsnl", "act fibernet", "hathway", "tata sky", "dishtv", "recharge", "british gas", "e.on",
-        "eon next", "edf energy", "octopus energy", "ovo energy", "bulb energy", "scottish power",
-        "sse", "shell energy", "utility warehouse", "thames water", "anglian water", "severn trent",
-        "united utilities", "yorkshire water", "southern water", "wessex water", "adani", "tata power",
-        "bescom", "mseb", "torrent power", "mahanagar gas", "electricity", "power bill", "gas bill",
-        "water bill", "broadband", "council tax", "borough council", "city council", "county council",
-        "council", "tv licence", "tv licensing", "tata play", "dish tv", "d2h", "sun direct", "igl ",
-        "gail", "indane", "hp gas", "bharat gas", "cesc", "postpaid", "prepaid recharge", "dth",
-        "bbps", "bharat billpay", "mobile recharge"]),
-    ("Entertainment", [
-        "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
-        "apple tv", "youtube premium", "youtube music", "audible", "kindle", "patreon", "twitch",
-        "hotstar", "jiocinema", "sonyliv", "zee5", "voot", "altbalaji", "hulu", "hbo", "paramount",
-        "youtube", "vue cinema", "odeon", "cineworld", "picturehouse", "everyman cinema",
-        "showcase cinema", "pvr", "inox", "bookmyshow", "cinema", "theatre", "concert",
-        "ticketmaster", "steam games", "playstation", "xbox", "nintendo", "epic games", "riot games",
-        "roblox", "ubisoft", "puregym", "the gym", "david lloyd", "nuffield", "virgin active",
-        "fitness first", "anytime fitness", "cult.fit", "cultfit", "cult fit", "gold's gym",
-        "golds gym", "gym", "cricket", "golf club", "rugby", "leisure centre", "bowling",
-        "gaana", "wynk", "jiosaavn", "sun nxt", "hoichoi", "mx player", "cinepolis",
-        "carnival cinema", "paytm insider", "bookmyshow", "dream11", "google play", "play store",
-        "app store", "eros now"]),
-    ("Transport", [
-        "shell", "esso", "texaco", "gulf ", "morrisons petrol", "tesco petrol", "asda petrol",
-        "sainsburys petrol", "petrol", "fuel", "indian oil", "indianoil", "iocl", "hpcl", "hp petrol",
-        "bharat petroleum", "bpcl", "nayara", "reliance petrol", "essar", "bp", "tfl",
-        "transport for london", "trainline", "national rail", "lner", "gwr", "avanti", "northern rail",
-        "southeastern", "thameslink", "stagecoach", "national express", "uber", "bolt", "addison lee",
-        "ola", "rapido", "irctc", "ixigo", "redbus", "makemytrip", "goibibo", "cleartrip", "dmrc",
-        "bmtc", "fastag", "nhai", "toll", "parking", "ncp", "ringgo", "ring go", "car park",
-        "indigo", "interglobe", "vistara", "spicejet", "air india", "akasa", "go first", "goair",
-        "easyjet", "ryanair", "british airways", "jet2", "wizz air", "lufthansa", "emirates",
-        "qatar airways", "etihad", "singapore airlines", "air asia", "airasia", "flight", "airline",
-        "air ticket", "flight booking", "oyo", "booking.com", "airbnb", "agoda", "trivago", "yatra",
-        "easemytrip", "ixigo", "abhibus", "confirmtkt", "railyatri", "meru", "namma metro",
-        "railway", "dvla", "blablacar", "car rental", "rental", "enterprise rent", "hertz", "avis",
-        "halfords", "kwik fit", "mot "]),
-    ("Groceries", [
-        "tesco", "sainsbury", "asda", "aldi", "lidl", "morrisons", "waitrose", "co-op food",
-        "coop food", "co-op", "iceland", "ocado", "m&s food", "spar", "budgens", "nisa", "farmfoods",
-        "bigbasket", "blinkit", "dmart", "d-mart", "zepto", "jiomart", "reliance fresh",
-        "reliance smart", "more supermarket", "spencer's", "spencers retail", "grofers",
-        "nature's basket", "star bazaar", "supermarket", "grocery", "kirana", "instamart", "dunzo",
-        "licious", "country delight", "fresh to home", "freshtohome", "milkbasket", "otipy",
-        "more retail", "easyday", "vishal mega", "heritage fresh", "nilgiris", "ratnadeep",
-        "metro cash", "smart bazaar"]),
-    ("Food & Dining", [
-        "deliveroo", "just eat", "justeat", "uber eats", "ubereats", "mcdonald", "greggs", "costa",
-        "starbucks", "pret", "kfc", "subway", "domino", "nando", "wagamama", "burger king", "five guys",
-        "wetherspoon", "pizza hut", "pizza express", "papa john", "zizzi", "prezzo", "franco manca",
-        "itsu", "chipotle", "taco bell", "swiggy", "zomato", "faasos", "eatsure", "dineout",
-        "cafe coffee day", "behrouz", "box8", "haldiram", "barbeque nation", "chaayos", "blue tokai",
-        "third wave", "leon", "itsu", "wetherspoons", "wow momo", "oven story", "freshmenu",
-        "rebel foods", "chai point", "barista", "theobroma", "dunkin", "baskin robbins", "keventers",
-        "bikanervala", "sagar ratna", "saravana bhavan", "mainland china", "eazydiner", "faasos",
-        "restaurant", "cafe", "coffee", "bakery", "kitchen", "dhaba", "biryani", "pizzeria",
-        "bistro", "diner", "grill", "eatery", "food court", "canteen", "tuck shop", "sweets"]),
-    ("Shopping", [
-        "amazon", "argos", "ebay", "ikea", "primark", "next retail", "asos", "zara", "h&m", "h and m",
-        "currys", "john lewis", "marks & spencer", "m&s", "apple store", "apple.com", "nike", "adidas",
-        "sports direct", "jd sports", "selfridges", "debenhams", "tk maxx", "tkmaxx", "wilko", "b&m",
-        "home bargains", "screwfix", "b&q", "wickes", "the range", "dunelm", "matalan", "river island",
-        "new look", "superdry", "flipkart", "myntra", "ajio", "meesho", "nykaa", "snapdeal", "tatacliq",
-        "tata cliq", "decathlon", "lifestyle", "pantaloons", "shoppers stop", "shopperstop", "croma",
-        "reliance digital", "reliance trends", "westside", "fabindia", "vijay sales", "firstcry",
-        "lenskart", "skechers", "bata", "titan", "tanishq", "kalyan jewel", "jeweller", "jewels",
-        "uniqlo", "wacoal", "levis", "levi strauss", "puma", "reebok", "wrangler", "allen solly",
-        "van heusen", "peter england", "us polo", "biba", "max fashion", "brand factory",
-        "urban ladder", "pepperfry", "wakefit", "home centre", "boat lifestyle", "noise", "xiaomi",
-        "mi store", "oneplus", "realme", "american tourister", "wildcraft", "malabar gold",
-        "joyalukkas", "caratlane", "bluestone", "pc jeweller", "sephora", "the body shop", "mamaearth",
-        "sugar cosmetics", "purplle", "health and glow", "hamleys", "woodland", "red tape",
-        "campus shoes", "relaxo", "crocs", "metro shoes",
-        "retail ltd", "retail", "fashion", "electronics"]),
-    ("Rent", [
-        "landlord", "rent", "letting", "property management", "estate agent", "housing assoc",
-        "tenancy", "foxtons", "savills", "purplebricks", "hamptons", "openrent", "knight frank",
-        "homeground"]),
-    ("Cash", [
-        "cash withdrawal", "atm", "link atm", "cash machine", "cash deposit", "cardless cash",
-        "withdrawal link", "cdm", "cash dep"]),
-    ("Income", [
-        "salary", "payroll", "wages", "dividend", "interest earned", "interest paid", "credit interest",
-        "cashback", "reimburs", "bonus", "pension credit", "tax refund", "refund", "reversal"]),
-    ("Transfers", [
-        "faster payment", "standing order", "p2p payment", "p2p", "bank transfer", "transfer to",
-        "transfer from", "to transfer", "by transfer", "giro", "sent to", "savings space",
-        "savings pot", "money transfer", "internal transfer", "ac xfr", "account transfer",
-        "wire transfer", "zelle", "venmo"]),
-]
 
 # Compile each rule to a leading-boundary alternation (prefix match at a word boundary).
 _COMPILED_CAT_RULES = [
@@ -198,8 +44,6 @@ def keyword_category(text, is_credit=False):
     return "Income" if is_credit else "Other"
 
 
-# Transaction-type verbs stripped from the FRONT of a UK narrative. Cash withdrawal/deposit
-# are intentionally NOT stripped — they carry meaning for the display.
 _TXN_PREFIX_RE = re.compile(
     r"^(?:card payment(?: to)?|payment to|direct debit(?: to| payment)?|standing order(?: to)?|"
     r"bill payment(?: to)?|faster payment(?:s)?(?: to)?|transfer to|transfer from|received from|"
@@ -938,18 +782,14 @@ def _find_table_start(doc) -> int:
 def detect_schema(sample_lines: list[str]) -> dict | None:
     """Send sample lines to the local model to infer the row structure. Returns dict or None."""
     lines_str = "\n".join(sample_lines)
-    prompt = f"""You are analyzing a bank statement text to find the transaction table row structure.
-Analyze the following lines from the transaction table and identify the schema pattern:
-{lines_str}
-
-Return a JSON object with the following fields:
-- "date_format": Description of date format (e.g. "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YY", "DD/MM/YYYY")
-- "column_order": Array of column roles in order. Valid roles are: "date", "description", "debit", "credit", "balance", "amount" (if debit/credit are combined).
-- "debit_credit_style": One of "separate_columns", "dr_cr_suffix", "sign"
-- "sample_regex": A Python regular expression string matching a single row. Use named groups: (?P<date>...), (?P<desc>...), (?P<debit>...), (?P<credit>...), (?P<balance>...), or (?P<amount>...) if combined. The regex should match typical transaction lines.
-- "backup_columns": A JSON object mapping column role to its 0-indexed column position (e.g. {{"date_col": 0, "desc_col": 1, "debit_col": 2, "credit_col": 3, "balance_col": 4}}).
-
-Return ONLY the raw JSON object. Do not include any explanations, introduction, markdown blocks, or code fences."""
+    _prompt_file = os.path.join(_CONTRACT_DIR, "prompts", "schema_inference.txt")
+    try:
+        with open(_prompt_file, "r", encoding="utf-8") as _pf:
+            _prompt_tmpl = _pf.read()
+            prompt = _prompt_tmpl.replace("{lines_str}", lines_str)
+    except Exception as _e:
+        print(f"[parsers.py] Warning: Could not load schema_inference prompt from {_prompt_file}: {_e}")
+        prompt = f"You are analyzing a bank statement text to find the transaction table row structure. Analyze the following lines:\n{lines_str}\nReturn ONLY the raw JSON object."
 
     # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:
@@ -1250,22 +1090,15 @@ def _chunk_text(lines: list[str], chunk_size: int = 18, overlap: int = 2) -> lis
     return chunks
 
 def parse_chunk_with_llm(chunk_text: str) -> list[dict]:
-    prompt = f"""You are a data extraction assistant. Extract transaction rows from the following bank statement text chunk.
-Text chunk:
-\"\"\"
-{chunk_text}
-\"\"\"
-
-Return a JSON array of objects. Each object represents a single transaction with the following keys:
-- "date": string in YYYY-MM-DD format (if year is missing, infer it from surrounding context or assume 2026)
-- "description": string (the merchant / payee name or transaction description)
-- "debit": number (amount spent/debited, 0 if it was a credit/deposit)
-- "credit": number (amount received/credited, 0 if it was a debit/withdrawal)
-- "balance": number or null (running balance after transaction)
-
-Do not include headers, footers, summary metrics, or page numbers. Only return transactions.
-Return ONLY the raw JSON array. Do not include markdown code fences, comments, or explanations."""
-
+    _prompt_file = os.path.join(_CONTRACT_DIR, "prompts", "chunk_extraction.txt")
+    try:
+        with open(_prompt_file, "r", encoding="utf-8") as _pf:
+            _prompt_tmpl = _pf.read()
+            prompt = _prompt_tmpl.replace("{chunk_text}", chunk_text)
+    except Exception as _e:
+        print(f"[parsers.py] Warning: Could not load chunk_extraction prompt from {_prompt_file}: {_e}")
+        prompt = f"Extract transaction rows from the following bank statement text chunk:\n{chunk_text}\nReturn ONLY the raw JSON array."
+        
     # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:
         from src.services.llm_provider import complete as _llm_generate
@@ -1845,18 +1678,14 @@ def categorize_descriptions_with_llm(descriptions: list) -> dict[str, dict]:
             "hint": hint
         })
 
-    prompt = f"""You are a financial assistant. For each of the following transaction items, extract the clean merchant/payee name and classify it into one of these standard categories:
-{json.dumps(valid_categories)}
-
-Guideline:
-- Analyze both the transaction description and the statement hint (if provided). Map it to the closest matching standard category.
-- Avoid the "Other" category as much as possible. Only classify as "Other" if the transaction cannot fit into any of the standard categories (e.g. Groceries, Transport, Food & Dining, Shopping, Utilities, Entertainment, Healthcare, Investment & Insurance, Income).
-- Return a JSON object where the keys are the exact "id" from the input.
-
-Return ONLY the raw JSON object mapping each "id" to an object containing "merchant" and "category". Do not include markdown code fences, comments, or explanations.
-
-Input items:
-{json.dumps(items_to_send)}"""
+    _prompt_file = os.path.join(_CONTRACT_DIR, "prompts", "categorizer.txt")
+    try:
+        with open(_prompt_file, "r", encoding="utf-8") as _pf:
+            _prompt_tmpl = _pf.read()
+            prompt = _prompt_tmpl.replace("{valid_categories}", json.dumps(valid_categories)).replace("{items_to_send}", json.dumps(items_to_send))
+    except Exception as _e:
+        print(f"[parsers.py] Warning: Could not load categorizer prompt from {_prompt_file}: {_e}")
+        prompt = f"Categorize transaction items into {json.dumps(valid_categories)}:\n{json.dumps(items_to_send)}"
 
     # MLX runs the model IN-PROCESS (no Ollama, no HTTP, no subprocess).
     try:

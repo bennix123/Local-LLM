@@ -1,0 +1,335 @@
+[
+  {
+    "date": "2026-06-01",
+    "description": "TESCO STORES 2431 PATNA",
+    "debit": 42.15,
+    "credit": 0.0,
+    "balance": 2407.85,
+    "category": "Groceries",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-01",
+    "description": "SALARY - ACME CORP LTD",
+    "debit": 0.0,
+    "credit": 2100.0,
+    "balance": 4507.85,
+    "category": "Income",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-02",
+    "description": "TFL TRAVEL CHARGE",
+    "debit": 8.9,
+    "credit": 0.0,
+    "balance": 4498.95,
+    "category": "Transport",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-02",
+    "description": "COSTA COFFEE",
+    "debit": 4.35,
+    "credit": 0.0,
+    "balance": 4494.6,
+    "category": "Food & Dining",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-03",
+    "description": "DIRECT DEBIT - BRITISH GAS",
+    "debit": 65.0,
+    "credit": 0.0,
+    "balance": 4429.6,
+    "category": "Utilities",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-03",
+    "description": "AMAZON MKTPLACE UK",
+    "debit": 27.99,
+    "credit": 0.0,
+    "balance": 4401.61,
+    "category": "Shopping",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-04",
+    "description": "STANDING ORDER - RENT",
+    "debit": 750.0,
+    "credit": 0.0,
+    "balance": 3651.61,
+    "category": "Rent",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-04",
+    "description": "PAYPAL *NETFLIX",
+    "debit": 10.99,
+    "credit": 0.0,
+    "balance": 3640.62,
+    "category": "Entertainment",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-05",
+    "description": "CASH WITHDRAWAL - HANDELSBANKEN ATM",
+    "debit": 100.0,
+    "credit": 0.0,
+    "balance": 3540.62,
+    "category": "Cash",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-05",
+    "description": "SAINSBURYS S/MKT",
+    "debit": 55.2,
+    "credit": 0.0,
+    "balance": 3485.42,
+    "category": "Groceries",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-06",
+    "description": "TRANSFER FROM J SMITH",
+    "debit": 0.0,
+    "credit": 150.0,
+    "balance": 3635.42,
+    "category": "Transfers",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-07",
+    "description": "UBER TRIP",
+    "debit": 12.4,
+    "credit": 0.0,
+    "balance": 3623.02,
+    "category": "Transport",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-08",
+    "description": "SHELL PETROL STATION",
+    "debit": 48.0,
+    "credit": 0.0,
+    "balance": 3575.02,
+    "category": "Transport",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-09",
+    "description": "DIRECT DEBIT - VODAFONE",
+    "debit": 35.0,
+    "credit": 0.0,
+    "balance": 3540.02,
+    "category": "Utilities",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-09",
+    "description": "INTEREST PAID",
+    "debit": 0.0,
+    "credit": 1.24,
+    "balance": 3541.26,
+    "category": "Income",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-10",
+    "description": "BOOTS PHARMACY",
+    "debit": 15.6,
+    "credit": 0.0,
+    "balance": 3525.66,
+    "category": "Healthcare",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-11",
+    "description": "SPOTIFY PREMIUM",
+    "debit": 9.99,
+    "credit": 0.0,
+    "balance": 3515.67,
+    "category": "Entertainment",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-11",
+    "description": "TRANSFER TO SAVINGS ACCOUNT",
+    "debit": 200.0,
+    "credit": 0.0,
+    "balance": 3315.67,
+    "category": "Transfers",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-12",
+    "description": "JOHN LEWIS & PARTNERS",
+    "debit": 89.5,
+    "credit": 0.0,
+    "balance": 3226.17,
+    "category": "Shopping",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-13",
+    "description": "COUNCIL TAX PAYMENT",
+    "debit": 145.0,
+    "credit": 0.0,
+    "balance": 3081.17,
+    "category": "Utilities",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-14",
+    "description": "DEUTSCHE BANK REFUND",
+    "debit": 0.0,
+    "credit": 22.5,
+    "balance": 3103.67,
+    "category": "Income",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-15",
+    "description": "MARKS & SPENCER",
+    "debit": 33.1,
+    "credit": 0.0,
+    "balance": 3070.57,
+    "category": "Groceries",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-16",
+    "description": "GYM MEMBERSHIP - PURE GYM",
+    "debit": 24.99,
+    "credit": 0.0,
+    "balance": 3045.58,
+    "category": "Entertainment",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-17",
+    "description": "CASH DEPOSIT",
+    "debit": 0.0,
+    "credit": 300.0,
+    "balance": 3345.58,
+    "category": "Cash",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-18",
+    "description": "PRET A MANGER",
+    "debit": 7.85,
+    "credit": 0.0,
+    "balance": 3337.73,
+    "category": "Food & Dining",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-19",
+    "description": "EE MOBILE BILL",
+    "debit": 28.0,
+    "credit": 0.0,
+    "balance": 3309.73,
+    "category": "Utilities",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-20",
+    "description": "ARGOS RETAIL LTD",
+    "debit": 62.0,
+    "credit": 0.0,
+    "balance": 3247.73,
+    "category": "Shopping",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-21",
+    "description": "SALARY - ACME CORP LTD (BONUS)",
+    "debit": 0.0,
+    "credit": 500.0,
+    "balance": 3747.73,
+    "category": "Income",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-22",
+    "description": "TFL TRAVEL CHARGE",
+    "debit": 9.4,
+    "credit": 0.0,
+    "balance": 3738.33,
+    "category": "Transport",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-23",
+    "description": "WAITROSE",
+    "debit": 47.75,
+    "credit": 0.0,
+    "balance": 3690.58,
+    "category": "Groceries",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-24",
+    "description": "DIRECT DEBIT - THAMES WATER",
+    "debit": 30.0,
+    "credit": 0.0,
+    "balance": 3660.58,
+    "category": "Utilities",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-25",
+    "description": "TRANSFER FROM R PATEL",
+    "debit": 0.0,
+    "credit": 75.0,
+    "balance": 3735.58,
+    "category": "Transfers",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-26",
+    "description": "APPLE.COM/BILL",
+    "debit": 2.99,
+    "credit": 0.0,
+    "balance": 3732.59,
+    "category": "Entertainment",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-27",
+    "description": "NANDOS RESTAURANT",
+    "debit": 22.4,
+    "credit": 0.0,
+    "balance": 3710.19,
+    "category": "Food & Dining",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-28",
+    "description": "OVERDRAFT FEE",
+    "debit": 5.0,
+    "credit": 0.0,
+    "balance": 3705.19,
+    "category": "Other",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-29",
+    "description": "FREELANCE PAYMENT - INVOICE 1042",
+    "debit": 0.0,
+    "credit": 350.0,
+    "balance": 4055.19,
+    "category": "Income",
+    "bank": "Handelsbanken Demo"
+  },
+  {
+    "date": "2026-06-30",
+    "description": "STANDING ORDER - CAR INSURANCE",
+    "debit": 55.0,
+    "credit": 0.0,
+    "balance": 4000.19,
+    "category": "Investment & Insurance",
+    "bank": "Handelsbanken Demo"
+  }
+]

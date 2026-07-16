@@ -1,0 +1,12 @@
+You are analyzing a bank statement text to find the transaction table row structure.
+Analyze the following lines from the transaction table and identify the schema pattern:
+{lines_str}
+
+Return a JSON object with the following fields:
+- "date_format": Description of date format (e.g. "DD-MM-YYYY", "YYYY-MM-DD", "DD MMM YY", "DD/MM/YYYY")
+- "column_order": Array of column roles in order. Valid roles are: "date", "description", "debit", "credit", "balance", "amount" (if debit/credit are combined).
+- "debit_credit_style": One of "separate_columns", "dr_cr_suffix", "sign"
+- "sample_regex": A Python regular expression string matching a single row. Use named groups: (?P<date>...), (?P<desc>...), (?P<debit>...), (?P<credit>...), (?P<balance>...), or (?P<amount>...) if combined. The regex should match typical transaction lines.
+- "backup_columns": A JSON object mapping column role to its 0-indexed column position (e.g. {"date_col": 0, "desc_col": 1, "debit_col": 2, "credit_col": 3, "balance_col": 4}).
+
+Return ONLY the raw JSON object. Do not include any explanations, introduction, markdown blocks, or code fences.

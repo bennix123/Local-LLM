@@ -1,0 +1,326 @@
+[
+  {
+    "date": "2026-05-01",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 50.15,
+    "credit": 0.0,
+    "balance": 565.15,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-01",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 84.59,
+    "credit": 0.0,
+    "balance": 480.56,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-01",
+    "description": "FAKE PETROL STATION",
+    "debit": 87.37,
+    "credit": 0.0,
+    "balance": 393.19,
+    "category": "Transport",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-01",
+    "description": "SPECIMEN BRANCH ATM",
+    "debit": 101.1,
+    "credit": 0.0,
+    "balance": 292.09,
+    "category": "Cash",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-01",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 936.69,
+    "balance": 1228.78,
+    "category": "Income",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-02",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 31.43,
+    "credit": 0.0,
+    "balance": 1197.35,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-03",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 7.41,
+    "credit": 0.0,
+    "balance": 1189.94,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-03",
+    "description": "TEST STREAMING SERVICE REAL",
+    "debit": 169.66,
+    "credit": 0.0,
+    "balance": 1020.28,
+    "category": "Other",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-03",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 129.02,
+    "credit": 0.0,
+    "balance": 891.26,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-04",
+    "description": "TEST STREAMING SERVICE",
+    "debit": 33.19,
+    "credit": 0.0,
+    "balance": 858.07,
+    "category": "Other",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-04",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 76.1,
+    "credit": 0.0,
+    "balance": 781.97,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-04",
+    "description": "DEMO PHARMACY",
+    "debit": 61.32,
+    "credit": 0.0,
+    "balance": 720.65,
+    "category": "Healthcare",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "FAKE CINEMA LTD",
+    "debit": 243.58,
+    "credit": 0.0,
+    "balance": 477.07,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 13.83,
+    "credit": 0.0,
+    "balance": 463.24,
+    "category": "Investment & Insurance",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "FAKE CINEMA LTD A",
+    "debit": 110.47,
+    "credit": 0.0,
+    "balance": 352.77,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 1283.03,
+    "balance": 1635.8,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "FAKE CINEMA LTD",
+    "debit": 243.73,
+    "credit": 0.0,
+    "balance": 1392.07,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-05",
+    "description": "NOT FAKE COFFEE CO",
+    "debit": 4.79,
+    "credit": 0.0,
+    "balance": 1387.28,
+    "category": "Food & Dining",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-06",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 69.62,
+    "credit": 0.0,
+    "balance": 1317.66,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-06",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 122.62,
+    "credit": 0.0,
+    "balance": 1195.04,
+    "category": "Food & Dining",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-06",
+    "description": "SAMPLE AIRLINE BOOKING",
+    "debit": 16.8,
+    "credit": 0.0,
+    "balance": 1178.24,
+    "category": "Transport",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-06",
+    "description": "DEMO PHARMACY",
+    "debit": 151.71,
+    "credit": 0.0,
+    "balance": 1026.53,
+    "category": "Healthcare",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-07",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 1758.38,
+    "balance": 2784.91,
+    "category": "Income",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-07",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 130.83,
+    "credit": 0.0,
+    "balance": 2654.08,
+    "category": "Entertainment",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-08",
+    "description": "INTEREST PAID (SPECIMEN)",
+    "debit": 0.0,
+    "credit": 1288.83,
+    "balance": 3942.91,
+    "category": "Income",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-08",
+    "description": "DEMO PHARMACY",
+    "debit": 3.09,
+    "credit": 0.0,
+    "balance": 3939.82,
+    "category": "Healthcare",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-08",
+    "description": "SAMPLE AIRLINE BOOKING Fictional SPECIMEN data - not a real person, account, or ",
+    "debit": 199.4,
+    "credit": 0.0,
+    "balance": 3740.42,
+    "category": "Transport",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-09",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 1324.36,
+    "balance": 5064.78,
+    "category": "Income",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-09",
+    "description": "DEMO MOBILE NETWORK",
+    "debit": 182.9,
+    "credit": 0.0,
+    "balance": 4881.88,
+    "category": "Other",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-10",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 185.21,
+    "credit": 0.0,
+    "balance": 4696.67,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-10",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE DOCUMENT",
+    "debit": 0.0,
+    "credit": 82.5,
+    "balance": 4779.17,
+    "category": "Income",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-10",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 1696.25,
+    "balance": 6475.42,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-10",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 128.53,
+    "credit": 0.0,
+    "balance": 6346.89,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-11",
+    "description": "DEMO BOOKSHOP",
+    "debit": 132.58,
+    "credit": 0.0,
+    "balance": 6214.31,
+    "category": "Other",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-11",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 1628.3,
+    "balance": 7842.61,
+    "category": "Shopping",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  },
+  {
+    "date": "2026-05-12",
+    "description": "SAMPLE SPECIMEN WATER COMPANY REAL A NOT Fictional SPECIMEN data - not a real pe",
+    "debit": 227.04,
+    "credit": 0.0,
+    "balance": 7615.57,
+    "category": "Other",
+    "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
+  }
+]

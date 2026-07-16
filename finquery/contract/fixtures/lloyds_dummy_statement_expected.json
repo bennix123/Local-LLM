@@ -1,0 +1,290 @@
+[
+  {
+    "date": "2026-06-07",
+    "description": "26 REFUND - JOHN LEWIS",
+    "debit": 723.82,
+    "credit": 0.0,
+    "balance": 1973.82,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-07",
+    "description": "26 TFL TRAVEL CHARGE DOCUMENT TEST",
+    "debit": 203.66,
+    "credit": 0.0,
+    "balance": 1770.16,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-08",
+    "description": "26 FASTER PAYMENT RECEIVED",
+    "debit": 0.0,
+    "credit": 127.87,
+    "balance": 1898.03,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-08",
+    "description": "26 HMRC",
+    "debit": 0.0,
+    "credit": 1288.12,
+    "balance": 3186.15,
+    "category": "Income",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-10",
+    "description": "26 BRITISH GAS DD",
+    "debit": 127.02,
+    "credit": 0.0,
+    "balance": 3059.13,
+    "category": "Utilities",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-10",
+    "description": "26 ASDA SUPERSTORE SYNTHETIC",
+    "debit": 243.21,
+    "credit": 0.0,
+    "balance": 2815.92,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-13",
+    "description": "26 ASDA SUPERSTORE",
+    "debit": 48.33,
+    "credit": 0.0,
+    "balance": 2767.59,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-13",
+    "description": "26 UBER TRIP",
+    "debit": 32.46,
+    "credit": 0.0,
+    "balance": 2735.13,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-14",
+    "description": "26 TRANSFER FROM J SMITH",
+    "debit": 0.0,
+    "credit": 892.69,
+    "balance": 3627.82,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-15",
+    "description": "26 GYM MEMBERSHIP DD BANK",
+    "debit": 161.8,
+    "credit": 0.0,
+    "balance": 3466.02,
+    "category": "Entertainment",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-16",
+    "description": "26 TRANSFER FROM SAVINGS",
+    "debit": 0.0,
+    "credit": 2082.04,
+    "balance": 5548.06,
+    "category": "Transfers",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-17",
+    "description": "26 DEUTSCHE APOTHEKE",
+    "debit": 174.05,
+    "credit": 0.0,
+    "balance": 5374.01,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-17",
+    "description": "26 SAINSBURYS",
+    "debit": 199.06,
+    "credit": 0.0,
+    "balance": 5174.95,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-18",
+    "description": "26 SHELL GARAGE",
+    "debit": 260.21,
+    "credit": 0.0,
+    "balance": 4914.74,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-19",
+    "description": "26 DEUTSCHE APOTHEKE - REAL",
+    "debit": 50.47,
+    "credit": 0.0,
+    "balance": 4864.27,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-20",
+    "description": "26 ASDA SUPERSTORE SAMPLE",
+    "debit": 211.14,
+    "credit": 0.0,
+    "balance": 4653.13,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-21",
+    "description": "26 MOBILE PHONE CO",
+    "debit": 191.22,
+    "credit": 0.0,
+    "balance": 4461.91,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-21",
+    "description": "26 SHELL GARAGE",
+    "debit": 50.69,
+    "credit": 0.0,
+    "balance": 4411.22,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-22",
+    "description": "26 BRITISH GAS DD A",
+    "debit": 67.45,
+    "credit": 0.0,
+    "balance": 4343.77,
+    "category": "Utilities",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-23",
+    "description": "26 SAINSBURYS",
+    "debit": 70.26,
+    "credit": 0.0,
+    "balance": 4273.51,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-25",
+    "description": "NOT 26 AMAZON MKTPLACE",
+    "debit": 64.87,
+    "credit": 0.0,
+    "balance": 4208.64,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-26",
+    "description": "26 UBER TRIP",
+    "debit": 65.36,
+    "credit": 0.0,
+    "balance": 4143.28,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-26",
+    "description": "26 GYM MEMBERSHIP DD",
+    "debit": 44.58,
+    "credit": 0.0,
+    "balance": 4098.7,
+    "category": "Entertainment",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-29",
+    "description": "26 ASDA SUPERSTORE",
+    "debit": 224.61,
+    "credit": 0.0,
+    "balance": 3874.09,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-06-29",
+    "description": "26 WATER PLC DD",
+    "debit": 121.02,
+    "credit": 0.0,
+    "balance": 3753.07,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-02",
+    "description": "26 SAINSBURYS",
+    "debit": 258.61,
+    "credit": 0.0,
+    "balance": 3494.46,
+    "category": "Groceries",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-02",
+    "description": "26 NETFLIX.COM",
+    "debit": 238.04,
+    "credit": 0.0,
+    "balance": 3256.42,
+    "category": "Entertainment",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-03",
+    "description": "26 JOHN LEWIS",
+    "debit": 115.72,
+    "credit": 0.0,
+    "balance": 3140.7,
+    "category": "Shopping",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-04",
+    "description": "26 BRITISH GAS DD",
+    "debit": 258.51,
+    "credit": 0.0,
+    "balance": 2882.19,
+    "category": "Utilities",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "26 BRITISH GAS DD",
+    "debit": 225.76,
+    "credit": 0.0,
+    "balance": 2656.43,
+    "category": "Utilities",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "26 UBER TRIP",
+    "debit": 35.24,
+    "credit": 0.0,
+    "balance": 2621.19,
+    "category": "Transport",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "26 BALANCE CARRIED FORWARD This is a computer-generated SYNTHETIC statement crea",
+    "debit": 2621.19,
+    "credit": 0.0,
+    "balance": 2621.19,
+    "category": "Other",
+    "bank": "NOT A REAL BANK DOCUMENT"
+  }
+]

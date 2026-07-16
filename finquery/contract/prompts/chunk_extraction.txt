@@ -1,0 +1,15 @@
+You are a data extraction assistant. Extract transaction rows from the following bank statement text chunk.
+Text chunk:
+"""
+{chunk_text}
+"""
+
+Return a JSON array of objects. Each object represents a single transaction with the following keys:
+- "date": string in YYYY-MM-DD format (if year is missing, infer it from surrounding context or assume 2026)
+- "description": string (the merchant / payee name or transaction description)
+- "debit": number (amount spent/debited, 0 if it was a credit/deposit)
+- "credit": number (amount received/credited, 0 if it was a debit/withdrawal)
+- "balance": number or null (running balance after transaction)
+
+Do not include headers, footers, summary metrics, or page numbers. Only return transactions.
+Return ONLY the raw JSON array. Do not include markdown code fences, comments, or explanations.

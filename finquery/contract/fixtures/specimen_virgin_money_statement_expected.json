@@ -1,0 +1,308 @@
+[
+  {
+    "date": "2026-03-01",
+    "description": "SAMPLE AIRLINE BOOKING",
+    "debit": 449.36,
+    "credit": 0.0,
+    "balance": 441.19,
+    "category": "Transport",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-02",
+    "description": "DEMO HARDWARE STORE",
+    "debit": 244.07,
+    "credit": 0.0,
+    "balance": 197.12,
+    "category": "Other",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-02",
+    "description": "DEMO SUPERMARKET",
+    "debit": 228.4,
+    "credit": 0.0,
+    "balance": -31.28,
+    "category": "Groceries",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-02",
+    "description": "TRANSFER IN - TEST PAYER B SAMPLE",
+    "debit": 0.0,
+    "credit": 1083.09,
+    "balance": 1051.81,
+    "category": "Income",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-04",
+    "description": "DEMO HARDWARE STORE",
+    "debit": 227.13,
+    "credit": 0.0,
+    "balance": 824.68,
+    "category": "Other",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-04",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 118.67,
+    "credit": 0.0,
+    "balance": 706.01,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-04",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 1882.47,
+    "balance": 2588.48,
+    "category": "Shopping",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-05",
+    "description": "TEST HOME INSURANCE REAL",
+    "debit": 233.09,
+    "credit": 0.0,
+    "balance": 2355.39,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-06",
+    "description": "SAMPLE AIRLINE BOOKING",
+    "debit": 121.79,
+    "credit": 0.0,
+    "balance": 2233.6,
+    "category": "Transport",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-06",
+    "description": "SPECIMEN BRANCH ATM",
+    "debit": 214.51,
+    "credit": 0.0,
+    "balance": 2019.09,
+    "category": "Cash",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-07",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 1302.3,
+    "balance": 3321.39,
+    "category": "Income",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-07",
+    "description": "DEMO ELECTRONICS STORE",
+    "debit": 269.27,
+    "credit": 0.0,
+    "balance": 3052.12,
+    "category": "Shopping",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-08",
+    "description": "FAKE PETROL STATION",
+    "debit": 34.23,
+    "credit": 0.0,
+    "balance": 3017.89,
+    "category": "Transport",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-08",
+    "description": "SAMPLE AIRLINE BOOKING",
+    "debit": 445.59,
+    "credit": 0.0,
+    "balance": 2572.3,
+    "category": "Transport",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-08",
+    "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT A",
+    "debit": 0.0,
+    "credit": 1952.97,
+    "balance": 4525.27,
+    "category": "Income",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-08",
+    "description": "SPECIMEN ENERGY CO",
+    "debit": 445.52,
+    "credit": 0.0,
+    "balance": 4079.75,
+    "category": "Other",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-09",
+    "description": "TEST HOME",
+    "debit": 65.91,
+    "credit": 0.0,
+    "balance": 4013.84,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-10",
+    "description": "NOT FAKE COFFEE CO",
+    "debit": 151.03,
+    "credit": 0.0,
+    "balance": 3862.81,
+    "category": "Food & Dining",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-11",
+    "description": "SAMPLE RENT LTD",
+    "debit": 34.32,
+    "credit": 0.0,
+    "balance": 3828.49,
+    "category": "Rent",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-11",
+    "description": "REFUND - DEMO RETAILER",
+    "debit": 0.0,
+    "credit": 2050.05,
+    "balance": 5878.54,
+    "category": "Shopping",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-11",
+    "description": "SAMPLE RENT LTD",
+    "debit": 213.76,
+    "credit": 0.0,
+    "balance": 5664.78,
+    "category": "Rent",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-12",
+    "description": "FAKE PETROL STATION",
+    "debit": 97.66,
+    "credit": 0.0,
+    "balance": 5567.12,
+    "category": "Transport",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-12",
+    "description": "FAKE TAXI SERVICE",
+    "debit": 179.16,
+    "credit": 0.0,
+    "balance": 5387.96,
+    "category": "Other",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-12",
+    "description": "TRANSFER IN - TEST PAYER A SAMPLE",
+    "debit": 0.0,
+    "credit": 369.56,
+    "balance": 5757.52,
+    "category": "Income",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-12",
+    "description": "TEST ONLINE RETAILER",
+    "debit": 216.14,
+    "credit": 0.0,
+    "balance": 5541.38,
+    "category": "Shopping",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-12",
+    "description": "DEMO PHARMACY",
+    "debit": 326.49,
+    "credit": 0.0,
+    "balance": 5214.89,
+    "category": "Healthcare",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-13",
+    "description": "SAMPLE GYM MEMBERSHIP Fictional SPECIMEN data - not a real person, account, or t",
+    "debit": 417.28,
+    "credit": 0.0,
+    "balance": 4797.61,
+    "category": "Entertainment",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-14",
+    "description": "SAMPLE EMPLOYER LTD -",
+    "debit": 0.0,
+    "credit": 1423.93,
+    "balance": 6221.54,
+    "category": "Income",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-14",
+    "description": "SAMPLE GYM MEMBERSHIP",
+    "debit": 297.01,
+    "credit": 0.0,
+    "balance": 5924.53,
+    "category": "Entertainment",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-16",
+    "description": "DEMO PHARMACY",
+    "debit": 265.05,
+    "credit": 0.0,
+    "balance": 5659.48,
+    "category": "Healthcare",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-16",
+    "description": "SAMPLE WATER COMPANY DOCUMENT",
+    "debit": 443.75,
+    "credit": 0.0,
+    "balance": 5215.73,
+    "category": "Other",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-17",
+    "description": "SPECIMEN INSURANCE CO",
+    "debit": 53.17,
+    "credit": 0.0,
+    "balance": 5162.56,
+    "category": "Investment & Insurance",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-17",
+    "description": "EXAMPLE RESTAURANT",
+    "debit": 148.5,
+    "credit": 0.0,
+    "balance": 5014.06,
+    "category": "Food & Dining",
+    "bank": "Specimen Virgin Money"
+  },
+  {
+    "date": "2026-03-18",
+    "description": "SPECIMEN COUNCIL TAX SPECIMEN REAL A NOT Fictional SPECIMEN data - not a real pe",
+    "debit": 250.84,
+    "credit": 0.0,
+    "balance": 4763.22,
+    "category": "Utilities",
+    "bank": "Specimen Virgin Money"
+  }
+]
