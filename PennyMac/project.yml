@@ -1,0 +1,49 @@
+# XcodeGen spec — run `xcodegen generate` in this folder to (re)create Penny.xcodeproj.
+# The .xcodeproj is generated; edit THIS file, not the project.
+name: Penny
+options:
+  deploymentTarget:
+    macOS: "14.0"
+
+packages:
+  PennyCore:
+    path: PennyCore
+
+targets:
+  Penny:
+    type: application
+    platform: macOS
+    sources:
+      - PennyApp
+    dependencies:
+      - package: PennyCore
+        product: PennyCore
+    info:
+      path: PennyApp/Info.plist
+      properties:
+        CFBundleName: Penny
+        CFBundleDisplayName: Penny
+        LSApplicationCategoryType: public.app-category.finance
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "1.1.0"
+        CFBundleIconFile: icon.icns
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: PennyApp/Penny.entitlements
+      properties:
+        # App Sandbox ON — the whole point of this rewrite. No JIT entitlements anywhere.
+        com.apple.security.app-sandbox: true
+        # Model weights download (HuggingFace) needs outbound network.
+        com.apple.security.network.client: true
+        # User picks their statement PDF in the file dialog.
+        com.apple.security.files.user-selected.read-only: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.0"
+        # Automatic signing with the team — lets Xcode's Archive → Distribute flow
+        # manage certs + profiles (requires the Apple ID signed into Xcode > Settings > Accounts).
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: P4ANR778GY
+        ENABLE_HARDENED_RUNTIME: NO

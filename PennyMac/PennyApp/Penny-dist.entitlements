@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Mac App Store distribution signing — pairs with build/embedded.provisionprofile -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<key>com.apple.application-identifier</key>
+	<string>P4ANR778GY.com.localbankrag.app</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>P4ANR778GY</string>
+</dict>
+</plist>

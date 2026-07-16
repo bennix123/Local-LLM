@@ -1,0 +1,17 @@
+starting Penny on http://127.0.0.1:5667 ...
+[auth] WARNING: JWT_SECRET not set — using a random key (tokens reset on restart). Set JWT_SECRET env var for persistence.
+[db] using /Users/shivduttchauhan/Desktop/delulu/Penny/finquery/data/live_txn.db
+INFO:     Started server process [54025]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:5667 (Press CTRL+C to quit)
+[mlx] loading mlx-community/Llama-3.1-8B-Instruct-4bit …
+Fetching 6 files:   0%|          | 0/6 [00:00<?, ?it/s]Fetching 6 files: 100%|██████████| 6/6 [00:00<00:00, 11496.49it/s]
+[mlx] mlx-community/Llama-3.1-8B-Instruct-4bit ready
+[mlx] mlx-community/Llama-3.1-8B-Instruct-4bit warm
+INFO:     127.0.0.1:49392 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49393 - "GET /api HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [54025]

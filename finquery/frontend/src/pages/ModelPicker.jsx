@@ -118,7 +118,7 @@ function ModelPicker() {
                   <div className="mp-status">{status} {progress}%</div>
                 </div>
               ) : isActive ? (
-                <button className="mp-btn on" disabled>In use ✓</button>
+                <button className="mp-btn on" onClick={() => useModel(m.id)}>In use ✓ · Continue →</button>
               ) : m.installed ? (
                 <button className="mp-btn use" onClick={() => useModel(m.id)}>Use this model</button>
               ) : (

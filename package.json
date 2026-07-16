@@ -1,6 +1,6 @@
 {
   "name": "local-llm-bank-rag",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "author": {
     "name": "Radhika Babar",
@@ -11,8 +11,10 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
+    "mac": "cd PennyMac && xcodebuild -project Penny.xcodeproj -scheme Penny -configuration Debug -derivedDataPath .dd -skipMacroValidation -skipPackagePluginValidation build && open .dd/Build/Products/Debug/Penny.app",
     "build": "electron-builder --publish never",
     "build-mac": "electron-builder --mac dmg --publish never",
+    "build-mas": "electron-builder --mac mas --publish never",
     "build-win": "electron-builder --win nsis --publish never",
     "build-linux": "electron-builder --linux AppImage deb --publish never",
     "release-mac": "electron-builder --mac dmg --publish always",
@@ -76,6 +78,7 @@
       "createStartMenuShortcut": true
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -86,6 +89,15 @@
         }
       ],
       "category": "public.app-category.finance"
+    },
+    "mas": {
+      "type": "distribution",
+      "hardenedRuntime": false,
+      "category": "public.app-category.finance",
+      "icon": "build/icon.icns",
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "build/embedded.provisionprofile"
     },
     "linux": {
       "target": [
