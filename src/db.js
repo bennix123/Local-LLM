@@ -94,16 +94,26 @@ export function initDb() {
 
 /** Replace the entire stored document with a fresh set of text chunks. */
 export function replaceDocument({ fileName, columns, rowCount, chunks, summary, records, currency }) {
-  db.exec("DELETE FROM chunks;");
+  const existingMeta = getMeta();
+  let newFileName = fileName;
+  let newRowCount = rowCount ?? chunks.length;
+  if (existingMeta.fileName) {
+    newFileName = `${existingMeta.fileName}, ${fileName}`;
+    newRowCount += existingMeta.rowCount;
+  }
+
   db.exec("DELETE FROM meta;");
 
   const setMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?);");
-  setMeta.run("fileName", fileName);
+  setMeta.run("fileName", newFileName);
   setMeta.run("columns", JSON.stringify(columns || []));
-  setMeta.run("rowCount", String(rowCount ?? chunks.length));
+  setMeta.run("rowCount", String(newRowCount));
   setMeta.run("summary", summary || "");
   setMeta.run("records", JSON.stringify(records || []));
   setMeta.run("currency", currency || "");
+
+  const maxRowIndexRow = db.prepare("SELECT MAX(row_index) as max_idx FROM chunks;").get();
+  const startIdx = (maxRowIndexRow && maxRowIndexRow.max_idx != null) ? maxRowIndexRow.max_idx + 1 : 0;
 
   const insert = db.prepare(
     "INSERT INTO chunks (content, row_index) VALUES (?, ?);"
@@ -111,7 +121,7 @@ export function replaceDocument({ fileName, columns, rowCount, chunks, summary, 
   // node:sqlite has no explicit transaction helper; wrap manually for speed.
   db.exec("BEGIN;");
   try {
-    chunks.forEach((text, i) => insert.run(text, i));
+    chunks.forEach((text, i) => insert.run(text, startIdx + i));
     db.exec("COMMIT;");
   } catch (e) {
     db.exec("ROLLBACK;");
@@ -122,6 +132,9 @@ export function replaceDocument({ fileName, columns, rowCount, chunks, summary, 
 export function clearDocument() {
   db.exec("DELETE FROM chunks;");
   db.exec("DELETE FROM meta;");
+  db.exec("DELETE FROM transactions;");
+  db.exec("DELETE FROM month_summaries;");
+  db.exec("DELETE FROM period_summaries;");
 }
 
 export function getMeta() {
@@ -147,7 +160,6 @@ export function getAllChunks() {
 // ── Transactions table (scalable store + SQL aggregation) ───────────────────
 
 export function replaceTransactions(records) {
-  db.exec("DELETE FROM transactions;");
   const ins = db.prepare(
     "INSERT INTO transactions (date, ym, description, payee, category, amount, balance, is_upi) VALUES (?,?,?,?,?,?,?,?)"
   );

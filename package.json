@@ -57,7 +57,7 @@
       "server.js",
       "package.json"
     ],
-    "asar": true,
+    "asar": false,
     "asarUnpack": [
       "**/*.node",
       "**/node_modules/@node-llama-cpp/**",

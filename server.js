@@ -89,6 +89,17 @@ if (_startMeta.currency) setCurrency(_startMeta.currency);
 await initChromaDb();
 await initRedis();
 
+// Auto-load first downloaded model on startup if any exist
+try {
+  const downloadedModels = listDownloadedModels();
+  if (downloadedModels.length > 0) {
+    console.log(`\n  Auto-loading model on startup: ${downloadedModels[0]}...\n`);
+    loadModel(downloadedModels[0]).catch(err => console.error("Auto-load model error:", err.message));
+  }
+} catch (e) {
+  console.error("Failed to auto-load model:", e.message);
+}
+
 process.on("SIGTERM", async () => { await disconnectRedis(); process.exit(0); });
 process.on("SIGINT", async () => { await disconnectRedis(); process.exit(0); });
 
@@ -169,7 +180,42 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
         .status(400)
         .json({ error: "Could not read any rows/text from that file." });
     }
-    const records = (parsed.records || []).map((r) => ({ ...r, Category: r.Category || categorize(r) }));
+    const knownCategories = [
+      "Groceries", "Dining", "Utilities", "Rent", "Subscriptions", "Cash", 
+      "Transfer In", "Transfer Out", "Fuel", "Interest", "Health", "Shopping", 
+      "Salary", "Entertainment", "Travel", "Food", "Eating Out", "Other"
+    ];
+    const records = (parsed.records || []).map((r) => {
+      let desc = String(r.Description || r.description || "").trim();
+      let cat = r.Category || r.category || "";
+      let date = r.Date || r.date || "";
+      let amount = r.Amount || r.amount || "";
+      let balance = r.Balance || r.balance || "";
+      if (!cat) {
+        for (const known of knownCategories) {
+          if (desc.endsWith(known)) {
+            cat = known;
+            desc = desc.substring(0, desc.length - known.length).trim();
+            break;
+          }
+        }
+      }
+      if (cat) {
+        if (cat === "Dining" || cat === "Eating Out" || cat === "Food") cat = "Food & Dining";
+        else if (cat === "Transfer In" || cat === "Transfer Out") cat = "Other / Transfers";
+        else if (cat === "Fuel" || cat === "Travel") cat = "Transport";
+        else if (cat === "Health") cat = "Healthcare";
+        else if (cat === "Subscriptions") cat = "Entertainment";
+      }
+      const finalRecord = {
+        Date: date,
+        Description: desc,
+        Category: cat || categorize({ Description: desc }),
+        Amount: amount,
+        Balance: balance
+      };
+      return finalRecord;
+    });
     const summary = computeStatsSummary(parsed.columns, records);
     replaceDocument({
       fileName: originalname,
@@ -196,6 +242,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 
     res.json({ ok: true, document: getMeta() });
   } catch (err) {
+    console.error("Upload error:", err);
     res.status(400).json({ error: err.message });
   }
 });
@@ -885,12 +932,17 @@ app.post("/api/chat", async (req, res) => {
     }
   }
 
-  // LOOKUP: FTS5 keyword search, no LLM needed
+  // LOOKUP: FTS5 keyword search
   if (intent === "LOOKUP") {
     const kw = extractLookupKeyword(message);
     if (kw) {
-      const lookupResult = handleEntityLookup(kw);
-      res.type("text/plain").send(lookupResult.answer); return;
+      const lookupResult = await handleEntityLookup(kw);
+      if (lookupResult.data && (
+        (lookupResult.data.sql && lookupResult.data.sql.count > 0) || 
+        (lookupResult.data.chunks && lookupResult.data.chunks.length > 0)
+      )) {
+        res.type("text/plain").send(lookupResult.answer); return;
+      }
     }
   }
 

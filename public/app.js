@@ -111,6 +111,12 @@ async function launchApp() {
   setTab("today");
 }
 document.querySelectorAll(".bnt").forEach((b) => b.onclick = () => setTab(b.dataset.v));
+$("reset-btn").onclick = async () => {
+  if (confirm("Clear current statement and upload a new one?")) {
+    await fetch("/api/reset", { method: "POST" });
+    window.location.reload();
+  }
+};
 function setTab(v) {
   document.querySelectorAll(".bnt").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
   const view = $("view");
@@ -192,10 +198,21 @@ function renderBills(view) {
 // ---- DATA (raw transactions, paged + searchable) ----
 let dataState = { offset: 0, limit: 40, q: "" };
 function renderData(view) {
-  view.innerHTML = `<div class="dataview">
+  view.innerHTML = `<div class="dataview" style="max-width: 100%; overflow-x: auto;">
     <input class="data-search" id="data-q" placeholder="Search transactions…" value="${esc(dataState.q)}">
-    <div id="data-rows"></div>
-    <div class="data-foot"><button class="pgbtn" id="pg-prev">‹ Prev</button><span class="pginfo" id="pg-info"></span><button class="pgbtn" id="pg-next">Next ›</button></div>
+    <table class="raw-data-table" style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--line); text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--dim);">
+          <th style="padding: 10px 8px;">Date</th>
+          <th style="padding: 10px 8px;">Description</th>
+          <th style="padding: 10px 8px;">Category</th>
+          <th style="padding: 10px 8px; text-align: right;">Amount</th>
+          <th style="padding: 10px 8px; text-align: right;">Balance</th>
+        </tr>
+      </thead>
+      <tbody id="data-rows"></tbody>
+    </table>
+    <div class="data-foot" style="margin-top: 15px;"><button class="pgbtn" id="pg-prev">‹ Prev</button><span class="pginfo" id="pg-info"></span><button class="pgbtn" id="pg-next">Next ›</button></div>
   </div>`;
   let t; $("data-q").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { dataState.q = e.target.value; dataState.offset = 0; loadData(); }, 300); };
   $("pg-prev").onclick = () => { dataState.offset = Math.max(0, dataState.offset - dataState.limit); loadData(); };
@@ -205,7 +222,16 @@ function renderData(view) {
 async function loadData() {
   const { offset, limit, q } = dataState;
   const d = await (await fetch(`/api/transactions?offset=${offset}&limit=${limit}&q=${encodeURIComponent(q)}`)).json();
-  $("data-rows").innerHTML = d.rows.length ? d.rows.map((r) => { const out = Number(r.amount) < 0; return `<div class="dt"><div class="dt-b"><div class="dt-n">${esc(r.payee)}</div><div class="dt-m">${r.date} · ${esc(r.category || "")}</div></div><div class="dt-a ${out ? "out" : "in"}">${out ? "−" : "+"}${M0(r.amount)}</div></div>`; }).join("") : `<div class="empty">No matching transactions.</div>`;
+  $("data-rows").innerHTML = d.rows.length ? d.rows.map((r) => { 
+    const out = Number(r.amount) < 0; 
+    return `<tr style="border-bottom: 1px solid var(--line-soft); font-size: 13px;">
+      <td style="padding: 10px 8px; white-space: nowrap; font-family: 'JetBrains Mono', monospace;">${r.date}</td>
+      <td style="padding: 10px 8px; font-weight: 600;">${esc(r.payee)}</td>
+      <td style="padding: 10px 8px;"><span style="background: ${COL(r.category)}22; color: ${COL(r.category)}; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600;">${esc(r.category || "Other")}</span></td>
+      <td style="padding: 10px 8px; text-align: right; font-weight: 700; font-family: 'JetBrains Mono', monospace;" class="${out ? "out" : "in"}">${out ? "−" : "+"}${M0(r.amount)}</td>
+      <td style="padding: 10px 8px; text-align: right; font-family: 'JetBrains Mono', monospace; color: var(--dim);">${r.balance != null ? M0(r.balance) : "—"}</td>
+    </tr>`; 
+  }).join("") : `<tr><td colspan="5" class="empty" style="text-align: center; padding: 30px;">No matching transactions.</td></tr>`;
   $("pg-info").textContent = d.total ? `${N(offset + 1)}–${N(Math.min(offset + limit, d.total))} of ${N(d.total)}` : "0";
   $("pg-prev").disabled = offset <= 0;
   $("pg-next").disabled = offset + limit >= d.total;

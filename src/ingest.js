@@ -105,10 +105,31 @@ export function parseXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const firstSheetName = wb.SheetNames[0];
   const ws = wb.Sheets[firstSheetName];
-  const records = XLSX.utils.sheet_to_json(ws, { defval: "", raw: false });
+
+  // Find actual header row dynamically
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  const allText = JSON.stringify(rows).toLowerCase();
+  detectCurrencyFromText(allText);
+  let headerRowIndex = 0;
+  const headerKeywords = [/date/i, /desc/i, /particular/i, /narrat/i, /amount/i, /debit/i, /credit/i, /withdrawal/i, /deposit/i, /balance/i];
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const row = rows[i];
+    if (Array.isArray(row)) {
+      const matchCount = row.filter(cell => 
+        headerKeywords.some(re => re.test(String(cell || "").trim()))
+      ).length;
+      if (matchCount >= 3) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+  }
+
+  const records = XLSX.utils.sheet_to_json(ws, { range: headerRowIndex, defval: "", raw: false });
   const cleaned = records.filter((r) =>
     Object.values(r).some((v) => String(v ?? "").trim() !== "")
   );
+  detectCurrency(cleaned);
   return tabularToChunks(normalizeRecords(cleaned));
 }
 
@@ -261,6 +282,45 @@ export async function parsePdf(buffer) {
     .map((ln) => ln.items.map((i) => i.str).join(" ").trim())
     .filter((l) => l.length > 0)
     .slice(0, MAX_ROWS);
+
+  // Smart heuristic fallback for other tabular PDFs (Chase, Barclays, Lloyds, Wrenfield, etc.)
+  const parsedRecords = [];
+  const DATE_RE = /\b(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})\b|\b(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{2,4})\b|\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})?\b/i;
+  
+  for (const line of textLines) {
+    const dateMatch = line.match(DATE_RE);
+    if (dateMatch) {
+      const dateIndex = line.indexOf(dateMatch[0]);
+      const afterDate = line.substring(dateIndex + dateMatch[0].length).trim();
+      
+      // Look for decimal currency amounts (e.g. -1,234.56, 120.00, etc.)
+      const amountMatches = [...afterDate.matchAll(/(-?[£$€₹]?[\d,]+\.\d{2})\b/g)].map(m => m[1]);
+      if (amountMatches.length >= 1) {
+        const dateStr = dateMatch[0];
+        const amountStr = amountMatches[0];
+        const balanceStr = amountMatches.length > 1 ? amountMatches[amountMatches.length - 1] : "";
+        
+        let desc = afterDate;
+        amountMatches.forEach(amt => { desc = desc.replace(amt, ""); });
+        desc = desc.replace(/\s+/g, " ").trim().replace(/^[\-\/|:;\s]+/, "").trim();
+        
+        const cleanAmt = parseFloat(amountStr.replace(/[£$€₹,]/g, ""));
+        if (!isNaN(cleanAmt) && desc.length > 1) {
+          parsedRecords.push({
+            Date: dateStr,
+            Description: desc,
+            Amount: cleanAmt >= 0 ? `+${cleanAmt.toFixed(2)}` : cleanAmt.toFixed(2),
+            Balance: balanceStr ? parseFloat(balanceStr.replace(/[£$€₹,]/g, "")).toFixed(2) : ""
+          });
+        }
+      }
+    }
+  }
+
+  if (parsedRecords.length >= 5) {
+    return tabularToChunks(parsedRecords);
+  }
+
   return { columns: [], rowCount: textLines.length, chunks: textLines, records: [] };
 }
 

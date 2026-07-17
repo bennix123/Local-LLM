@@ -55,7 +55,10 @@
     <div class="app hidden" id="app">
       <div class="tbar">
         <div class="brand-logo">penny<em>.</em></div>
-        <div class="priv-pill">on-device</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="reset-btn" style="font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--ink); background:var(--bg-2); border: 1px solid var(--line); padding:5px 10px; border-radius:12px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;">Reset 🔄</button>
+          <div class="priv-pill">on-device</div>
+        </div>
       </div>
       <div class="view" id="view"></div>
       <div class="bnav">
