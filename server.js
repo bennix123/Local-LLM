@@ -76,7 +76,7 @@ import {
   handleLargestIncome, handleTopExpenses, handleCurrentBalance,
   handleEntityLookup, handleReceivedFromPeople,
   handleSubscriptions, handleMonthlySpend, handleRecentTransactions,
-  handleSmallestExpense, handleMonthSpend,
+  handleSmallestExpense, handleMonthSpend, handleCategorySpend,
 } from "./src/analytics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1041,10 +1041,38 @@ async function routeAggregation(q) {
     }
   }
 
-  // Detect entity name in question → route to keyword lookup, not overview
+  // Category spend pattern: "spend on shopping", "groceries expenses", etc.
+  const cats = {
+    shopping: "Shopping",
+    groceries: "Groceries",
+    grocery: "Groceries",
+    dining: "Food & Dining",
+    food: "Food & Dining",
+    restaurant: "Food & Dining",
+    transport: "Transport",
+    travel: "Transport",
+    fuel: "Transport",
+    utilities: "Utilities",
+    utility: "Utilities",
+    bills: "Utilities",
+    rent: "Rent",
+    salary: "Salary"
+  };
+  for (const [k, v] of Object.entries(cats)) {
+    if (ql.includes(k)) {
+      return handleCategorySpend(v);
+    }
+  }
+
+  // Detect entity name in question → route to keyword lookup if we find a matching payee
   const entityName = extractLookupKeyword(q);
   const hasEntity = entityName && entityName.length > 2;
-  if (hasEntity) return handleEntityLookup(entityName);
+  if (hasEntity) {
+    const lookupResult = await handleEntityLookup(entityName);
+    if (lookupResult.data && lookupResult.data.sql && lookupResult.data.sql.count > 0) {
+      return lookupResult;
+    }
+  }
 
   if (/least.*(spend|month)|(spend|month).*least/i.test(q)) return handleLeastSpendMonth();
   if (/most.*(spend|month)|(spend|month).*most/i.test(q)) return handleMostSpendMonth();

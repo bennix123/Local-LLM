@@ -89,6 +89,11 @@ export function handleCurrentBalance() {
   if (!row || row.balance == null) return { answer: "No balance data.", data: null };
   return { answer: `Current balance: ₹${Number(row.balance).toFixed(2)}.`, data: row };
 }
+export function handleCategorySpend(category) {
+  const row = txCategorySpend(category);
+  if (!row || row.count === 0) return { answer: `No spending in category "${category}".`, data: null };
+  return { answer: `Spent ${S()}${Number(row.debit||0).toFixed(2)} in category "${category}" across ${row.count} transactions.`, data: row };
+}
 
 import { hybridSearch } from "../src/retrieval.js";
 
