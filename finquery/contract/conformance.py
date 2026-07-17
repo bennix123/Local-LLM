@@ -14,12 +14,12 @@ sys.path.insert(0, _PROJECT_ROOT)
 sys.path.insert(0, _BACKEND_DIR)
 
 try:
-    from finquery.backend.src.services.txn_store.parsers import ingest_pdf, connect
+    from finquery.backend.src.services.txn_store.parsers import ingest_pdf, connect, init_db
 except ImportError:
     try:
-        from backend.src.services.txn_store.parsers import ingest_pdf, connect
+        from backend.src.services.txn_store.parsers import ingest_pdf, connect, init_db
     except ImportError:
-        from src.services.txn_store.parsers import ingest_pdf, connect
+        from src.services.txn_store.parsers import ingest_pdf, connect, init_db
 
 # Path helper
 FIXTURES_DIR = os.path.join(_CURRENT_DIR, "fixtures")
@@ -59,7 +59,10 @@ def validate_schema(data):
 
 def run_parser_on_pdf(pdf_path):
     user_id = f"conformance_test_{os.path.basename(pdf_path)}"
-    
+
+    # 0. Ensure the schema exists (fresh DBs crashed on the DELETE below otherwise)
+    init_db()
+
     # 1. Clean up old entries
     con = connect()
     con.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,))

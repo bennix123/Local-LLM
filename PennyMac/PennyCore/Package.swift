@@ -8,7 +8,9 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "PennyCore", targets: ["PennyCore"]),
+        .library(name: "PennyTxnStore", targets: ["PennyTxnStore"]),
         .executable(name: "penny-cli", targets: ["penny-cli"]),
+        .executable(name: "penny-conformance", targets: ["penny-conformance"]),
     ],
     dependencies: [
         // MLXLLM / MLXLMCommon: tokenizer, chat template, generation.
@@ -23,6 +25,7 @@ let package = Package(
         .target(
             name: "PennyCore",
             dependencies: [
+                "PennyTxnStore",
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
@@ -30,11 +33,26 @@ let package = Package(
                 .product(name: "Transformers", package: "swift-transformers"),
             ]
         ),
+        // Statement ingestion: PDF text extraction (MuPDF-parity), bank parsers,
+        // deterministic categorization, SQLite store. Port of finquery's
+        // backend/src/services/txn_store — NO MLX dependency so it builds/runs
+        // with plain `swift build` and is testable against contract/fixtures.
+        .target(
+            name: "PennyTxnStore",
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
         // CLI proof of the vertical slice: load model → read PDF → one question → streamed answer.
         // Lets us verify MLX inference end-to-end from the terminal before touching Xcode.
         .executableTarget(
             name: "penny-cli",
             dependencies: ["PennyCore"]
+        ),
+        // Contract conformance runner: parses finquery/contract/fixtures/*.pdf through
+        // the Swift pipeline and exact-matches the *_expected.json files. Also exposes
+        // dump-words/dump-text subcommands to diff raw extraction against pymupdf.
+        .executableTarget(
+            name: "penny-conformance",
+            dependencies: ["PennyTxnStore"]
         ),
     ]
 )

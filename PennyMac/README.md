@@ -18,6 +18,24 @@ streamed. Sandboxed, no llama.cpp, no server, no cloud.
   - `Sources/PennyCore/PennyLLM.swift` — the LLM engine (port of `llm_provider.py`)
   - `Sources/PennyCore/StatementText.swift` — PDFKit text extraction
   - `Sources/penny-cli/` — terminal proof: `swift run penny-cli --pdf <file> "question"`
+- `PennyCore/Sources/PennyTxnStore/` — statement ingestion (port of
+  `finquery/backend/src/services/txn_store`): MuPDF-parity PDF text extraction
+  on CGPDFScanner (`PDFTextExtractor.swift` — PDFKit is not faithful enough for
+  the coordinate-clustering parsers), bank parsers (Barclays positional, PNB,
+  Wrenfield, DR/CR rows, generic cascade), deterministic categorization from
+  `finquery/contract/categories.json`, bank-profile registry, SQLite store.
+  No MLX dependency — builds and runs with plain `swift build`.
+- `PennyCore/Sources/penny-conformance/` — contract conformance runner:
+  ```bash
+  swift build --product penny-conformance
+  .build/debug/penny-conformance run          # parses finquery/contract/fixtures/*.pdf,
+                                              # exact-matches *_expected.json (15/15)
+  .build/debug/penny-conformance dump-words <pdf>   # debug: pymupdf-style word tuples
+  .build/debug/penny-conformance dump-text  <pdf>   # debug: get_text("text") parity
+  ```
+  The contract is deterministic: the Python reference passes it only with the
+  LLM layers disabled, so the Swift port needs no model for parsing parity.
+  (The LLM "Other"-category mop-up is an app-layer nicety on both sides.)
 - `PennyApp/` — SwiftUI app, mirroring `finquery/frontend/src`:
   - `Theme.swift` — palette + money/category formatting (port of `Dashboard.css` + `format.js`)
   - `PennyAvatar.swift` — coin mascot + `penny.` wordmark

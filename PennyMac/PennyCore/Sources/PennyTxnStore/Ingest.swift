@@ -1,0 +1,130 @@
+// Ingest — ingest_pdf() from parsers.py: profile match, parser selection,
+// dedicated-parser fallback to the generic cascade, category hints, reverse
+// detection, seq assignment. The LLM "Other" mop-up is intentionally absent:
+// the deterministic contract (and the expected fixtures) are defined without it.
+import Foundation
+
+public struct IngestOutput {
+    public let rows: [TxnRow]
+    public let bankName: String?
+    public let confidence: String
+    public let detectedCurrency: String
+}
+
+public final class TxnIngester {
+    let categories: Categories
+    let registry: BankProfileRegistry
+
+    public init(categoriesJSONPath: String, bankProfilesDir: String) throws {
+        categories = try Categories(categoriesJSONPath: categoriesJSONPath)
+        registry = BankProfileRegistry(dir: bankProfilesDir)
+    }
+
+    /// Parse a statement PDF into canonical rows (auto-detecting the bank).
+    public func ingestPDF(path: String) throws -> IngestOutput {
+        let doc = try PDFTextExtractor(path: path)
+        let startPage = PageClassifier.findTableStart(doc)
+        let head = GenericParsers.headText(doc, from: startPage)
+
+        // Stage 4 HLD: profile registry first
+        let matchedProfile = registry.match(head)
+        let profileCurrency = matchedProfile?.currency ?? ""
+
+        var detectedCur = profileCurrency.isEmpty ? "INR" : profileCurrency
+        if profileCurrency.isEmpty {
+            detectedCur = GenericParsers.sniffCurrency(head)   // "" when nothing matches, like the Python
+        }
+
+        // parser selection
+        let profileBank = (matchedProfile?.bankName ?? "").pyLower()
+        enum Route { case barclays, pnb, wrenfield, rowRE, generic }
+        let route: Route
+        if profileBank == "barclays" || BankParsers.isBarclays(head) {
+            route = .barclays
+        } else if profileBank == "pnb" || BankParsers.isPNB(head) {
+            route = .pnb
+        } else if profileBank == "wrenfield" || BankParsers.isWrenfield(head) {
+            route = .wrenfield
+        } else if profileBank == "hdfc" || BankParsers.isTransactionStatement(head) {
+            route = .rowRE
+        } else {
+            route = .generic
+        }
+
+        let bankName = AccountProfile.bankName(doc: doc, pdfPath: path) ?? matchedProfile?.bankName
+
+        var confidence = "high"
+        var txns: [TxnRow]
+        switch route {
+        case .barclays:
+            txns = BankParsers.parseBarclays(doc, pdfPath: path, categories: categories)
+        case .pnb:
+            txns = BankParsers.parsePNB(doc, categories: categories)
+        case .wrenfield:
+            txns = BankParsers.parseWrenfield(doc, categories: categories)
+        case .rowRE:
+            txns = BankParsers.parsePDF(doc, categories: categories)
+        case .generic:
+            let res = GenericParsers.parseGenericStatement(doc, categories: categories)
+            txns = res.rows
+            confidence = res.confidence
+        }
+
+        // dedicated parser produced nothing -> generic cascade fallback
+        if txns.isEmpty, route != .generic {
+            let res = GenericParsers.parseGenericStatement(doc, categories: categories)
+            txns = res.rows
+            confidence = res.confidence
+        }
+
+        // category hints folded into the description tail
+        for i in 0..<txns.count {
+            let (cleanDesc, hint) = Describe.extractCategoryHint(txns[i].descr)
+            if let hint {
+                txns[i].descr = cleanDesc
+                txns[i].rawCategory = hint
+                if let norm = Describe.normalizeCategory(hint) {
+                    txns[i].category = norm
+                }
+            }
+        }
+
+        if txns.isEmpty {
+            return IngestOutput(rows: [], bankName: bankName, confidence: confidence,
+                                detectedCurrency: detectedCur)
+        }
+
+        // (LLM categorizer mop-up for "Other" rows lives in the app layer, not here.)
+
+        // reverse-chronological detection
+        var isRev = false
+        if txns.count >= 2 {
+            let firstDate = txns[0].txnDate
+            let lastDate = txns[txns.count - 1].txnDate
+            if firstDate > lastDate {
+                isRev = true
+            } else if firstDate == lastDate {
+                let balCurr = txns[0].balance
+                let balNext = txns[1].balance
+                let amtCurr = txns[0].credit - txns[0].debit
+                if let bc = balCurr, let bn = balNext {
+                    if abs((bn + amtCurr) - bc) < 0.01 {
+                        isRev = true
+                    }
+                }
+            }
+        }
+        if isRev { txns.reverse() }
+
+        for i in 0..<txns.count {
+            txns[i].seq = i + 1
+            // currency override: default INR rows follow the detected currency
+            if txns[i].currency == "INR", detectedCur != "INR" {
+                txns[i].currency = detectedCur
+            }
+        }
+
+        return IngestOutput(rows: txns, bankName: bankName, confidence: confidence,
+                            detectedCurrency: detectedCur)
+    }
+}

@@ -59,7 +59,9 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "**/node_modules/@node-llama-cpp/**",
+      "**/node_modules/node-llama-cpp/**"
     ],
     "win": {
       "target": [

@@ -45,7 +45,7 @@ print("[mlx] loading \(modelID) (first run downloads the weights) …")
 let llm = PennyLLM(modelID: modelID)
 
 try await llm.load { p in
-    FileHandle.standardOutput.write(Data("\r[load] \(Int(p * 100))%   ".utf8))
+    FileHandle.standardOutput.write(Data("\r[load] \(Int(p.fraction * 100))%   ".utf8))
 }
 print("\n[mlx] ready")
 
