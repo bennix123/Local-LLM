@@ -163,6 +163,24 @@ case "query":
         print("[router] (no deterministic match → would fall back to the LLM)")
     }
 
+case "retrieve":
+    // usage: penny-conformance retrieve <pdf> "<query>" [k]
+    // Ingests the PDF, then shows the top-k most relevant rows (hybrid RAG).
+    guard args.count >= 4 else { fail("usage: penny-conformance retrieve <pdf> \"<query>\" [k]") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let k = args.count > 4 ? (Int(args[4]) ?? 8) : 8
+    let retriever = TxnRetriever(rows: out.rows)
+    let hits = retriever.topK(args[3], k: k)
+    print("[retrieve] \(out.rows.count) rows indexed · top \(hits.count) for “\(args[3])”:")
+    for (i, r) in hits.enumerated() {
+        let amt = r.debit > 0 ? "-\(r.debit)" : "+\(r.credit)"
+        print("  \(i + 1). \(r.txnDate) | \(r.descr) | \(r.category) | \(amt) \(r.currency)")
+    }
+
 default:
     fail("unknown subcommand: \(cmd)")
 }

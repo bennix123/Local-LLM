@@ -90,6 +90,11 @@ final class AppModel: ObservableObject {
     private var llm = PennyLLM(modelID: PennyLLM.sliceModelID)
     private var tickCount = 0   // 0.5 s ticks, for the elapsed clock
 
+    // Hybrid-RAG retriever, cached per selected-document set (rebuilding embeds
+    // every row, so we only redo it when the selection actually changes).
+    private var retriever: TxnRetriever?
+    private var retrieverKey = ""
+
     var catalog: [PennyLLM.CatalogEntry] { PennyLLM.catalog }
 
     var modelDisplayName: String {
@@ -464,12 +469,32 @@ final class AppModel: ObservableObject {
         let idx = messages.count - 1
         isThinking = true
 
-        let doc = scopedText()
+        let rows = selectedRows()
+        let fullText = scopedText()
+        let key = retrieverSignature()
         Task {
+            // On-device hybrid RAG: ground the model on the handful of transactions
+            // most relevant to the question instead of the whole statement (which
+            // blows the context window and dilutes relevance on big statements).
+            var grounding = fullText
+            if !rows.isEmpty {
+                let retr: TxnRetriever
+                if let cached = retriever, retrieverKey == key {
+                    retr = cached
+                } else {
+                    retr = await Task.detached { TxnRetriever(rows: rows) }.value
+                    retriever = retr
+                    retrieverKey = key
+                }
+                let hits = retr.topK(q, k: 14)
+                if !hits.isEmpty {
+                    grounding = Self.retrievalContext(hits, currency: summary.currency)
+                }
+            }
             do {
                 // Generous cap so long outputs (e.g. a full transaction table) aren't
                 // truncated mid-row; short answers still stop early at end-of-text.
-                _ = try await llm.ask(question: q, statementText: doc, maxTokens: 4096) { [weak self] piece in
+                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 4096) { [weak self] piece in
                     Task { @MainActor in
                         guard let self, self.messages.indices.contains(idx) else { return }
                         self.messages[idx].content += piece
@@ -482,6 +507,32 @@ final class AppModel: ObservableObject {
             }
             isThinking = false
         }
+    }
+
+    /// A cheap signature of the selected-document set — the RAG index is rebuilt
+    /// only when this changes (docs added/removed or selection toggled).
+    private func retrieverSignature() -> String {
+        docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
+            .map { "\($0.name):\($0.rows.count)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
+    /// Format the retrieved rows as compact grounding for the model — the RAG
+    /// context that replaces whole-document stuffing.
+    static func retrievalContext(_ rows: [PennyTxnStore.TxnRow], currency: String) -> String {
+        var lines = [
+            "Here are the transactions from the user's statement most relevant to their question.",
+            "Base your answer only on these rows:",
+            "",
+        ]
+        for r in rows {
+            let amt = r.debit > 0 ? "spent \(Money.format(r.debit, currency: currency))"
+                                  : "received \(Money.format(r.credit, currency: currency))"
+            let bal = r.balance.map { " · balance \(Money.format($0, currency: currency))" } ?? ""
+            lines.append("• \(r.txnDate) — \(r.descr) [\(r.category)] — \(amt)\(bal)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Quick-action flows — the SwiftUI twin of Dashboard.runFlow(). Each maps to a

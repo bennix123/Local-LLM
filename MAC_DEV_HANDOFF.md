@@ -15,6 +15,26 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-18 — P2 DONE: on-device hybrid RAG ✅
+Open-ended chat questions now ground on the *relevant* transactions instead of the whole
+statement (which blows the context window on big statements). New
+`PennyTxnStore/Retriever.swift` (`TxnRetriever`), **zero external ML deps**:
+- **Dense** — Apple `NLEmbedding` (NaturalLanguage framework): on-device sentence vectors,
+  sandbox-safe, no PyTorch, no bundled model, no ChromaDB. Replaces sentence-transformers.
+- **Sparse** — BM25 (Okapi, pure Swift). **Fusion** — reciprocal rank fusion (k₀=60).
+- Degrades to BM25-only if the embedding model is unavailable.
+- **Wiring:** `AppModel.send()` — after `FinanceRouter` returns nil, retrieve top-14 rows and
+  pass just those to the model (`retrievalContext`), not `scopedText()`. Index is cached per
+  selected-doc set (rebuilt only when the selection changes; built off the main thread).
+- **Verified** via `penny-conformance retrieve <pdf> "<q>"` on the 1000-row HDFC statement:
+  "eating out / food delivery" → Zomato/Swiggy rows; "salary deposits" → Infosys credits;
+  "cash withdrawals" → SBI ATM rows. Conformance **15/15**; app build **SUCCEEDED**.
+
+**Note vs the Python reference:** this covers dense+BM25+RRF retrieval over transactions.
+Page-level citations and chunk-level retrieval over *non-transaction* statement text (the
+`finquery` rag/ layer) are not ported yet — the deterministic router + txn-RAG cover the
+common cases; revisit if users ask questions about statement prose (addresses, T&Cs).
+
 ### 2026-07-18 — QA bug-list triage + fix
 A QA feedback doc (9 items) was reviewed. **Most of it targets the web/Electron app**, not the
 native Swift app — those UI strings/features (`regenerate`, `logout`, `ML ENGINE`/`SQL ENGINE`
