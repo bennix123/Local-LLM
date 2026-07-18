@@ -15,6 +15,21 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-18 — P5 prepped: TestFlight/App Store signing pipeline 🚀
+Everything the signing pipeline needs is verified in place (Team `P4ANR778GY`, bundle
+`com.localbankrag.app`, Apple Distribution + 3rd Party Mac Developer Installer certs in the
+keychain, profile "Penny Mac App Store" valid to **2027-07-14**, sandbox on, no hardened runtime).
+- **`project.yml`:** signing is now **per-config** — Debug = Automatic dev; **Release = Manual**
+  Apple Distribution + "Penny Mac App Store" profile + `Penny-dist.entitlements`. Uses the
+  keychain cert/profile, so **no Apple-ID login needed to archive**.
+- **New:** `PennyMac/ExportOptions.plist` (App Store `.pkg` export) + `PennyMac/TESTFLIGHT.md`
+  (full checklist, GUI + CLI paths, gotchas).
+- **Validated the hard part:** installed the profile into Xcode's search path and the **Release
+  config now compiles and code-signs** with the manual Apple Distribution identity — the step that
+  usually breaks. Archive → upload follows from there.
+- **User-run only:** the actual **Archive → Distribute → upload to TestFlight** needs your machine
+  + Apple ID / app-specific password; it can't run headless here. Steps are in `TESTFLIGHT.md`.
+
 ### 2026-07-18 — P4 DONE: RAM-aware model picker ✅
 The picker showed static `≥N GB RAM` tags but never checked *this Mac's* RAM — a user on 8 GB
 could pick the 8 B model and OOM (the exact crash class the native rewrite exists to avoid).

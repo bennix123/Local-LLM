@@ -9,3 +9,6 @@
 .dd/
 DerivedData/
 xcuserdata/
+
+# Release-signing validation derived data
+.dd-rel/

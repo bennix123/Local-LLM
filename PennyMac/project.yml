@@ -55,8 +55,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.0"
-        # Automatic signing with the team — lets Xcode's Archive → Distribute flow
-        # manage certs + profiles (requires the Apple ID signed into Xcode > Settings > Accounts).
-        CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: P4ANR778GY
+        # Mac App Store uses the App Sandbox, NOT the Hardened Runtime.
         ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        # Local dev: automatic signing, dev entitlements (Penny.entitlements from
+        # the `entitlements:` block above). Run this config in Xcode day to day.
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+        # Mac App Store / TestFlight (P5): manual signing with the installed
+        # "Apple Distribution" cert + "Penny Mac App Store" profile — both already
+        # in the keychain, so NO Apple-ID login is needed to archive. Uses the
+        # distribution entitlements (adds application-identifier + team-identifier).
+        # Archive this config: Product ▸ Archive (scheme's Archive uses Release).
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Penny Mac App Store"
+          CODE_SIGN_ENTITLEMENTS: PennyApp/Penny-dist.entitlements
