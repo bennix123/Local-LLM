@@ -15,6 +15,28 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-18 — P3 (part 1) DONE: Type0/CID font support ✅
+Swept all 22 `test-data/` statements through the Swift parser: one hard failure —
+**Wrenfield extracted 0 rows**. Root cause: the PDF uses **Type0/CID fonts** (`Identity-H`,
+subsetted Poppins/Liberation TrueType), which the MuPDF-parity extractor explicitly didn't
+handle (`PDFFont` assumed single-byte fonts) — so text came out as shifted gibberish and no
+parser could read it. pymupdf decodes it fine via the font's ToUnicode CMap; the Swift port
+just wasn't applying it for composite fonts.
+- **Fix (`PDFFont.swift` + `PDFTextExtractor.swift`):** detect `Subtype == Type0` → read the
+  content stream in **2-byte Identity codes**, pull per-CID widths from the descendant font's
+  `W`/`DW`, and let the existing ToUnicode parser map each 2-byte code to text. Strictly gated
+  on Type0 so simple single-byte fonts (all 15 fixtures) take the unchanged path.
+- **Result:** Wrenfield **0 → 1,000 rows**, text byte-identical to pymupdf; balance/router/RAG
+  all correct. **No regression** — conformance **15/15**, and all 21 other statements parse
+  identically. App build **SUCCEEDED**.
+- **Why it matters:** Type0 subsetted fonts are extremely common in modern statements, so this
+  unlocks far more than one bank — any Identity-H statement now extracts.
+
+**P3 remaining:** dedicated parsers/verification for Indian banks with *visual table* layouts
+(SBI/ICICI/Axis — profiles exist, correctness unverified without expected fixtures) and the
+`camelot`-style table extraction for grid-ruled statements. The Type0 fix removes the biggest
+*silent* failure mode (unreadable text); table-structure parsing is the remaining risk.
+
 ### 2026-07-18 — P2 DONE: on-device hybrid RAG ✅
 Open-ended chat questions now ground on the *relevant* transactions instead of the whole
 statement (which blows the context window on big statements). New

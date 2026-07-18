@@ -298,17 +298,30 @@ final class PDFPageInterpreter {
 
     func showText(_ bytes: [UInt8]) {
         guard let font = ts.font else { return }
-        for code in bytes {
-            let codeI = Int(code)
-            let w0 = font.advance(for: codeI)
-            let uni = font.unicode(for: codeI)
-            let tsm = Matrix2D(a: ts.fontSize * ts.hscale, b: 0, c: 0,
-                               d: ts.fontSize, e: 0, f: ts.rise)
-            let trm = tsm * ts.tm * gs.ctm
-            assembler.addChar(font: font, text: uni, trm: trm, adv: w0, clip: gs.clip)
-            let tx = (w0 * ts.fontSize + ts.charSpace + (code == 32 ? ts.wordSpace : 0)) * ts.hscale
-            ts.tm = Matrix2D.translate(tx, 0) * ts.tm
+        if font.isCID {
+            // Type0/Identity-H: each glyph is a 2-byte code. Word-spacing (Tw)
+            // applies only to single-byte code 32, so never here (PDF §9.3.3).
+            var i = 0
+            while i + 1 < bytes.count {
+                emitGlyph(font, (Int(bytes[i]) << 8) | Int(bytes[i + 1]), wordSpace: false)
+                i += 2
+            }
+        } else {
+            for code in bytes { emitGlyph(font, Int(code), wordSpace: code == 32) }
         }
+    }
+
+    /// Place one glyph at the pen, then advance the text matrix. Shared by simple
+    /// (1-byte) and composite (2-byte) fonts so their positioning stays identical.
+    private func emitGlyph(_ font: PDFFont, _ code: Int, wordSpace: Bool) {
+        let w0 = font.advance(for: code)
+        let uni = font.unicode(for: code)
+        let tsm = Matrix2D(a: ts.fontSize * ts.hscale, b: 0, c: 0,
+                           d: ts.fontSize, e: 0, f: ts.rise)
+        let trm = tsm * ts.tm * gs.ctm
+        assembler.addChar(font: font, text: uni, trm: trm, adv: w0, clip: gs.clip)
+        let tx = (w0 * ts.fontSize + ts.charSpace + (wordSpace ? ts.wordSpace : 0)) * ts.hscale
+        ts.tm = Matrix2D.translate(tx, 0) * ts.tm
     }
 
     func showTextAdjusted(_ items: [TJItem]) {
