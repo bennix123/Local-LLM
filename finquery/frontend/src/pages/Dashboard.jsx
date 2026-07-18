@@ -7,7 +7,7 @@ import InputBar from '../components/InputBar';
 import ContextPanel from '../components/ContextPanel';
 import { listDocuments, queryDocumentsStream } from '../api';
 import { useAuth } from '../context/AuthContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 
 function Dashboard() {
   const [documents, setDocuments] = useState([]);
@@ -20,6 +20,7 @@ function Dashboard() {
     spentThisMonth: null, net: null, txnCount: 0, categories: [],
   });
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -227,8 +228,9 @@ function Dashboard() {
   };
 
   const handleLogout = () => {
-    logout();
+    logout();                       // clear token + user
     toast.success('Logged out successfully');
+    navigate('/login', { replace: true });   // actually leave the dashboard
   };
 
   // Choosing an AI model is a mandatory step — you can't use the app without it.

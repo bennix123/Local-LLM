@@ -69,7 +69,7 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "list":                                    # "show me the transactions" -> the rows
         m = (intent.get("merchant") or "").strip()
         cat = (intent.get("category") or "").strip()
-        cap = int(intent.get("n") or 0) or 100
+        cap = int(intent.get("n") or 0) or 200
         ttype = intent.get("txn_type")
         rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap, ttype)
         who = ""
@@ -86,7 +86,10 @@ def dispatch_intent(intent, user_id, doc_name=None):
             body.append((_dlabel(d), bank_label, desc[:40], cat or "Other",
                          amt, "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
-        tail = f"\n\n_Showing the first {grp(len(rows))}._" if total > len(rows) else ""
+        tail = (f"\n\n_Showing the first {grp(len(rows))} of {grp(total)}. "
+                f"To see specific ones, filter by merchant, category, or period — "
+                f"e.g. \"show groceries in March\" or \"transactions over 5000\"._"
+                ) if total > len(rows) else ""
         return head + "\n\n" + _table(["Date", "Bank", "Description", "Category", "Amount", "Type"], body) + tail
 
     if t == "spend":
