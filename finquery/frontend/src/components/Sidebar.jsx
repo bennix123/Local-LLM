@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import PennyAvatar from './PennyAvatar';
-import { uploadDocument } from '../api';
+import { uploadDocument, deleteDocument } from '../api';
 import toast from 'react-hot-toast';
 
 const Sidebar = ({ 
@@ -17,6 +17,21 @@ const Sidebar = ({
   const [netOnline, setNetOnline] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  const handleDeleteDoc = async (docName) => {
+    if (window.confirm(`Are you sure you want to delete "${docName}"?`)) {
+      try {
+        await deleteDocument(docName);
+        toast.success(`Deleted: ${docName}`);
+        if (onRefreshDocs) {
+          onRefreshDocs();
+        }
+      } catch (error) {
+        console.error('Delete failed:', error);
+        toast.error(`Failed to delete ${docName}`);
+      }
+    }
+  };
 
   const toggleNet = () => {
     setNetOnline(!netOnline);
@@ -103,12 +118,23 @@ const Sidebar = ({
                 key={idx} 
                 className={`acrow ${isSelected ? 'on' : ''}`}
                 onClick={() => onSelectDoc(docName)}
-                style={{ background: isSelected ? 'rgba(0,0,0,0.1)' : '' }}
+                style={{ background: isSelected ? 'rgba(0,0,0,0.1)' : '', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
               >
-                <div className="acri">{getDocIcon(doc)}</div>
-                <div className="acrn" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {docName}
+                <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                  <div className="acri">{getDocIcon(doc)}</div>
+                  <div className="acrn" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {docName}
+                  </div>
                 </div>
+                <span 
+                  className="doc-del-btn" 
+                  onClick={(e) => { e.stopPropagation(); handleDeleteDoc(docName); }}
+                  style={{ padding: '2px 6px', cursor: 'pointer', opacity: 0.5, fontSize: '11px', display: 'flex', alignItems: 'center' }}
+                  onMouseOver={(e) => e.target.style.opacity = 1}
+                  onMouseOut={(e) => e.target.style.opacity = 0.5}
+                >
+                  🗑️
+                </span>
               </div>
             );
           })}

@@ -967,6 +967,11 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     state.to_ctx(ctx)
     _log_conv(tid, q, rq, rinfo, state, before)
 
+    # Force LLM response when requested (e.g. on regeneration)
+    if body.get("forceLLM"):
+        remember(history, q, "(financial advice given)")
+        return grounded_advice(rq, tid, ctx)
+
     # 0-mon) "which months?" enumeration of the carried merchant/category (deterministic).
     #        Runs before the generic follow-up gate so it lists the months, not an LLM guess.
     mwa = months_which_answer(q, ctx)

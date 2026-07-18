@@ -56,13 +56,40 @@ const mdToHtml = (md) => {
   return t;
 };
 
-const Message = ({ message }) => {
+const Message = ({ message, index, onEdit, onRegenerate }) => {
   const isUser = message.role === 'user';
-  
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [editVal, setEditVal] = React.useState(message.content);
+  const [liked, setLiked] = React.useState(message.liked || false);
+  const [disliked, setDisliked] = React.useState(message.disliked || false);
+
+  const handleSave = () => {
+    if (editVal.trim() && editVal !== message.content) {
+      onEdit(index, editVal.trim());
+    }
+    setIsEditing(false);
+  };
+
+  const handleLike = () => {
+    const newLiked = !liked;
+    setLiked(newLiked);
+    if (newLiked) setDisliked(false);
+    message.liked = newLiked;
+    if (newLiked) message.disliked = false;
+  };
+
+  const handleDislike = () => {
+    const newDisliked = !disliked;
+    setDisliked(newDisliked);
+    if (newDisliked) setLiked(false);
+    message.disliked = newDisliked;
+    if (newDisliked) message.liked = false;
+  };
+
   return (
-    <div className={`msg ${isUser ? 'us' : 'ai'}`}>
+    <div className={`msg ${isUser ? 'us' : 'ai'}`} style={{ position: 'relative' }}>
       {!isUser && <PennyAvatar size="sm" mood={message.mood || 'happy'} />}
-      <div className="bw">
+      <div className="bw" style={{ width: '100%' }}>
         {!isUser && message.path && (
           <span style={{
             fontSize: '9px',
@@ -83,11 +110,127 @@ const Message = ({ message }) => {
             ⚡ {message.path.toUpperCase()} ENGINE
           </span>
         )}
-        <div 
-          className="bb" 
-          dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }} 
-        />
+        
+        {isEditing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+            <textarea
+              className="chat-edit-input"
+              value={editVal}
+              onChange={(e) => setEditVal(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'var(--bg)',
+                border: '1px solid var(--line)',
+                color: 'var(--ink)',
+                borderRadius: '8px',
+                padding: '8px',
+                minHeight: '60px',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                fontSize: 'inherit'
+              }}
+            />
+            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+              <button 
+                className="btn text-btn" 
+                onClick={() => { setIsEditing(false); setEditVal(message.content); }}
+                style={{ fontSize: '11px', padding: '4px 8px', background: 'transparent', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: '6px', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn lime" 
+                onClick={handleSave}
+                style={{ fontSize: '11px', padding: '4px 8px', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+              >
+                Save & Resend
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="bb" 
+            dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }} 
+          />
+        )}
+
         {message.meta && <div className="mm">{message.meta}</div>}
+
+        {/* Action icons container */}
+        <div style={{ display: 'flex', gap: '8px', marginTop: '6px', alignItems: 'center', minHeight: '20px' }}>
+          {isUser && !isEditing && (
+            <button 
+              onClick={() => setIsEditing(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--dim)',
+                fontSize: '11px',
+                cursor: 'pointer',
+                padding: '2px 4px',
+                borderRadius: '4px',
+                opacity: 0.6
+              }}
+              onMouseOver={(e) => e.target.style.opacity = 1}
+              onMouseOut={(e) => e.target.style.opacity = 0.6}
+            >
+              ✏️ Edit
+            </button>
+          )}
+
+          {!isUser && message.content && (
+            <div style={{ display: 'flex', gap: '4px' }}>
+              <button 
+                onClick={handleLike}
+                style={{
+                  background: liked ? 'rgba(132, 204, 22, 0.15)' : 'transparent',
+                  border: 'none',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: '6px',
+                  color: liked ? 'var(--lime-d)' : 'var(--dim)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                👍
+              </button>
+              <button 
+                onClick={handleDislike}
+                style={{
+                  background: disliked ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+                  border: 'none',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: '6px',
+                  color: disliked ? '#ef4444' : 'var(--dim)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                👎
+              </button>
+              <button 
+                onClick={() => onRegenerate(index)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: '6px',
+                  color: 'var(--dim)',
+                  transition: 'all 0.2s'
+                }}
+                title="Regenerate with LLM"
+                onMouseOver={(e) => e.target.style.transform = 'rotate(180deg)'}
+                onMouseOut={(e) => e.target.style.transform = 'none'}
+              >
+                🔄
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

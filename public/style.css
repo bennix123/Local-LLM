@@ -160,3 +160,131 @@ body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--ink);min-
 .cinput input:focus{border-color:var(--lime)}
 .cinput .send-btn{background:var(--ink);border:none;width:42px;height:42px;border-radius:50%;font-size:16px;cursor:pointer;font-weight:800;flex-shrink:0;color:var(--lime)}
 .empty{text-align:center;color:var(--dim);font-size:13px;padding:30px 10px}
+
+/* --- CHAT ACTIONS & BADGES --- */
+.cmg-bubble-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+}
+.us-actions {
+  text-align: right;
+  margin-top: 3px;
+  font-size: 11px;
+}
+.edit-btn {
+  cursor: pointer;
+  color: var(--dim);
+  transition: color 0.2s;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.edit-btn:hover {
+  color: var(--ink);
+  background: var(--card-tint);
+}
+.edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+  min-width: 250px;
+}
+.edit-textarea {
+  width: 100%;
+  min-height: 60px;
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+  outline: none;
+}
+.edit-textarea:focus {
+  border-color: var(--lime);
+}
+.edit-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.edit-buttons button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+.edit-buttons .btn-save {
+  background: var(--ink);
+  color: var(--lime);
+}
+.edit-buttons .btn-cancel {
+  background: var(--card-tint);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.ai-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  padding: 0 4px;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.source-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.badge-llm {
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+.badge-sql {
+  background: rgba(132, 204, 22, 0.1);
+  color: var(--lime-deep);
+  border: 1px solid rgba(132, 204, 22, 0.2);
+}
+.feedback-actions {
+  display: flex;
+  gap: 4px;
+}
+.feedback-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--dim);
+  transition: all 0.2s;
+}
+.feedback-btn:hover {
+  background: var(--card-tint);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.feedback-btn.active {
+  background: var(--lime-soft);
+  border-color: var(--lime);
+  color: var(--lime-deep);
+}
+.feedback-btn.regen-btn {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+

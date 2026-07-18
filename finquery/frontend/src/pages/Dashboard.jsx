@@ -132,7 +132,7 @@ function Dashboard() {
     });
   };
 
-  const handleSendMessage = async (question) => {
+  const handleSendMessage = async (question, forceLLM = false) => {
     const userMessage = { role: 'user', content: question };
     setMessages((prev) => [...prev, userMessage]);
 
@@ -173,7 +173,8 @@ function Dashboard() {
               { ...lastMsg, path: meta.path }
             ];
           });
-        }
+        },
+        forceLLM
       );
     } catch (error) {
       console.error('Error querying documents:', error);
@@ -192,6 +193,20 @@ function Dashboard() {
     }
   };
 
+  const handleEditMessage = async (idx, newText) => {
+    const baseMessages = messages.slice(0, idx);
+    setMessages(baseMessages);
+    await handleSendMessage(newText, false);
+  };
+
+  const handleRegenerateMessage = async (idx) => {
+    const userMsg = messages[idx - 1];
+    if (!userMsg || userMsg.role !== 'user') return;
+    const baseMessages = messages.slice(0, idx - 1);
+    setMessages(baseMessages);
+    await handleSendMessage(userMsg.content, true);
+  };
+
   const runFlow = (flowName) => {
     let question = '';
     if (flowName === 'roast') {
@@ -199,17 +214,15 @@ function Dashboard() {
     } else if (flowName === 'ghosts') {
       question = 'banish zombie subs';
     } else if (flowName === 'forecast') {
-      question = 'give me a spending forecast';
+      question = 'forecast my portfolio';
     } else if (flowName === 'compound') {
-      question = 'calculate compound savings if I cut back';
+      question = 'compound my leaks';
     } else if (flowName === 'reports') {
-      question = 'show my category report';
+      question = 'show my categorised spending';
     } else if (flowName === 'splurge') {
-      question = 'can I splurge this month?';
-    } else {
-      question = flowName;
+      question = 'can i splurge?';
     }
-    handleSendMessage(question);
+    if (question) handleSendMessage(question);
     setSidebarOpen(false); // Close drawer after trigger
   };
 
@@ -288,6 +301,8 @@ function Dashboard() {
           messages={messages} 
           isLoading={isLoading} 
           runFlow={runFlow} 
+          onEdit={handleEditMessage}
+          onRegenerate={handleRegenerateMessage}
         />
 
         <InputBar 

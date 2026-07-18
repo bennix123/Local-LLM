@@ -910,6 +910,7 @@ function deterministicAnswer(question, meta) {
 }
 app.post("/api/chat", async (req, res) => {
   const message = String(req.body.message || "").trim();
+  const forceLLM = !!req.body.forceLLM;
   if (!message) return res.status(400).json({ error: "Empty message." });
   if (!hasDocument())
     return res
@@ -918,75 +919,87 @@ app.post("/api/chat", async (req, res) => {
 
   const meta = getMeta();
 
-  // ── Intent Router (Step 1 of Architecture Fix) ──
-  // Classify BEFORE anything touches RAG. AGGREGATION → SQL. LOOKUP → FTS5.
-  // Only SEMANTIC/SUMMARY queries reach the LLM.
-  const { intent, type: routeType } = classifyIntent(message);
-  console.log(`[router] "${message.substring(0, 40)}" → ${intent}`);
+  if (!forceLLM) {
+    // ── Intent Router (Step 1 of Architecture Fix) ──
+    // Classify BEFORE anything touches RAG. AGGREGATION → SQL. LOOKUP → FTS5.
+    // Only SEMANTIC/SUMMARY queries reach the LLM.
+    const { intent, type: routeType } = classifyIntent(message);
+    console.log(`[router] "${message.substring(0, 40)}" → ${intent}`);
 
-  // AGGREGATION: deterministic SQL, no LLM needed — instant, 100% accurate
-  if (intent === "AGGREGATION") {
-    const aggResult = await routeAggregation(message);
-    if (aggResult) {
-      res.type("text/plain").send(aggResult.answer); return;
-    }
-  }
-
-  // LOOKUP: FTS5 keyword search
-  if (intent === "LOOKUP") {
-    const kw = extractLookupKeyword(message);
-    if (kw) {
-      const lookupResult = await handleEntityLookup(kw);
-      if (lookupResult.data && (
-        (lookupResult.data.sql && lookupResult.data.sql.count > 0) || 
-        (lookupResult.data.chunks && lookupResult.data.chunks.length > 0)
-      )) {
-        res.type("text/plain").send(lookupResult.answer); return;
+    // AGGREGATION: deterministic SQL, no LLM needed — instant, 100% accurate
+    if (intent === "AGGREGATION") {
+      const aggResult = await routeAggregation(message);
+      if (aggResult) {
+        res.writeHead(200, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-cache",
+          "X-Answer": "sql",
+        });
+        res.write(aggResult.answer);
+        return res.end();
       }
     }
-  }
 
-  // Exact-figure questions are answered DIRECTLY from the deterministic layer —
-  // 100% numeric fidelity, instant, and no model needed (a small LLM can slip a
-  // digit when copying large numbers). Only period/trend and open-ended
-  // questions go to the LLM.
-  // Routing: year monthly-breakdown → period (single window) → other facts.
-  // Vague trend/compare and open-ended questions fall through to the LLM.
-  const exact = yearBreakdown(message) || allMonthsBreakdown(message) || monthsAvailable(message) || overviewSummary(message) ||
-    (isPeriodQuestion(message) ? periodExactAnswer(message) : deterministicAnswer(message, meta));
-  if (exact) {
-    res.writeHead(200, {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-cache",
-      "X-Answer": "deterministic",
-    });
-    res.write(exact);
-    return res.end();
-  }
-
-  // Option B — LLM as router. When the fast regex layer didn't catch the
-  // phrasing, the model classifies the question into a structured intent and
-  // SQL produces every number (the model never emits figures). Factual intents
-  // become deterministic tables; "advice"/"unknown" go to the grounded prose
-  // LLM below — that's where the model actually earns its keep.
-  let intentType = null;
-  if (isReady()) {
-    try {
-      const intent = await routeIntent(message);
-      intentType = intent?.type || null;
-      if (intent && intent.type !== "advice" && intent.type !== "unknown") {
-        const routed = dispatchIntent(intent, message);
-        if (routed) {
+    // LOOKUP: FTS5 keyword search
+    if (intent === "LOOKUP") {
+      const kw = extractLookupKeyword(message);
+      if (kw) {
+        const lookupResult = await handleEntityLookup(kw);
+        if (lookupResult.data && (
+          (lookupResult.data.sql && lookupResult.data.sql.count > 0) || 
+          (lookupResult.data.chunks && lookupResult.data.chunks.length > 0)
+        )) {
           res.writeHead(200, {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "no-cache",
-            "X-Answer": "router",
+            "X-Answer": "sql",
           });
-          res.write(routed);
+          res.write(lookupResult.answer);
           return res.end();
         }
       }
-    } catch { /* fall through to grounded prose */ }
+    }
+
+    // Exact-figure questions are answered DIRECTLY from the deterministic layer —
+    // 100% numeric fidelity, instant, and no model needed (a small LLM can slip a
+    // digit when copying large numbers). Only period/trend and open-ended
+    // questions go to the LLM.
+    // Routing: year monthly-breakdown → period (single window) → other facts.
+    // Vague trend/compare and open-ended questions fall through to the LLM.
+    const exact = yearBreakdown(message) || allMonthsBreakdown(message) || monthsAvailable(message) || overviewSummary(message) ||
+      (isPeriodQuestion(message) ? periodExactAnswer(message) : deterministicAnswer(message, meta));
+    if (exact) {
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Answer": "deterministic",
+      });
+      res.write(exact);
+      return res.end();
+    }
+
+    // Option B — LLM as router. When the fast regex layer didn't catch the
+    // phrasing, the model classifies the question into a structured intent and
+    // SQL produces every number (the model never emits figures). Factual intents
+    // become deterministic tables; "advice"/"unknown" go to the grounded prose
+    // LLM below — that's where the model actually earns its keep.
+    if (isReady()) {
+      try {
+        const intent = await routeIntent(message);
+        if (intent && intent.type !== "advice" && intent.type !== "unknown") {
+          const routed = dispatchIntent(intent, message);
+          if (routed) {
+            res.writeHead(200, {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+              "X-Answer": "router",
+            });
+            res.write(routed);
+            return res.end();
+          }
+        }
+      } catch { /* fall through to grounded prose */ }
+    }
   }
 
   // Period/trend + open-ended → LLM (LFM2 2.6B), grounded by the retrieved
@@ -1002,6 +1015,13 @@ app.post("/api/chat", async (req, res) => {
 
   try {
     let systemPrompt = await buildSystemPrompt(message);
+    let intentType = null;
+    if (!forceLLM) {
+      try {
+        const intent = await routeIntent(message);
+        intentType = intent?.type || null;
+      } catch {}
+    }
     // For advice/opinion questions, show the real figures in a table FIRST, then
     // let the model reason qualitatively — it must NOT state its own numbers
     // (a small model mis-copies and mislabels large figures).

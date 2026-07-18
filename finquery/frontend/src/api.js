@@ -62,8 +62,7 @@ export const queryDocuments = async (question, documentNames = null) => {
   return response.data;
 };
 
-// Ask a question (streaming — token-by-token)
-export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError, onMeta) => {
+export const queryDocumentsStream = async (question, documentNames, onToken, onDone, onError, onMeta, forceLLM = false) => {
   const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
 
   const response = await fetch('/query', {
@@ -76,6 +75,7 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
       question,
       document_names: documentNames,
       n_results: 5,
+      forceLLM,
     }),
   });
 
@@ -127,10 +127,21 @@ export const queryDocumentsStream = async (question, documentNames, onToken, onD
   }
 };
 
-// Delete a document
 export const deleteDocument = async (docName) => {
-  const response = await api.delete(`/documents/${docName}`);
-  return response.data;
+  const token = localStorage.getItem('penny_token') || localStorage.getItem('token');
+  const response = await fetch('/document', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ doc_name: docName }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to delete');
+  }
+  return response.json();
 };
 
 export default api;
