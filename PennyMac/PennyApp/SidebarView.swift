@@ -8,15 +8,24 @@ struct SidebarView: View {
     var onUpload: () -> Void
     var onSwitchModel: () -> Void
 
-    private let flows: [(icon: String, label: String, action: String, badge: Int?)] = [
-        ("🔥", "Roast me", "roast", nil),
-        ("👻", "Ghosts", "ghosts", 3),
-        ("⚡", "Patterns", "patterns", 3),
-        ("⛅", "Forecast", "forecast", nil),
-        ("📈", "Compound math", "compound", nil),
-        ("📊", "Reports", "reports", nil),
-        ("💸", "Can I splurge?", "splurge", nil),
+    private let flows: [(icon: String, label: String, action: String)] = [
+        ("🔥", "Roast me", "roast"),
+        ("👻", "Ghosts", "ghosts"),
+        ("⚡", "Patterns", "patterns"),
+        ("⛅", "Forecast", "forecast"),
+        ("📈", "Compound math", "compound"),
+        ("📊", "Reports", "reports"),
+        ("💸", "Can I splurge?", "splurge"),
     ]
+
+    /// Real badge counts (never hardcoded): Ghosts = detected recurring
+    /// subscriptions. Other flows carry no count. Shown only when > 0.
+    private func badge(for action: String) -> Int? {
+        switch action {
+        case "ghosts": return app.ghostCount > 0 ? app.ghostCount : nil
+        default:       return nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,7 +44,7 @@ struct SidebarView: View {
 
                     section("jump to") {
                         ForEach(flows, id: \.action) { f in
-                            row(icon: f.icon, label: f.label, badge: f.badge) {
+                            row(icon: f.icon, label: f.label, badge: badge(for: f.action)) {
                                 app.runFlow(f.action)
                             }
                         }

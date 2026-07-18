@@ -387,17 +387,27 @@ public enum FinanceRouter {
         return nil
     }
 
+    /// One auto-detected recurring charge / subscription.
+    public struct RecurringCharge: Sendable {
+        public let name: String
+        public let months: Int      // distinct months it appeared in
+        public let amount: Double    // typical (mean) amount
+        public let count: Int        // number of occurrences
+        public let confidence: Double // 0…1 (1 − coefficient of variation)
+    }
+
     /// Deterministic recurring-charge detector: a merchant that appears in ≥3
     /// distinct months with a stable amount (coefficient of variation ≤ 25%).
-    private static func recurringAnswer(_ rows: [TxnRow], money: (Double) -> String) -> String? {
+    /// Powers both the "subscriptions" answer and the sidebar's Ghosts badge —
+    /// so that badge shows a REAL count, never a hardcoded placeholder.
+    public static func recurringCharges(_ rows: [TxnRow]) -> [RecurringCharge] {
         var byMerchant: [String: [TxnRow]] = [:]
         for r in rows where r.debit > 0 {
             let key = r.merchant.isEmpty ? r.descr : r.merchant
             guard key.count >= 3 else { continue }
             byMerchant[key, default: []].append(r)
         }
-        struct Recur { let name: String; let months: Int; let amount: Double; let count: Int; let cv: Double }
-        var found: [Recur] = []
+        var found: [RecurringCharge] = []
         for (name, txns) in byMerchant {
             let months = Set(txns.map(\.month)).count
             guard txns.count >= 3, months >= 3 else { continue }
@@ -407,17 +417,20 @@ public enum FinanceRouter {
             let std = (amts.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(amts.count)).squareRoot()
             let cv = std / mean
             guard cv <= 0.25 else { continue }
-            found.append(Recur(name: name, months: months, amount: mean, count: txns.count, cv: cv))
+            found.append(RecurringCharge(name: name, months: months, amount: mean, count: txns.count, confidence: 1 - cv))
         }
+        return found.sorted { $0.count > $1.count }
+    }
+
+    private static func recurringAnswer(_ rows: [TxnRow], money: (Double) -> String) -> String? {
+        let found = recurringCharges(rows)
         guard !found.isEmpty else {
             return "**No recurring charges or subscriptions detected.** Nothing repeats at a steady cadence and stable amount."
         }
-        found.sort { $0.count > $1.count }
         let monthly = found.reduce(0.0) { $0 + $1.amount }
         var lines = ["**Recurring charges & subscriptions** — payments repeating at a regular cadence and similar amount (about \(money(monthly))/month):", ""]
         for r in found.prefix(15) {
-            let conf = Int((1 - r.cv) * 100)
-            lines.append("- **\(r.name)** — ~\(money(r.amount)) × \(r.count) (\(r.months) months, \(conf)% confidence)")
+            lines.append("- **\(r.name)** — ~\(money(r.amount)) × \(r.count) (\(r.months) months, \(Int(r.confidence * 100))% confidence)")
         }
         return lines.joined(separator: "\n")
     }

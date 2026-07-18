@@ -100,6 +100,12 @@ final class AppModel: ObservableObject {
     var contextReady: Bool { summary.count > 0 }
     var transactionCount: Int { summary.count }
 
+    /// Real count of auto-detected recurring charges / subscriptions ("ghosts")
+    /// across all imported statements — drives the sidebar's Ghosts badge, so it
+    /// reflects the actual data instead of a hardcoded placeholder. Needs ≥3
+    /// months of history to detect anything, so it's 0 for a single statement.
+    var ghostCount: Int { FinanceRouter.recurringCharges(docs.flatMap(\.rows)).count }
+
     // MARK: model picker
 
     func chooseModel(_ id: String) {
