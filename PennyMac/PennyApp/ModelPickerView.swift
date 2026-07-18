@@ -31,6 +31,7 @@ struct ModelPickerView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+        .onAppear { app.refreshDownloadedModels() }
     }
 
     private var header: some View {
@@ -62,11 +63,26 @@ struct ModelPickerView: View {
                 if isReady { Text("in use ✓").font(Theme.font(11, .bold)).foregroundStyle(Theme.limeD) }
             }
             Text(entry.id).font(Theme.font(10, .medium).monospaced()).foregroundStyle(Theme.dim).lineLimit(1)
+            let fits = app.modelFits(entry)
+            let downloaded = app.downloadedModelIDs.contains(entry.id)
             HStack(spacing: 8) {
                 tag(entry.size, bg: Theme.tint)
-                tag("≥\(entry.minRAMGB) GB RAM", bg: Theme.tint)
+                tag("≥\(entry.minRAMGB) GB RAM", bg: fits ? Theme.tint : Theme.coralS,
+                    fg: fits ? Theme.ink2 : Theme.coral)
+                if downloaded { tag("downloaded ✓", bg: Theme.limeS, fg: Theme.limeD) }
             }
             Text(entry.note).font(Theme.font(12)).foregroundStyle(Theme.dim)
+
+            // Fit / download hint — warn before an oversized model can OOM this Mac.
+            if !fits {
+                Text("⚠️ Needs ≥\(entry.minRAMGB) GB — this Mac has \(AppModel.deviceRAMGB) GB. May run slowly or run out of memory.")
+                    .font(Theme.font(10, .semibold)).foregroundStyle(Theme.coral)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if !downloaded {
+                Text("Downloads \(entry.size) once on first use, then runs offline.")
+                    .font(Theme.font(10)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer(minLength: 4)
 
@@ -133,9 +149,9 @@ struct ModelPickerView: View {
         .padding(.vertical, 6)
     }
 
-    private func tag(_ text: String, bg: Color) -> some View {
+    private func tag(_ text: String, bg: Color, fg: Color = Theme.ink2) -> some View {
         Text(text)
-            .font(Theme.font(11, .semibold)).foregroundStyle(Theme.ink2)
+            .font(Theme.font(11, .semibold)).foregroundStyle(fg)
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(bg, in: Capsule())
             .overlay(Capsule().stroke(Theme.line, lineWidth: 1))

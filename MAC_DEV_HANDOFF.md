@@ -15,6 +15,19 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-18 — P4 DONE: RAM-aware model picker ✅
+The picker showed static `≥N GB RAM` tags but never checked *this Mac's* RAM — a user on 8 GB
+could pick the 8 B model and OOM (the exact crash class the native rewrite exists to avoid).
+- `AppModel.deviceRAMGB` (from `ProcessInfo.physicalMemory`) + `modelFits(_)`. Models that need
+  more RAM than the device has now show a red **"⚠️ Needs ≥16 GB — this Mac has N GB"** warning.
+- **Downloaded-state indicator:** `refreshDownloadedModels()` (via `DownloadMeter`, off-main on
+  `.onAppear`) flags models already on disk as **"downloaded ✓"** vs "downloads once on first use".
+- Existing disk-based download progress (smooth %, byte counts, elapsed clock) was already solid.
+- App build **SUCCEEDED**.
+
+P4 remaining niceties (optional): a "delete downloaded model" action to reclaim disk, and
+auto-defaulting the selection to the largest model that fits the device.
+
 ### 2026-07-18 — P3 (part 2) DONE: table extraction verified, conformance 15 → 22 ✅
 Rather than build a speculative `camelot`-style lattice extractor with no failing case, I
 **diagnosed first**: dumped every parsed row for the 7 previously-unverified statements

@@ -101,6 +101,34 @@ final class AppModel: ObservableObject {
         catalog.first { $0.id == selectedModelID }?.name ?? "local model"
     }
 
+    // MARK: model ⇄ device fit
+
+    /// This Mac's physical RAM in GB — used to warn before a model that won't fit
+    /// gets picked (running an 8B model on 8 GB thrashes/OOMs, the exact crash the
+    /// native rewrite exists to avoid).
+    static let deviceRAMGB: Int = Int((Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824).rounded())
+
+    /// True when a catalog model fits comfortably in this Mac's RAM.
+    func modelFits(_ entry: PennyLLM.CatalogEntry) -> Bool { Self.deviceRAMGB >= entry.minRAMGB }
+
+    /// Which catalog models are already fully downloaded (weights on disk) — drives
+    /// the "downloaded ✓ / downloads on first use" hint. Refreshed on picker appear.
+    @Published var downloadedModelIDs: Set<String> = []
+
+    func refreshDownloadedModels() {
+        let ids = catalog.map(\.id)
+        Task.detached {
+            var done = Set<String>()
+            for id in ids {
+                let total = AppModel.catalogBytes(id)
+                if total > 0, DownloadMeter.bytesOnDisk(repo: id) >= Int64(Double(total) * 0.95) {
+                    done.insert(id)
+                }
+            }
+            await MainActor.run { [weak self] in self?.downloadedModelIDs = done }
+        }
+    }
+
     /// The Today panel is ready once we've extracted at least one transaction.
     var contextReady: Bool { summary.count > 0 }
     var transactionCount: Int { summary.count }
@@ -199,7 +227,8 @@ final class AppModel: ObservableObject {
     }
 
     /// Fallback denominator parsed from the catalog size string ("4.5 GB").
-    static func catalogBytes(_ id: String) -> Int64 {
+    /// `nonisolated` so the off-main download-state refresh can call it.
+    nonisolated static func catalogBytes(_ id: String) -> Int64 {
         guard let size = PennyLLM.catalog.first(where: { $0.id == id })?.size else { return 0 }
         guard let num = Double(size.split(separator: " ").first ?? "") else { return 0 }
         let mult: Double = size.uppercased().contains("GB") ? 1_000_000_000 : 1_000_000
