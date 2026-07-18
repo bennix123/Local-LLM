@@ -16,14 +16,19 @@ function ModelPicker() {
   const [msg, setMsg] = useState('');
   const navigate = useNavigate();
 
+  const [allInstalled, setAllInstalled] = useState(false);
+
   const load = async () => {
     try {
       const r = await fetch('/api/models', { headers: authHeaders() });
       const d = await r.json();
       setActive(d.active || '');
       setModels(d.recommended || []);
+      // If all models are installed, this is a non-Mac platform using Groq
+      const recs = d.recommended || [];
+      setAllInstalled(recs.length > 0 && recs.every(m => m.installed));
     } catch {
-      setMsg('Could not reach the local server / Ollama.');
+      setMsg('Could not reach the local server.');
     }
   };
   useEffect(() => { load(); }, []);
@@ -96,11 +101,17 @@ function ModelPicker() {
       <div className="mp-head">
         <div>
           <div className="mp-title">Choose your AI model<em>.</em></div>
-          <div className="mp-sub">A required first step — pick the model that powers Penny. Everything runs <b>fully offline</b> on your machine via Ollama. Download one, then tap <b>Use this model</b> to continue.</div>
+          <div className="mp-sub">
+            A required first step — pick the model that powers Penny.{' '}
+            {allInstalled
+              ? <>Running on <b>Windows</b> — models are served via the <b>Groq cloud API</b>. No download needed. Tap a model to select it.</>
+              : <>Everything runs <b>fully offline</b> on your Mac via MLX. Download a model, then tap <b>Use this model</b> to continue.</>
+            }
+          </div>
         </div>
       </div>
 
-      {active && <div className="mp-active">Currently loaded: <b>{active}</b> — tap “Use this model” below to confirm and continue.</div>}
+      {active && <div className="mp-active">Active model: <b>{active}</b> — tap "In use ✓ · Continue" to proceed.</div>}
 
       <div className="mp-grid">
         {models.map((m) => {
@@ -108,7 +119,10 @@ function ModelPicker() {
           const downloading = busy === m.id;
           return (
             <div className={`mp-card ${isActive ? 'on' : ''}`} key={m.id}>
-              <div className="mp-name">{m.name}</div>
+              <div className="mp-name">
+                {m.name}
+                {allInstalled && <span style={{fontSize:'0.65rem', marginLeft:'6px', background:'#6366f1', color:'#fff', borderRadius:'4px', padding:'1px 6px', verticalAlign:'middle'}}>☁ Groq</span>}
+              </div>
               <div className="mp-id">{m.id}</div>
               <div className="mp-meta"><span className="mp-size">{m.size}</span><span className="mp-note">{m.note}</span></div>
 
@@ -119,6 +133,8 @@ function ModelPicker() {
                 </div>
               ) : isActive ? (
                 <button className="mp-btn on" onClick={() => useModel(m.id)}>In use ✓ · Continue →</button>
+              ) : allInstalled ? (
+                <button className="mp-btn use" onClick={() => useModel(m.id)}>Select</button>
               ) : m.installed ? (
                 <button className="mp-btn use" onClick={() => useModel(m.id)}>Use this model</button>
               ) : (

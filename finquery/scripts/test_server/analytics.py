@@ -230,7 +230,7 @@ def _advice_fallback(q):
         line += " Your most flexible spending is " + ", ".join(f"{c} ({inr(a)})" for c, a in disc) + "."
     return line
 
-def grounded_advice(q, thread="default", ctx=None):
+def grounded_advice(q, thread="default", ctx=None, force_llm=False):
     from .server import _append_log, stream_text
     """Advisory answer: the LLM reasons over a SQL-computed fact sheet, and every number
     is verified against those facts before going out, else a deterministic fallback.
@@ -240,11 +240,18 @@ def grounded_advice(q, thread="default", ctx=None):
     reply = _llm_complete(GROUNDED_ADVICE_SYSTEM + facts, q)
     if reply:
         reply = re.sub(r"^(?:answer|penny)\s*[:\-]\s*", "", reply, flags=re.I).strip()
+        if force_llm:
+            _append_log(thread, q, reply, "advice")
+            return stream_text("advice", reply)
         ok, why = _advice_grounded(reply, facts)
         if ok:
             _append_log(thread, q, reply, "advice")
             return stream_text("advice", reply)
         print(f"[advice] reply rejected ({why}); using deterministic fallback")
+    if force_llm:
+        err_msg = "\n_(Local LLM did not respond. Please verify your model is downloaded and loaded.)_"
+        _append_log(thread, q, err_msg, "advice")
+        return stream_text("advice", err_msg)
     fb = _advice_fallback(q)
     _append_log(thread, q, fb, "advice")
     return stream_text("advice", fb)

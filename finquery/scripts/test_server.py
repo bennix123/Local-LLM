@@ -11,4 +11,10 @@ from scripts.test_server.server import app, PORT
 from src.services import txn_store as ts
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=PORT)
+    uvicorn.run(
+        "scripts.test_server.server:app", 
+        host="127.0.0.1", 
+        port=PORT, 
+        reload=True,
+        reload_dirs=[os.path.join(ROOT, "backend"), os.path.join(ROOT, "scripts")]
+    )

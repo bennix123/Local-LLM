@@ -8,11 +8,14 @@ const Sidebar = ({
   onLogout, 
   modelName = 'Qwen 3 14B', 
   transactionCount = 2847, 
+  ghostsCount = 0,
+  patternsCount = 0,
   runFlow,
   documents = [],
   selectedDocs = [],
   onSelectDoc,
-  onRefreshDocs
+  onRefreshDocs,
+  brainStats = null
 }) => {
   const [netOnline, setNetOnline] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -99,8 +102,8 @@ const Sidebar = ({
       <div className="sbs">
         <div className="sbh">jump to</div>
         <div className="sbi" onClick={() => runFlow('roast')}><div className="sbic">🔥</div>Roast me</div>
-        <div className="sbi" onClick={() => runFlow('ghosts')}><div className="sbic">👻</div>Ghosts<span className="sbb-badge">3</span></div>
-        <div className="sbi" onClick={() => runFlow('patterns')}><div className="sbic">⚡</div>Patterns<span className="sbb-badge">3</span></div>
+        <div className="sbi" onClick={() => runFlow('ghosts')}><div className="sbic">👻</div>Ghosts<span className="sbb-badge">{ghostsCount}</span></div>
+        <div className="sbi" onClick={() => runFlow('patterns')}><div className="sbic">⚡</div>Patterns<span className="sbb-badge">{patternsCount}</span></div>
         <div className="sbi" onClick={() => runFlow('forecast')}><div className="sbic">⛅</div>Forecast</div>
         <div className="sbi" onClick={() => runFlow('compound')}><div className="sbic">📈</div>Compound math</div>
         <div className="sbi" onClick={() => runFlow('reports')}><div className="sbic">📊</div>Reports</div>
@@ -172,11 +175,11 @@ const Sidebar = ({
 
       <div className="bp" style={{ marginTop: '12px' }}>
         <div className="bph">PENNY'S BRAIN</div>
-        <div className="bpm" style={{ textTransform: 'uppercase' }}>{modelName}</div>
-        <div className="bps"><span>RAM in use</span><b>14.2 GB</b></div>
-        <div className="bps"><span>Context</span><b>32K tokens</b></div>
+        <div className="bpm" style={{ textTransform: 'uppercase' }}>{brainStats?.model || modelName}</div>
+        <div className="bps"><span>RAM in use</span><b>{brainStats?.ram || '14.2 GB'}</b></div>
+        <div className="bps"><span>Context</span><b>{brainStats?.context || '32K tokens'}</b></div>
         <div className="bps"><span>Transactions</span><b>{transactionCount.toLocaleString()}</b></div>
-        <div className="bps"><span>Data sent out</span><b style={{ color: 'var(--lime-d)' }}>0 bytes</b></div>
+        <div className="bps"><span>Data sent out</span><b style={{ color: 'var(--lime-d)' }}>{brainStats?.data_sent || '0 bytes'}</b></div>
       </div>
     </aside>
   );

@@ -270,21 +270,34 @@ async def status(request: Request, user: str = Depends(get_current_user)):
     tid = request.query_params.get("thread", "default")
     doc_name = _get_active_doc(tid)
     o = ts.overview(user, doc_name)
+    from src.services.llm_provider import get_brain_stats
+    stats = get_brain_stats()
+    try:
+        from src.services import ml_insights as ml_local
+        ghosts_count = len(ml_local.recurring(user).get("items", []))
+    except Exception:
+        ghosts_count = 0
+    try:
+        patterns_count = len(ts.compute_insights(user))
+    except Exception:
+        patterns_count = 0
     return JSONResponse({"rows": o["count"], "spend": ts.inr(o["debit"]),
-                         "income": ts.inr(o["credit"]), "model": active_model(),
-                         "currency": ts.CURRENCY})
+                         "income": ts.inr(o["credit"]), "model": stats["model"],
+                         "currency": ts.CURRENCY, "brain_stats": stats,
+                         "ghosts_count": ghosts_count, "patterns_count": patterns_count})
 
 
 @app.get("/api/models")
-async def list_models(user: str = Depends(get_current_user)):
+async def list_models():
     """Model picker data: active model, which MLX weights are already downloaded, and what
-    this Mac's RAM can actually hold (`can_run`)."""
+    this machine's RAM can actually hold (`can_run`). Public — no auth needed (model picker
+    is shown before login on some flows)."""
     return JSONResponse(llm.list_models())
 
 
 @app.post("/api/models/select")
-async def select_model(request: Request, user: str = Depends(get_current_user)):
-    """Switch the live model. Must already be downloaded (see /api/models/pull)."""
+async def select_model(request: Request):
+    """Switch the live model. No auth required — model picker may appear before login."""
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
@@ -578,12 +591,20 @@ def _upload_worker(user, name, data, is_zip):
                     f.write(data)
                 pdfs.append((out, os.path.basename(name) or "statement.pdf"))
 
-            # keep only the PDFs that actually look like bank statements
-            statements = [(p, lbl) for p, lbl in pdfs if ts.is_statement_pdf(p)]
+            # keep only the PDFs that actually look like bank statements, or CSV/Excel files
+            statements = []
+            for p, lbl in pdfs:
+                ext = os.path.splitext(p)[1].lower()
+                if ext in (".csv", ".xlsx", ".xls"):
+                    statements.append((p, lbl))
+                elif ext == ".pdf":
+                    if ts.is_statement_pdf(p):
+                        statements.append((p, lbl))
+
             if not statements:
                 msg = (f"No bank statement found in the ZIP (scanned {len(pdfs)} PDF"
                        f"{'s' if len(pdfs) != 1 else ''})." if is_zip
-                       else "That PDF doesn't look like a bank statement.")
+                       else "That file doesn't look like a supported bank statement PDF or CSV/Excel.")
                 return 422, {"error": msg, "scanned": len(pdfs)}
 
             # multi-document support: do not delete prior transactions globally.
@@ -723,9 +744,15 @@ def stream_markdown(text):
 
 def stream_text(path, text):
     def gen():
-        yield _nd({"type": "meta", "path": path})
-        yield from stream_markdown(text)
-        yield _nd({"type": "done"})
+        try:
+            yield _nd({"type": "meta", "path": path})
+            yield from stream_markdown(text)
+            yield _nd({"type": "done"})
+        except Exception as e:
+            import traceback
+            print("[server] Exception during stream_text:")
+            traceback.print_exc()
+            yield _nd({"type": "error", "content": f"Server stream error: {e}"})
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 
 @app.get("/chats")
@@ -909,8 +936,11 @@ async def query(request: Request, user: str = Depends(get_current_user)):
                 ctx.pop(k, None)
             if not ctx.get("pinned_doc_name"):
                 ctx.pop("default_doc_name", None)
-        # Check if query needs a clarification prompt
-        resolved_doc_name, payload = needs_bank_clarification(user, q, ctx)
+        # Check if query needs a clarification prompt (only for classic client; React handles selection in sidebar)
+        if "document_names" in body:
+            payload = None
+        else:
+            resolved_doc_name, payload = needs_bank_clarification(user, q, ctx)
         if payload:
             # Yield the clarification NDJSON stream immediately
             def gen_clarify():
@@ -970,7 +1000,7 @@ async def query(request: Request, user: str = Depends(get_current_user)):
     # Force LLM response when requested (e.g. on regeneration)
     if body.get("forceLLM"):
         remember(history, q, "(financial advice given)")
-        return grounded_advice(rq, tid, ctx)
+        return grounded_advice(rq, tid, ctx, force_llm=True)
 
     # 0-mon) "which months?" enumeration of the carried merchant/category (deterministic).
     #        Runs before the generic follow-up gate so it lists the months, not an LLM guess.

@@ -67,6 +67,12 @@ struct ContextPanelView: View {
                     .font(Theme.font(11)).foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        } else {
+            infoCard {
+                Text("Upload a statement to see categories.")
+                    .font(Theme.font(11)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

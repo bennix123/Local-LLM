@@ -58,7 +58,7 @@ const ContextPanel = ({
           <div className="cpsx">across loaded statements</div>
         </div>
 
-        {bars.length > 0 && (
+        {bars.length > 0 ? (
           <div className="cpc">
             <div className="cph">spending by category</div>
             {bars.map((cat, idx) => (
@@ -71,6 +71,12 @@ const ContextPanel = ({
                 <div className="cpba">{cat.amt}</div>
               </div>
             ))}
+          </div>
+        ) : (
+          <div className="cpc" style={{ padding: '12px', background: 'var(--tint, rgba(230, 240, 255, 0.5))', borderRadius: '12px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--dim, #888)', lineHeight: '1.4' }}>
+              {ready ? 'No transactions detected.' : 'Upload a statement to see categories.'}
+            </div>
           </div>
         )}
       </div>

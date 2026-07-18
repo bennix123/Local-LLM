@@ -69,9 +69,29 @@ def dispatch_intent(intent, user_id, doc_name=None):
     if t == "list":                                    # "show me the transactions" -> the rows
         m = (intent.get("merchant") or "").strip()
         cat = (intent.get("category") or "").strip()
-        cap = int(intent.get("n") or 0) or 200
+        n_raw = str(intent.get("n") or "").strip().lower()
         ttype = intent.get("txn_type")
-        rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap, ttype)
+        page = int(intent.get("page") or 1)
+
+        PAGE_SIZE = 500
+        # "all" or very large number → fetch everything (unlimited)
+        if n_raw in ("all", "everything", "every", "0") or "all" in n_raw:
+            cap = None
+            offset = 0
+        else:
+            cap_n = int(n_raw) if n_raw.isdigit() else 0
+            if cap_n > PAGE_SIZE:
+                # Honour explicit large requests but page them
+                cap = PAGE_SIZE
+                offset = (page - 1) * PAGE_SIZE
+            elif cap_n > 0:
+                cap = cap_n
+                offset = 0
+            else:
+                cap = PAGE_SIZE
+                offset = (page - 1) * PAGE_SIZE
+
+        rows, total = list_transactions(user_id, m or None, cat or None, doc_name, period, cap, ttype, offset)
         who = ""
         if m and cat:   who = f" for {_mname(m)} ({cat})"
         elif m:         who = f" for {_mname(m)}"
@@ -86,10 +106,20 @@ def dispatch_intent(intent, user_id, doc_name=None):
             body.append((_dlabel(d), bank_label, desc[:40], cat or "Other",
                          amt, "Spent" if (deb or 0) > 0 else "Received"))
         head = f"**{grp(total)} transaction{'s' if total != 1 else ''}{who}{sfx}**"
-        tail = (f"\n\n_Showing the first {grp(len(rows))} of {grp(total)}. "
-                f"To see specific ones, filter by merchant, category, or period — "
-                f"e.g. \"show groceries in March\" or \"transactions over 5000\"._"
-                ) if total > len(rows) else ""
+        # Pagination footer
+        if cap is None:
+            # Unlimited fetch — all rows shown
+            tail = f"\n\n_Showing all {grp(len(rows))} transactions._" if total > 0 else ""
+        else:
+            total_pages = (total + cap - 1) // cap
+            showing_start = offset + 1
+            showing_end = offset + len(rows)
+            if total > cap:
+                tail = (f"\n\n_Showing {grp(showing_start)}–{grp(showing_end)} of {grp(total)}. "
+                        f"Page {page} of {total_pages}. "
+                        f"Ask for **page 2**, **page 3**, etc., or say **show all transactions** to see everything._")
+            else:
+                tail = ""
         return head + "\n\n" + _table(["Date", "Bank", "Description", "Category", "Amount", "Type"], body) + tail
 
     if t == "spend":

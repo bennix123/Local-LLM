@@ -15,6 +15,7 @@ export default defineConfig({
       '/documents': { target: 'http://localhost:5667', changeOrigin: true },
       '/query': { target: 'http://localhost:5667', changeOrigin: true },
       '/models': { target: 'http://localhost:5667', changeOrigin: true },
+      '/classic': { target: 'http://localhost:5667', changeOrigin: true },
     },
   },
 })

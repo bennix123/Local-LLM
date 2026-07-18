@@ -32,8 +32,37 @@ MODEL_CATALOG = [
 ]
 DEFAULT_MODEL = MODEL_CATALOG[0]["id"]
 
-_lock = threading.Lock()
 _loaded = {"id": None, "model": None, "tokenizer": None}
+_lock = threading.Lock()   # guards _loaded on MLX platforms
+DATA_SENT_OUT = 0
+
+
+def get_brain_stats() -> dict:
+    global DATA_SENT_OUT
+    is_local = True
+    try:
+        _mlx()
+    except LLMUnavailable:
+        is_local = False
+
+    model_id = active_model()
+    
+    if is_local:
+        model_info = next((m for m in MODEL_CATALOG if m["id"] == model_id), None)
+        ram = model_info["size"] if model_info else "4.5 GB"
+        context = "32K tokens"
+        model_name = model_info["name"] if model_info else "Local Model"
+    else:
+        ram = "0.0 GB"
+        context = "128K tokens"
+        model_name = "Groq (Llama 8B)"
+        
+    return {
+        "model": model_name,
+        "ram": ram,
+        "context": context,
+        "data_sent": f"{DATA_SENT_OUT:,} bytes" if DATA_SENT_OUT > 0 else "0 bytes"
+    }
 
 
 class LLMUnavailable(RuntimeError):
@@ -62,7 +91,11 @@ def active_model() -> str:
 
 def set_active_model(model_id: str) -> str:
     os.environ["LLM_MODEL"] = model_id
-    unload()                      # drop the old weights; next call loads the new ones
+    try:
+        _mlx()            # only unload if MLX is actually available (Mac)
+        unload()          # drop the old weights; next call loads the new ones
+    except LLMUnavailable:
+        pass              # Windows/Groq: nothing to unload
     return model_id
 
 
@@ -79,6 +112,12 @@ def physical_ram_gb() -> int:
 
 
 def is_downloaded(repo_id: str) -> bool:
+    """On Apple Silicon (mlx available) check the HF cache.
+    On Windows/Linux we use the Groq API fallback, so every model is 'available'."""
+    try:
+        _mlx()   # raises LLMUnavailable on non-Mac
+    except LLMUnavailable:
+        return True   # Windows / no MLX → Groq handles everything, all models selectable
     try:
         from huggingface_hub import scan_cache_dir
         return any(r.repo_id == repo_id for r in scan_cache_dir().repos)
@@ -87,10 +126,21 @@ def is_downloaded(repo_id: str) -> bool:
 
 
 def list_models() -> dict:
-    """Feeds the model picker: what's active, what's downloaded, what this Mac can hold."""
+    """Feeds the model picker: what's active, what's downloaded, what this machine can hold.
+    On Windows (no MLX) all models show as installed so the user can select any of them."""
     ram = physical_ram_gb()
-    recs = [{**m, "installed": is_downloaded(m["id"]), "can_run": m["min_ram_gb"] <= ram}
-            for m in MODEL_CATALOG]
+    # Check if MLX is available (Mac) or not (Windows → Groq fallback)
+    try:
+        _mlx()
+        mlx_available = True
+    except LLMUnavailable:
+        mlx_available = False
+    if mlx_available:
+        recs = [{**m, "installed": is_downloaded(m["id"]), "can_run": m["min_ram_gb"] <= ram}
+                for m in MODEL_CATALOG]
+    else:
+        # On Windows: show all models as installed (Groq API handles inference)
+        recs = [{**m, "installed": True, "can_run": True} for m in MODEL_CATALOG]
     return {"active": active_model(), "ram_gb": ram, "recommended": recs,
             "installed": [m["id"] for m in recs if m["installed"]]}
 
@@ -140,6 +190,8 @@ def download_model(repo_id: str):
         yield {"status": "success"}
 
 
+import urllib.request
+
 # --- Load / unload -------------------------------------------------------------------------
 
 def ensure_loaded(model_id: str = None):
@@ -162,7 +214,19 @@ def unload():
 
 
 def is_ready() -> bool:
-    return _loaded["model"] is not None
+    try:
+        _mlx()
+        return _loaded["model"] is not None
+    except LLMUnavailable:
+        key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+        if not key:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv()
+                key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+            except Exception:
+                pass
+        return bool(key)
 
 
 # --- Generation ----------------------------------------------------------------------------
@@ -181,28 +245,127 @@ def _build_prompt(tokenizer, system, user) -> str:
 def complete(user: str, system: str = None, temperature: float = 0.2,
              top_p: float = 0.9, max_tokens: int = 512, json_mode: bool = False) -> str:
     """One-shot generation -> text. `json_mode` nudges the model to emit bare JSON."""
-    _, generate, _, make_sampler = _mlx()
-    model, tok = ensure_loaded()
-    sys_prompt = system
-    if json_mode:
-        sys_prompt = ((system + "\n\n") if system else "") + \
-                     "Reply with ONLY valid JSON. No prose, no markdown fences."
-    prompt = _build_prompt(tok, sys_prompt, user)
-    sampler = make_sampler(temp=float(temperature), top_p=float(top_p))
-    out = generate(model, tok, prompt=prompt, max_tokens=max_tokens,
-                   sampler=sampler, verbose=False)
-    return (out or "").strip()
+    try:
+        _, generate, _, make_sampler = _mlx()
+        model, tok = ensure_loaded()
+        sys_prompt = system
+        if json_mode:
+            sys_prompt = ((system + "\n\n") if system else "") + \
+                         "Reply with ONLY valid JSON. No prose, no markdown fences."
+        prompt = _build_prompt(tok, sys_prompt, user)
+        sampler = make_sampler(temp=float(temperature), top_p=float(top_p))
+        out = generate(model, tok, prompt=prompt, max_tokens=max_tokens,
+                       sampler=sampler, verbose=False)
+        return (out or "").strip()
+    except LLMUnavailable:
+        key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+        if not key:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv()
+                key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+            except Exception:
+                pass
+        if not key:
+            raise LLMUnavailable("MLX is unavailable and GROQ_API_KEY is not set.")
+        
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}"
+        }
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        
+        data = {
+            "model": "llama-3.1-8b-instant",
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        if json_mode:
+            data["response_format"] = {"type": "json_object"}
+            
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        global DATA_SENT_OUT
+        DATA_SENT_OUT += len(json.dumps(data).encode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                resp = json.loads(res.read().decode("utf-8"))
+                return resp["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            raise RuntimeError(f"Groq API call failed: {e}") from e
 
 
 def stream(user: str, system: str = None, temperature: float = 0.3,
            top_p: float = 0.9, max_tokens: int = 512):
     """Token-by-token generation -> yields text pieces."""
-    _, _, stream_generate, make_sampler = _mlx()
-    model, tok = ensure_loaded()
-    prompt = _build_prompt(tok, system, user)
-    sampler = make_sampler(temp=float(temperature), top_p=float(top_p))
-    for chunk in stream_generate(model, tok, prompt=prompt, max_tokens=max_tokens,
-                                 sampler=sampler):
-        piece = getattr(chunk, "text", None)
-        if piece:
-            yield piece
+    try:
+        _, _, stream_generate, make_sampler = _mlx()
+        model, tok = ensure_loaded()
+        prompt = _build_prompt(tok, system, user)
+        sampler = make_sampler(temp=float(temperature), top_p=float(top_p))
+        for chunk in stream_generate(model, tok, prompt=prompt, max_tokens=max_tokens,
+                                     sampler=sampler):
+            piece = getattr(chunk, "text", None)
+            if piece:
+                yield piece
+    except LLMUnavailable:
+        key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+        if not key:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv()
+                key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
+            except Exception:
+                pass
+        if not key:
+            raise LLMUnavailable("MLX is unavailable and GROQ_API_KEY is not set.")
+        
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}"
+        }
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+        
+        data = {
+            "model": "llama-3.1-8b-instant",
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True
+        }
+        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+        global DATA_SENT_OUT
+        DATA_SENT_OUT += len(json.dumps(data).encode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                buffer = ""
+                while True:
+                    chunk = res.read(1024)
+                    if not chunk:
+                        break
+                    buffer += chunk.decode("utf-8")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if line.startswith("data:"):
+                            data_str = line[5:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                json_data = json.loads(data_str)
+                                text = json_data["choices"][0]["delta"].get("content", "")
+                                if text:
+                                    yield text
+                            except Exception:
+                                pass
+        except Exception as e:
+            yield f"\n_(Groq API stream failed: {e})_"
+

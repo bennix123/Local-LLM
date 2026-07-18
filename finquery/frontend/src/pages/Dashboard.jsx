@@ -14,7 +14,7 @@ function Dashboard() {
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [overview, setOverview] = useState({ rows: 0, spend: '—', income: '—' });
+  const [overview, setOverview] = useState({ rows: 0, spend: '—', income: '—', ghosts_count: 0, patterns_count: 0 });
   const [ctx, setCtx] = useState({
     ready: false, currency: 'INR', balance: null,
     spentThisMonth: null, net: null, txnCount: 0, categories: [],
@@ -25,6 +25,7 @@ function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [modelName, setModelName] = useState('local model');
+  const [brainStats, setBrainStats] = useState(null);
 
   const [chips, setChips] = useState([
     { label: '🔥 Roast my spending', action: 'roast' },
@@ -98,8 +99,13 @@ function Dashboard() {
         setOverview({
           rows: data.rows || storedTotal,
           spend: data.spend || '—',
-          income: data.income || '—'
+          income: data.income || '—',
+          ghosts_count: data.ghosts_count != null ? data.ghosts_count : 0,
+          patterns_count: data.patterns_count != null ? data.patterns_count : 0,
         });
+        if (data.brain_stats) {
+          setBrainStats(data.brain_stats);
+        }
         if (data.model) {
           let displayName = data.model;
           if (data.model.toLowerCase().includes('llama3.1:8b') || data.model.toLowerCase().includes('llama')) {
@@ -214,6 +220,8 @@ function Dashboard() {
       question = 'roast my spending';
     } else if (flowName === 'ghosts') {
       question = 'banish zombie subs';
+    } else if (flowName === 'patterns') {
+      question = 'key insights';
     } else if (flowName === 'forecast') {
       question = 'forecast my portfolio';
     } else if (flowName === 'compound') {
@@ -260,9 +268,12 @@ function Dashboard() {
           user={user}
           onLogout={handleLogout}
           transactionCount={overview.rows}
+          ghostsCount={overview.ghosts_count}
+          patternsCount={overview.patterns_count}
           runFlow={runFlow}
           onRefreshDocs={fetchDocuments}
           modelName={modelName}
+          brainStats={brainStats}
         />
       </div>
 

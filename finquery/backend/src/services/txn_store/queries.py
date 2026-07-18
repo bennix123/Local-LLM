@@ -390,7 +390,7 @@ def merchant_dates(user_id, keyword, doc_name=None, period=None, limit=500):
     return rows
 
 
-def list_transactions(user_id, merchant=None, category=None, doc_name=None, period=None, limit=25, txn_type=None):
+def list_transactions(user_id, merchant=None, category=None, doc_name=None, period=None, limit=25, txn_type=None, offset=0):
     """Individual transaction ROWS for a 'show me the transactions' listing, scoped by any of
     merchant keyword / category / period, in chronological order. Returns (rows, total) where
     rows is [(txn_date, merchant, descr, debit, credit)] capped at `limit` and total is the
@@ -411,8 +411,12 @@ def list_transactions(user_id, merchant=None, category=None, doc_name=None, peri
     base = f"FROM transactions WHERE {w}{extra} AND txn_date NOT LIKE '0000%'"
     con = connect()
     total = con.execute(f"SELECT COUNT(*) {base}", p + params).fetchone()[0]
-    rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency, category {base}
-                           ORDER BY txn_date DESC, seq DESC LIMIT ?""", p + params + [limit]).fetchall()
+    if limit is None:
+        rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency, category {base}
+                           ORDER BY txn_date DESC, seq DESC LIMIT -1 OFFSET ?""", p + params + [offset]).fetchall()
+    else:
+        rows = con.execute(f"""SELECT txn_date, bank_name, merchant, descr, debit, credit, currency, category {base}
+                           ORDER BY txn_date DESC, seq DESC LIMIT ? OFFSET ?""", p + params + [limit, offset]).fetchall()
     con.close()
     return rows, total
 

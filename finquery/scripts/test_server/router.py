@@ -969,6 +969,9 @@ def _extract_slots(q):
             t = "list"
             mn = _LIST_N_RE.search(low) or re.search(r"\b(?:only|top|latest|first|last|limit|recent|next|another|more|show|list)\s*(\d{1,3})\b", low)
             list_n = int(mn.group(1)) if mn else 0
+            # Detect "all" keyword -> unlimited fetch
+            if re.search(r"\b(all|every|everything|complete|full)\b", low):
+                list_n = "all"
             if not merch and not cat:              # an unknown named entity -> honest "none",
                 ent = _list_entity(low)            # never a silent list of the whole ledger
                 if ent:
@@ -983,9 +986,13 @@ def _extract_slots(q):
             ckind = "credit"
         elif re.search(r"\b(debit|spend|spent|expense|payment|paid|purchase|withdrawal)\b", low):
             ckind = "debit"
+    # Extract page number: "page 2", "page two", etc.
+    page_m = re.search(r"\bpage\s+(\d+)\b", low)
+    page_num = int(page_m.group(1)) if page_m else 1
     return {"type": t, "period_full": pf, "pmonth": pmonth, "pday": pday, "prange": prange,
             "category": cat, "merchant": merch,
-            "n": int(topm.group(1)) if topm else list_n,
+            "n": (int(topm.group(1)) if topm else list_n),
+            "page": page_num,
             "count_kind": ckind}
 
 def _resolve_factual(q, ctx):
@@ -1139,9 +1146,12 @@ def _resolve_factual(q, ctx):
                 else "debit" if re.search(r"\b(debit|spend|spent|expense|payment|paid|purchase|withdrawal)\b", low) else "")
     if not txn_type and ctx:
         txn_type = ctx.get("txn_type", "")
+    page_m = re.search(r"\bpage\s+(\d+)\b", low)
+    page_num = int(page_m.group(1)) if page_m else 1
     return {"type": t, "category": cat, "merchant": mer, "n": n,
             "start": start, "end": end, "table": bool(_TABLE_RE.search(q)),
-            "count_kind": s.get("count_kind", ""), "txn_type": txn_type}
+            "count_kind": s.get("count_kind", ""), "txn_type": txn_type,
+            "page": page_num}
 
 def _save_ctx(ctx, intent):
     for k in ("type", "start", "end", "category", "merchant", "txn_type"):
@@ -1552,7 +1562,7 @@ _FIN_RE = re.compile(
     r"expense|\bcost|financ|categor|merchant|transaction|\btxn|rupee|Γé╣|₹|debt|loan|\bemi\b|"
     r"subscription|\bbill|balance|net worth|\brich\b|broke|overspend|\bpay\b|paying|purchase|"
     r"shopping|grocer|deposit|withdraw|\baccount|statement|cut back|cut down|fund|wealth|"
-    r"portfolio|retire|\btax|afford|spend less|monthly|per month|buy|buying|plan|planning|car|house|home|wedding|education|travel", re.I)
+    r"portfolio|retire|\btax|afford|spend less|monthly|per month|buy|buying|plan|planning|car|house|home|wedding|education|travel|splurg", re.I)
 
 def _find_categories(low):
     out = []

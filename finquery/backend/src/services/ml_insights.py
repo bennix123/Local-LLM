@@ -43,11 +43,18 @@ RNG = 42
 # --------------------------------------------------------------------------- #
 def _next_month_label(ym):
     """'2025-06' -> 'Jul 2025'."""
-    y, m = int(ym[:4]), int(ym[5:7])
-    m += 1
-    if m == 13:
-        m, y = 1, y + 1
-    return f"{ts.MONTHS[f'{m:02d}']} {y}"
+    try:
+        y, m = int(ym[:4]), int(ym[5:7])
+        m += 1
+        if m > 12 or m < 1:
+            y += (m - 1) // 12
+            m = (m - 1) % 12 + 1
+        m_str = f"{m:02d}"
+        if m_str in ts.MONTHS:
+            return f"{ts.MONTHS[m_str]} {y}"
+    except Exception:
+        pass
+    return "Next Month"
 
 
 def _cadence(med_gap_days):
@@ -175,7 +182,10 @@ def forecast(user_id):
         resid_std = float((y - lr.predict(X)).std())
         recent = float(y[-3:].mean())
         slope = float(lr.coef_[0])
-        trend = "rising" if slope > recent * 0.02 else "falling" if slope < -recent * 0.02 else "flat"
+        if recent < 0.01 and pred < 0.01:
+            trend = "flat"
+        else:
+            trend = "rising" if slope > recent * 0.02 else "falling" if slope < -recent * 0.02 else "flat"
         per_cat.append({"name": c, "predicted": pred, "recent_avg": recent,
                         "band": resid_std, "trend": trend})
         total_pred += pred
