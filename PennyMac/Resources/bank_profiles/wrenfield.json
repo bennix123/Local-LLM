@@ -1,0 +1,23 @@
+{
+  "bank_name": "Wrenfield",
+  "version": 1,
+  "identifiers": {
+    "text_contains_any": ["Wrenfield", "WRENFIELD"],
+    "header_row_contains_any": ["Outgoings", "Incomings", "Balance"]
+  },
+  "column_map": {
+    "date":        { "header_aliases": ["Date"] },
+    "description": { "header_aliases": ["Description", "Details"] },
+    "debit":       { "header_aliases": ["Outgoings", "Amount (GBP)", "Amount"] },
+    "credit":      { "header_aliases": ["Incomings", "Credit"] },
+    "balance":     { "header_aliases": ["Balance (GBP)", "Balance"] }
+  },
+  "debit_credit_style": "sign",
+  "date_format": "%d/%m/%Y",
+  "number_format": "international",
+  "currency": "GBP",
+  "known_banner_page_indices": [],
+  "created_from": "manual",
+  "last_validated": "2026-07-11",
+  "success_rate": 0.93
+}

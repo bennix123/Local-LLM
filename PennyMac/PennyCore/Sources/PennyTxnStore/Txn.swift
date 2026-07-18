@@ -2,7 +2,7 @@
 // Mirrors the dict produced by finquery's txn_store parsers.
 import Foundation
 
-public struct TxnRow {
+public struct TxnRow: Equatable, Sendable {
     public var txnDate: String      // YYYY-MM-DD
     public var month: String        // YYYY-MM
     public var year: Int

@@ -144,6 +144,25 @@ case "run":
         exit(1)
     }
 
+case "query":
+    // usage: penny-conformance query <pdf> "<question>"
+    // Ingests the PDF, then answers via the deterministic FinanceRouter (no LLM).
+    guard args.count >= 4 else { fail("usage: penny-conformance query <pdf> \"<question>\"") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let cur = out.detectedCurrency.isEmpty ? "INR" : out.detectedCurrency
+    let sym: String = ["INR": "₹", "GBP": "£", "USD": "$", "EUR": "€", "OMR": "﷼"][cur] ?? ""
+    let money: (Double) -> String = { String(format: "\(sym)%.2f", $0) }
+    print("[ingest] \(out.rows.count) rows · \(cur) · bank=\(out.bankName ?? "?")")
+    if let ans = FinanceRouter.answer(args[3], rows: out.rows, currency: cur, money: money) {
+        print("[router] \(ans)")
+    } else {
+        print("[router] (no deterministic match → would fall back to the LLM)")
+    }
+
 default:
     fail("unknown subcommand: \(cmd)")
 }

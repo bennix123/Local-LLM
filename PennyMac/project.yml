@@ -15,9 +15,22 @@ targets:
     platform: macOS
     sources:
       - PennyApp
+      # Deterministic-parser resources, bundled into the sandboxed app:
+      # categories.json (categorization) + bank_profiles/ (bank detection).
+      # Kept as a folder reference so bank_profiles/ stays a real directory
+      # that BankProfileRegistry(dir:) can enumerate at runtime.
+      - path: Resources/categories.json
+        buildPhase: resources
+      - path: Resources/bank_profiles
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: PennyCore
         product: PennyCore
+      # The deterministic statement parser (MuPDF-parity, 15/15 conformance).
+      # Direct product dep so PennyApp can `import PennyTxnStore`.
+      - package: PennyCore
+        product: PennyTxnStore
     info:
       path: PennyApp/Info.plist
       properties:

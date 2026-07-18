@@ -14,13 +14,17 @@ public struct Transaction: Sendable, Codable, Equatable {
     public let debit: Double?    // money out
     public let credit: Double?   // money in
     public let balance: Double?
+    /// Deterministic category from PennyTxnStore's `categories.json` (nil when the
+    /// row came from the model-extraction fallback, which doesn't categorize).
+    public var category: String?
 
-    public init(date: String, description: String, debit: Double?, credit: Double?, balance: Double?) {
+    public init(date: String, description: String, debit: Double?, credit: Double?, balance: Double?, category: String? = nil) {
         self.date = date; self.description = description
         self.debit = debit; self.credit = credit; self.balance = balance
+        self.category = category
     }
 
-    enum CodingKeys: String, CodingKey { case date, description, debit, credit, balance }
+    enum CodingKeys: String, CodingKey { case date, description, debit, credit, balance, category }
 
     // `Swift.Decoder` is qualified because the Tokenizers module (imported for MLX)
     // also exports a `Decoder` type, which would otherwise shadow this.
@@ -31,6 +35,7 @@ public struct Transaction: Sendable, Codable, Equatable {
         debit = Transaction.number(c, .debit)
         credit = Transaction.number(c, .credit)
         balance = Transaction.number(c, .balance)
+        category = try? c.decode(String.self, forKey: .category)
     }
 
     /// Accept a number, or a string like "1,234.50" / "₹1,00,000" (models often quote amounts).

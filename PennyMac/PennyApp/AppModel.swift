@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import PennyCore
+import PennyTxnStore
 
 // MARK: - App-level types
 
@@ -20,13 +21,16 @@ struct ChatMessage: Identifiable, Equatable {
     var engine: String?   // e.g. "MLX" — the badge shown on assistant bubbles
 }
 
-/// A statement the user imported. Until the deterministic data-core step lands,
-/// a "document" is just its PDFKit-extracted text (no parsed transactions yet).
+/// A statement the user imported: its PDFKit-extracted text (grounding for chat)
+/// plus the transactions the deterministic `PennyTxnStore` parser pulled out of it
+/// (source of every Today-panel figure).
 struct LoadedDoc: Identifiable, Equatable {
     let id = UUID()
     let name: String
     let text: String
     var transactions: [PennyCore.Transaction] = []   // PennyCore-qualified: SwiftUI also has a `Transaction`
+    var rows: [TxnRow] = []                           // richer canonical rows, for the deterministic query router
+    var currency: String = "INR"                     // currency the parser detected for this statement
     var analyzed = false
     var charCount: Int { text.count }
 }
@@ -74,7 +78,6 @@ final class AppModel: ObservableObject {
     @Published var importingName: String?
     @Published var isAnalyzing = false
     @Published var summary = Summary()
-    private var analyzeCount = 0
 
     // chat
     @Published var messages: [ChatMessage] = []
@@ -218,15 +221,22 @@ final class AppModel: ObservableObject {
 
     // MARK: documents
 
-    private struct ExtractResult: Sendable { let name: String; let text: String }
+    private struct ExtractResult: Sendable {
+        let name: String
+        let text: String
+        let txns: [PennyCore.Transaction]
+        let rows: [TxnRow]
+        let currency: String
+    }
     private struct ImportFailure: Error, Sendable { let message: String }
 
-    /// Import a PDF WITHOUT freezing the UI: PDFKit text extraction can take a
-    /// while on a big statement, so it runs off the main thread while the picker
-    /// shows an "importing" state. Results are applied back on the main actor.
+    /// Import a PDF WITHOUT freezing the UI: PDFKit text extraction and the
+    /// deterministic `PennyTxnStore` parse both run off the main thread while the
+    /// picker shows an "importing" state. Results are applied on the main actor.
     func importPDF(from url: URL) {
         guard !isImporting else { return }
         isImporting = true
+        isAnalyzing = true
         importingName = url.lastPathComponent
         errorMessage = nil
         Task {
@@ -240,15 +250,26 @@ final class AppModel: ObservableObject {
             switch result {
             case .success(let r):
                 if r.text.isEmpty {
+                    isAnalyzing = false
                     errorMessage = "No selectable text in \(r.name) (is it a scanned image?)"
                     return
                 }
-                if !docs.contains(where: { $0.name == r.name }) {
-                    docs.append(LoadedDoc(name: r.name, text: r.text))
+                if let i = docs.firstIndex(where: { $0.name == r.name }) {
+                    // Re-import of a same-named file: refresh its parsed contents.
+                    docs[i].transactions = r.txns
+                    docs[i].rows = r.rows
+                    docs[i].currency = r.currency
+                    docs[i].analyzed = true
+                } else {
+                    docs.append(LoadedDoc(name: r.name, text: r.text,
+                                          transactions: r.txns, rows: r.rows,
+                                          currency: r.currency, analyzed: true))
                 }
                 selectedDocNames.insert(r.name)
-                analyze(r.name)   // extract transactions → fills the Today panel
+                isAnalyzing = false
+                recomputeSummary()   // deterministic figures → fills the Today panel
             case .failure(let failure):
+                isAnalyzing = false
                 errorMessage = failure.message
             }
         }
@@ -263,8 +284,14 @@ final class AppModel: ObservableObject {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
+                // PDFKit text is the chat grounding; the deterministic parser
+                // produces the transactions/figures. Both read the same scoped file.
                 let text = try StatementText.extract(from: url)
-                return .success(ExtractResult(name: url.lastPathComponent, text: text))
+                let parsed = (try? DeterministicIngest.ingest(pdfAt: url))
+                    ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                return .success(ExtractResult(name: url.lastPathComponent, text: text,
+                                              txns: parsed.transactions, rows: parsed.rows,
+                                              currency: parsed.currency))
             } catch {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
@@ -277,25 +304,7 @@ final class AppModel: ObservableObject {
         recomputeSummary()
     }
 
-    // MARK: analysis (deterministic summary from extracted transactions)
-
-    /// Extract transactions for a freshly-imported doc in the background, then
-    /// recompute the Today figures. Upload stays fast; the panel fills in when ready.
-    private func analyze(_ name: String) {
-        guard let text = docs.first(where: { $0.name == name })?.text else { return }
-        analyzeCount += 1
-        isAnalyzing = true
-        Task {
-            let txns = (try? await llm.extractTransactions(from: text)) ?? []
-            if let i = docs.firstIndex(where: { $0.name == name }) {
-                docs[i].transactions = txns
-                docs[i].analyzed = true
-            }
-            analyzeCount -= 1
-            isAnalyzing = analyzeCount > 0
-            recomputeSummary()
-        }
-    }
+    // MARK: analysis (deterministic summary from parsed transactions)
 
     /// Sum the selected documents' transactions in Swift — deterministic, no model.
     func recomputeSummary() {
@@ -314,21 +323,29 @@ final class AppModel: ObservableObject {
     }
 
     private func detectCurrency() -> String {
-        let text = docs
-            .filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
-            .map(\.text).joined()
+        let chosen = docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
+        // Prefer the parser's detected currency when it's something other than the
+        // default INR fallback — it's authoritative (read from the statement itself).
+        if let cur = chosen.map(\.currency).first(where: { $0 != "INR" && !$0.isEmpty }) {
+            return cur
+        }
+        // Otherwise sniff the raw text for a symbol/code.
+        let text = chosen.map(\.text).joined()
         if text.contains("₹") || text.range(of: "INR", options: .caseInsensitive) != nil { return "INR" }
         if text.contains("£") || text.range(of: "GBP", options: .caseInsensitive) != nil { return "GBP" }
         if text.contains("€") || text.range(of: "EUR", options: .caseInsensitive) != nil { return "EUR" }
         if text.contains("$") || text.range(of: "USD", options: .caseInsensitive) != nil { return "USD" }
-        return "INR"
+        return chosen.map(\.currency).first ?? "INR"
     }
 
     private func categorize(_ txns: [PennyCore.Transaction]) -> [CategorySpend] {
         var totals: [String: Double] = [:]
         for t in txns {
             guard let debit = t.debit, debit > 0 else { continue }
-            totals[Self.categoryName(t.description), default: 0] += debit
+            // Prefer the parser's deterministic category (from categories.json);
+            // fall back to the keyword heuristic only for model-extracted rows.
+            let name = (t.category?.isEmpty == false) ? t.category! : Self.categoryName(t.description)
+            totals[name, default: 0] += debit
         }
         return totals
             .map { CategorySpend(name: $0.key, amount: $0.value) }
@@ -352,6 +369,13 @@ final class AppModel: ObservableObject {
     private func selectedTransactions() -> [PennyCore.Transaction] {
         docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
             .flatMap(\.transactions)
+    }
+
+    /// The parsed canonical rows for the selected documents — the input to the
+    /// deterministic finance query router.
+    private func selectedRows() -> [TxnRow] {
+        docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
+            .flatMap(\.rows)
     }
 
     /// Does the question ask for the transaction list/table (vs. a count or a nuanced Q)?
@@ -416,6 +440,17 @@ final class AppModel: ObservableObject {
             let header = "Here \(verb) all \(txns.count) \(noun) on record:\n\n"
             let table = Self.transactionsMarkdown(txns, currency: summary.currency)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
+            return
+        }
+
+        // Deterministic finance router: answer factual numeric questions (totals,
+        // counts, balance, category/merchant/period spend, largest/top, income,
+        // net, average) straight from the parsed rows — no model, no hallucinated
+        // figures. Returns nil for advisory/open-ended questions, which fall to MLX.
+        let cur = summary.currency
+        if let answer = FinanceRouter.answer(q, rows: selectedRows(), currency: cur,
+                                             money: { Money.format($0, currency: cur) }) {
+            messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
             return
         }
 
