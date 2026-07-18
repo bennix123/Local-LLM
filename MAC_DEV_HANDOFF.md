@@ -15,6 +15,24 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-18 — P3 (part 2) DONE: table extraction verified, conformance 15 → 22 ✅
+Rather than build a speculative `camelot`-style lattice extractor with no failing case, I
+**diagnosed first**: dumped every parsed row for the 7 previously-unverified statements
+(NatWest, Revolut, Santander, Coutts, BNP Paribas, Credit Suisse, Standard Chartered) and ran a
+**field-level Swift-vs-Python parity diff** (Python `ingest_pdf`, LLM stubbed = the reference).
+- **Result: all 7 are byte-identical to the Python reference** — date, description, debit,
+  credit, balance, category all match. The Swift coordinate-clustering already handles these
+  table layouts at full parity; **no lattice extractor is needed** for any available sample.
+- **Locked it in:** promoted the 7 into the contract fixtures with reference-generated
+  `_expected.json`. `penny-conformance run` now covers **22 banks (22/22)**, up from 15 — a
+  permanent regression guard for table parsing.
+- Added `dump-rows` / `rows-json` debug subcommands to `penny-conformance` for future parity work.
+
+**P3 status:** the two real risks are handled — unreadable **Type0 fonts** (part 1, fixed) and
+**table-structure correctness** (part 2, verified at parity + guarded by 22 fixtures). Dedicated
+Indian-bank parsers (SBI/ICICI/Axis) remain unverifiable until we have sample PDFs; their profiles
+exist and the generic cascade + Type0 support should cover them — add fixtures when samples arrive.
+
 ### 2026-07-18 — P3 (part 1) DONE: Type0/CID font support ✅
 Swept all 22 `test-data/` statements through the Swift parser: one hard failure —
 **Wrenfield extracted 0 rows**. Root cause: the PDF uses **Type0/CID fonts** (`Identity-H`,

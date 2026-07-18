@@ -1,0 +1,362 @@
+[
+ {
+  "date": "2026-04-01",
+  "description": "SAMPLE LOYER SARL",
+  "debit": 84.38,
+  "credit": 0.0,
+  "balance": 2656.47,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-01",
+  "description": "DEMO MAGASIN ELECTRONIQUE",
+  "debit": 170.66,
+  "credit": 0.0,
+  "balance": 2485.81,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-01",
+  "description": "DEMO MOBILE TELECOM",
+  "debit": 135.22,
+  "credit": 0.0,
+  "balance": 2350.59,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-01",
+  "description": "VIREMENT RECU - TEST PAYEUR B SAMPLE",
+  "debit": 0.0,
+  "credit": 1015.03,
+  "balance": 3365.62,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "SAMPLE RESERVATION VOL",
+  "debit": 115.92,
+  "credit": 0.0,
+  "balance": 3249.7,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "VIREMENT RECU - TEST PAYEUR A SAMPLE",
+  "debit": 0.0,
+  "credit": 379.46,
+  "balance": 3629.16,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-03",
+  "description": "FAKE STATION ESSENCE",
+  "debit": 6.44,
+  "credit": 0.0,
+  "balance": 3622.72,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-04",
+  "description": "DEMO MOBILE TELECOM REAL",
+  "debit": 198.98,
+  "credit": 0.0,
+  "balance": 3423.74,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "FAKE STATION ESSENCE",
+  "debit": 168.79,
+  "credit": 0.0,
+  "balance": 3254.95,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "DEMO MAGASIN BRICOLAGE",
+  "debit": 135.03,
+  "credit": 0.0,
+  "balance": 3119.92,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "DEMO MAGASIN BRICOLAGE",
+  "debit": 57.01,
+  "credit": 0.0,
+  "balance": 3062.91,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "TEST ASSURANCE HABITATION",
+  "debit": 233.85,
+  "credit": 0.0,
+  "balance": 2829.06,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "SPECIMEN ASSURANCE CO",
+  "debit": 220.64,
+  "credit": 0.0,
+  "balance": 2608.42,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-06",
+  "description": "SAMPLE EMPLOYEUR SARL - SALAIRE",
+  "debit": 0.0,
+  "credit": 762.65,
+  "balance": 3371.07,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-07",
+  "description": "DEMO LIBRAIRIE A",
+  "debit": 170.37,
+  "credit": 0.0,
+  "balance": 3200.7,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-07",
+  "description": "VIREMENT RECU - TEST PAYEUR B SAMPLE",
+  "debit": 0.0,
+  "credit": 1640.05,
+  "balance": 4840.75,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-09",
+  "description": "SAMPLE EAU COMPAGNIE",
+  "debit": 200.64,
+  "credit": 0.0,
+  "balance": 4640.11,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-09",
+  "description": "NOT SAMPLE RESERVATION VOL",
+  "debit": 33.47,
+  "credit": 0.0,
+  "balance": 4606.64,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-09",
+  "description": "SAMPLE LOYER SARL",
+  "debit": 47.43,
+  "credit": 0.0,
+  "balance": 4559.21,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-10",
+  "description": "REMBOURSEMENT - DEMO COMMERCANT",
+  "debit": 0.0,
+  "credit": 219.16,
+  "balance": 4778.37,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-10",
+  "description": "DEMO MAGASIN ELECTRONIQUE",
+  "debit": 220.42,
+  "credit": 0.0,
+  "balance": 4557.95,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "DEMO MAGASIN BRICOLAGE",
+  "debit": 108.24,
+  "credit": 0.0,
+  "balance": 4449.71,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "SPECIMEN ASSURANCE CO",
+  "debit": 70.21,
+  "credit": 0.0,
+  "balance": 4379.5,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "SPECIMEN ENERGIE CO",
+  "debit": 172.0,
+  "credit": 0.0,
+  "balance": 4207.5,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "DEMO SUPERMARCHE",
+  "debit": 72.69,
+  "credit": 0.0,
+  "balance": 4134.81,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-12",
+  "description": "SPECIMEN TAXE FONCIERE",
+  "debit": 39.08,
+  "credit": 0.0,
+  "balance": 4095.73,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-12",
+  "description": "FAKE SERVICE TAXI Fictional SPECIMEN data - not a real person, account, or trans",
+  "debit": 162.4,
+  "credit": 0.0,
+  "balance": 3933.33,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-13",
+  "description": "REMBOURSEMENT - DEMO COMMERCANT",
+  "debit": 0.0,
+  "credit": 550.55,
+  "balance": 4483.88,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-13",
+  "description": "TEST BOUTIQUE EN LIGNE",
+  "debit": 27.87,
+  "credit": 0.0,
+  "balance": 4456.01,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-13",
+  "description": "SPECIMEN ASSURANCE CO",
+  "debit": 206.45,
+  "credit": 0.0,
+  "balance": 4249.56,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-13",
+  "description": "SAMPLE SALLE DE SPORT DOCUMENT",
+  "debit": 189.74,
+  "credit": 0.0,
+  "balance": 4059.82,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-14",
+  "description": "DEMO MOBILE TELECOM",
+  "debit": 176.35,
+  "credit": 0.0,
+  "balance": 3883.47,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-14",
+  "description": "FAKE CINEMA SARL",
+  "debit": 41.06,
+  "credit": 0.0,
+  "balance": 3842.41,
+  "category": "Entertainment",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "DEMO PHARMACIE",
+  "debit": 12.43,
+  "credit": 0.0,
+  "balance": 3829.98,
+  "category": "Healthcare",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "FAKE SERVICE TAXI",
+  "debit": 21.66,
+  "credit": 0.0,
+  "balance": 3808.32,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "FAKE CINEMA SPECIMEN SARL",
+  "debit": 241.47,
+  "credit": 0.0,
+  "balance": 3566.85,
+  "category": "Entertainment",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "REMBOURSEMENT - DEMO COMMERCANT",
+  "debit": 0.0,
+  "credit": 1138.28,
+  "balance": 4705.13,
+  "category": "Income",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-17",
+  "description": "SPECIMEN ENERGIE CO",
+  "debit": 200.91,
+  "credit": 0.0,
+  "balance": 4504.22,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-17",
+  "description": "DEMO MAGASIN ELECTRONIQUE",
+  "debit": 11.61,
+  "credit": 0.0,
+  "balance": 4492.61,
+  "category": "Other",
+  "bank": "Specimen Bnp Paribas"
+ },
+ {
+  "date": "2026-04-18",
+  "description": "FAKE CINEMA SARL REAL A NOT Fictional SPECIMEN data - not a real person, account",
+  "debit": 121.75,
+  "credit": 0.0,
+  "balance": 4370.86,
+  "category": "Entertainment",
+  "bank": "Specimen Bnp Paribas"
+ }
+]

@@ -1,0 +1,344 @@
+[
+ {
+  "date": "2026-02-01",
+  "description": "EXAMPLE RESTAURANT",
+  "debit": 34.21,
+  "credit": 0.0,
+  "balance": 3365.99,
+  "category": "Food & Dining",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-01",
+  "description": "TRANSFER IN - TEST PAYER B SAMPLE",
+  "debit": 0.0,
+  "credit": 333.79,
+  "balance": 3699.78,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-02",
+  "description": "SAMPLE GYM MEMBERSHIP",
+  "debit": 179.53,
+  "credit": 0.0,
+  "balance": 3520.25,
+  "category": "Entertainment",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-02",
+  "description": "FAKE TAXI SERVICE",
+  "debit": 76.4,
+  "credit": 0.0,
+  "balance": 3443.85,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-02",
+  "description": "INTEREST PAID (SPECIMEN)",
+  "debit": 0.0,
+  "credit": 520.02,
+  "balance": 3963.87,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-03",
+  "description": "FAKE COFFEE CO",
+  "debit": 272.55,
+  "credit": 0.0,
+  "balance": 3691.32,
+  "category": "Food & Dining",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-03",
+  "description": "FAKE COFFEE CO",
+  "debit": 356.25,
+  "credit": 0.0,
+  "balance": 3335.07,
+  "category": "Food & Dining",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-04",
+  "description": "INTEREST PAID (SPECIMEN) REAL",
+  "debit": 0.0,
+  "credit": 2163.87,
+  "balance": 5498.94,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-04",
+  "description": "DEMO BOOKSHOP",
+  "debit": 80.53,
+  "credit": 0.0,
+  "balance": 5418.41,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-04",
+  "description": "DEMO PHARMACY",
+  "debit": 433.87,
+  "credit": 0.0,
+  "balance": 4984.54,
+  "category": "Healthcare",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-04",
+  "description": "FAKE COFFEE CO",
+  "debit": 111.63,
+  "credit": 0.0,
+  "balance": 4872.91,
+  "category": "Food & Dining",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-05",
+  "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+  "debit": 0.0,
+  "credit": 2253.87,
+  "balance": 7126.78,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-05",
+  "description": "SPECIMEN COUNCIL TAX",
+  "debit": 361.78,
+  "credit": 0.0,
+  "balance": 6765.0,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-05",
+  "description": "DEMO BOOKSHOP",
+  "debit": 46.16,
+  "credit": 0.0,
+  "balance": 6718.84,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-05",
+  "description": "SPECIMEN COUNCIL TAX A",
+  "debit": 268.45,
+  "credit": 0.0,
+  "balance": 6450.39,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-06",
+  "description": "SPECIMEN COUNCIL TAX",
+  "debit": 140.95,
+  "credit": 0.0,
+  "balance": 6309.44,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-07",
+  "description": "SPECIMEN COUNCIL TAX",
+  "debit": 341.5,
+  "credit": 0.0,
+  "balance": 5967.94,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-07",
+  "description": "NOT REFUND - DEMO RETAILER",
+  "debit": 0.0,
+  "credit": 2040.43,
+  "balance": 8008.37,
+  "category": "Shopping",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-08",
+  "description": "TEST ONLINE RETAILER",
+  "debit": 31.26,
+  "credit": 0.0,
+  "balance": 7977.11,
+  "category": "Shopping",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-09",
+  "description": "DEMO HARDWARE STORE",
+  "debit": 50.21,
+  "credit": 0.0,
+  "balance": 7926.9,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-09",
+  "description": "SAMPLE EMPLOYER LTD -",
+  "debit": 0.0,
+  "credit": 1573.84,
+  "balance": 9500.74,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-09",
+  "description": "FAKE CINEMA LTD",
+  "debit": 228.26,
+  "credit": 0.0,
+  "balance": 9272.48,
+  "category": "Entertainment",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-09",
+  "description": "DEMO ELECTRONICS STORE",
+  "debit": 290.8,
+  "credit": 0.0,
+  "balance": 8981.68,
+  "category": "Shopping",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-09",
+  "description": "SPECIMEN COUNCIL TAX",
+  "debit": 231.83,
+  "credit": 0.0,
+  "balance": 8749.85,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-10",
+  "description": "SPECIMEN ENERGY CO",
+  "debit": 103.02,
+  "credit": 0.0,
+  "balance": 8646.83,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-10",
+  "description": "INTEREST PAID (SPECIMEN)",
+  "debit": 0.0,
+  "credit": 124.26,
+  "balance": 8771.09,
+  "category": "Income",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-12",
+  "description": "DEMO BOOKSHOP Fictional SPECIMEN data - not a real person, account, or transacti",
+  "debit": 368.15,
+  "credit": 0.0,
+  "balance": 8402.94,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-12",
+  "description": "FAKE CINEMA LTD",
+  "debit": 359.33,
+  "credit": 0.0,
+  "balance": 8043.61,
+  "category": "Entertainment",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-13",
+  "description": "SAMPLE GYM MEMBERSHIP",
+  "debit": 220.08,
+  "credit": 0.0,
+  "balance": 7823.53,
+  "category": "Entertainment",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-13",
+  "description": "SAMPLE AIRLINE BOOKING",
+  "debit": 40.26,
+  "credit": 0.0,
+  "balance": 7783.27,
+  "category": "Transport",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-14",
+  "description": "SAMPLE WATER COMPANY DOCUMENT",
+  "debit": 169.12,
+  "credit": 0.0,
+  "balance": 7614.15,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-15",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 351.22,
+  "credit": 0.0,
+  "balance": 7262.93,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-15",
+  "description": "FAKE TAXI SERVICE",
+  "debit": 301.28,
+  "credit": 0.0,
+  "balance": 6961.65,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-16",
+  "description": "DEMO ELECTRONICS STORE",
+  "debit": 119.46,
+  "credit": 0.0,
+  "balance": 6842.19,
+  "category": "Shopping",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-16",
+  "description": "SAMPLE WATER COMPANY",
+  "debit": 174.91,
+  "credit": 0.0,
+  "balance": 6667.28,
+  "category": "Other",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-17",
+  "description": "SPECIMEN SPECIMEN COUNCIL TAX",
+  "debit": 433.74,
+  "credit": 0.0,
+  "balance": 6233.54,
+  "category": "Utilities",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-18",
+  "description": "DEMO SUPERMARKET",
+  "debit": 74.52,
+  "credit": 0.0,
+  "balance": 6159.02,
+  "category": "Groceries",
+  "bank": "Specimen Standard Chartered"
+ },
+ {
+  "date": "2026-02-18",
+  "description": "SPECIMEN BRANCH ATM REAL A NOT Fictional SPECIMEN data - not a real person, acco",
+  "debit": 322.95,
+  "credit": 0.0,
+  "balance": 5836.07,
+  "category": "Cash",
+  "bank": "Specimen Standard Chartered"
+ }
+]

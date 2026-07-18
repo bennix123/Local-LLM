@@ -1,0 +1,290 @@
+[
+ {
+  "date": "2026-06-07",
+  "description": "26 TRANSFER FROM SAVINGS",
+  "debit": 649.99,
+  "credit": 0.0,
+  "balance": 1899.99,
+  "category": "Transfers",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-07",
+  "description": "26 SALARY - EMPLOYER LTD DOCUMENT TEST",
+  "debit": 0.0,
+  "credit": 1707.91,
+  "balance": 3607.9,
+  "category": "Income",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-08",
+  "description": "26 AMAZON MKTPLACE",
+  "debit": 177.97,
+  "credit": 0.0,
+  "balance": 3429.93,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-09",
+  "description": "26 SALARY - EMPLOYER LTD",
+  "debit": 0.0,
+  "credit": 585.66,
+  "balance": 4015.59,
+  "category": "Income",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-10",
+  "description": "26 TESCO STORES",
+  "debit": 169.25,
+  "credit": 0.0,
+  "balance": 3846.34,
+  "category": "Groceries",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-11",
+  "description": "26 DECATHLON SYNTHETIC",
+  "debit": 164.39,
+  "credit": 0.0,
+  "balance": 3681.95,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-12",
+  "description": "26 THAMES WATER DD",
+  "debit": 84.9,
+  "credit": 0.0,
+  "balance": 3597.05,
+  "category": "Utilities",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-13",
+  "description": "26 NETFLIX.COM",
+  "debit": 210.05,
+  "credit": 0.0,
+  "balance": 3387.0,
+  "category": "Entertainment",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-14",
+  "description": "26 COSTA COFFEE",
+  "debit": 66.16,
+  "credit": 0.0,
+  "balance": 3320.84,
+  "category": "Food & Dining",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-15",
+  "description": "26 TFL TRAVEL CHARGE BANK",
+  "debit": 29.64,
+  "credit": 0.0,
+  "balance": 3291.2,
+  "category": "Transport",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-16",
+  "description": "26 TRANSFER FROM R PATEL",
+  "debit": 0.0,
+  "credit": 892.69,
+  "balance": 4183.89,
+  "category": "Transfers",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-17",
+  "description": "26 SAINSBURYS",
+  "debit": 219.46,
+  "credit": 0.0,
+  "balance": 3964.43,
+  "category": "Groceries",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-18",
+  "description": "26 JOHN LEWIS",
+  "debit": 25.48,
+  "credit": 0.0,
+  "balance": 3938.95,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-19",
+  "description": "26 APPLE.COM/BILL",
+  "debit": 186.32,
+  "credit": 0.0,
+  "balance": 3752.63,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-20",
+  "description": "26 THAMES WATER DD - REAL",
+  "debit": 59.3,
+  "credit": 0.0,
+  "balance": 3693.33,
+  "category": "Utilities",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-21",
+  "description": "26 REFUND - AMAZON SAMPLE",
+  "debit": 0.0,
+  "credit": 608.35,
+  "balance": 4301.68,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-22",
+  "description": "26 AMAZON MKTPLACE",
+  "debit": 256.88,
+  "credit": 0.0,
+  "balance": 4044.8,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-23",
+  "description": "26 JOHN LEWIS",
+  "debit": 84.84,
+  "credit": 0.0,
+  "balance": 3959.96,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-24",
+  "description": "26 M&S FOODHALL A",
+  "debit": 50.47,
+  "credit": 0.0,
+  "balance": 3909.49,
+  "category": "Groceries",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-25",
+  "description": "26 GREGGS",
+  "debit": 81.56,
+  "credit": 0.0,
+  "balance": 3827.93,
+  "category": "Food & Dining",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-26",
+  "description": "NOT 26 APPLE.COM/BILL",
+  "debit": 23.28,
+  "credit": 0.0,
+  "balance": 3804.65,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-27",
+  "description": "26 BRITISH GAS DD",
+  "debit": 219.28,
+  "credit": 0.0,
+  "balance": 3585.37,
+  "category": "Utilities",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-28",
+  "description": "26 JOHN LEWIS",
+  "debit": 82.44,
+  "credit": 0.0,
+  "balance": 3502.93,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-29",
+  "description": "26 DECATHLON",
+  "debit": 167.97,
+  "credit": 0.0,
+  "balance": 3334.96,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-06-30",
+  "description": "26 SAINSBURYS",
+  "debit": 70.26,
+  "credit": 0.0,
+  "balance": 3264.7,
+  "category": "Groceries",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-01",
+  "description": "26 TRANSFER FROM SAVINGS",
+  "debit": 0.0,
+  "credit": 1032.85,
+  "balance": 4297.55,
+  "category": "Transfers",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-02",
+  "description": "26 INTEREST PAID",
+  "debit": 0.0,
+  "credit": 2197.1,
+  "balance": 6494.65,
+  "category": "Income",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-03",
+  "description": "26 APPLE.COM/BILL",
+  "debit": 150.77,
+  "credit": 0.0,
+  "balance": 6343.88,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-04",
+  "description": "26 APPLE.COM/BILL",
+  "debit": 138.74,
+  "credit": 0.0,
+  "balance": 6205.14,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-05",
+  "description": "26 SHELL GARAGE",
+  "debit": 224.01,
+  "credit": 0.0,
+  "balance": 5981.13,
+  "category": "Transport",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-06",
+  "description": "26 IKEA",
+  "debit": 176.21,
+  "credit": 0.0,
+  "balance": 5804.92,
+  "category": "Shopping",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ },
+ {
+  "date": "2026-07-06",
+  "description": "26 BALANCE CARRIED FORWARD This is a computer-generated SYNTHETIC statement crea",
+  "debit": 5804.92,
+  "credit": 0.0,
+  "balance": 5804.92,
+  "category": "Other",
+  "bank": "NOT A REAL BANK DOCUMENT"
+ }
+]

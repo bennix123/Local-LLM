@@ -163,6 +163,45 @@ case "query":
         print("[router] (no deterministic match → would fall back to the LLM)")
     }
 
+case "dump-rows":
+    // usage: penny-conformance dump-rows <pdf> [limit]
+    // Ingests and prints the parsed canonical rows (date | descr | debit | credit | balance | cat).
+    guard args.count >= 3 else { fail("usage: penny-conformance dump-rows <pdf> [limit]") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let limit = args.count > 3 ? (Int(args[3]) ?? 40) : 40
+    print("[dump] \(out.rows.count) rows · \(out.detectedCurrency) · bank=\(out.bankName ?? "?")")
+    for r in out.rows.prefix(limit) {
+        let dr = r.debit > 0 ? String(format: "%.2f", r.debit) : ""
+        let cr = r.credit > 0 ? String(format: "%.2f", r.credit) : ""
+        let bal = r.balance.map { String(format: "%.2f", $0) } ?? ""
+        print(String(format: "%-11@ | %-38@ | D:%-10@ | C:%-10@ | B:%-11@ | %@",
+                     r.txnDate as NSString, String(r.descr.prefix(38)) as NSString,
+                     dr as NSString, cr as NSString, bal as NSString, r.category as NSString))
+    }
+
+case "rows-json":
+    // usage: penny-conformance rows-json <pdf>   -> JSON array for Swift-vs-Python parity
+    guard args.count >= 3 else { fail("usage: penny-conformance rows-json <pdf>") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let arr: [[String: Any]] = out.rows.map { r in
+        [
+            "date": r.txnDate, "descr": r.descr,
+            "debit": r.debit, "credit": r.credit,
+            "balance": r.balance as Any? ?? NSNull(),
+            "category": r.category,
+        ]
+    }
+    let data = try JSONSerialization.data(withJSONObject: arr)
+    print(String(data: data, encoding: .utf8)!)
+
 case "retrieve":
     // usage: penny-conformance retrieve <pdf> "<query>" [k]
     // Ingests the PDF, then shows the top-k most relevant rows (hybrid RAG).

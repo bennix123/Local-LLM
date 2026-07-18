@@ -1,0 +1,308 @@
+[
+ {
+  "date": "2026-01-01",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 624.82,
+  "credit": 0.0,
+  "balance": 53575.28,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-02",
+  "description": "EXAMPLE RESTAURANT",
+  "debit": 155.66,
+  "credit": 0.0,
+  "balance": 53419.62,
+  "category": "Food & Dining",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-02",
+  "description": "SPECIMEN BANKOMAT BEZUG",
+  "debit": 1197.99,
+  "credit": 0.0,
+  "balance": 52221.63,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-02",
+  "description": "SAMPLE FITNESSCENTER",
+  "debit": 197.65,
+  "credit": 0.0,
+  "balance": 52023.98,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-02",
+  "description": "FAKE TAXI SERVICE",
+  "debit": 57.72,
+  "credit": 0.0,
+  "balance": 51966.26,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-03",
+  "description": "DEMO MOBILFUNK AG",
+  "debit": 1890.31,
+  "credit": 0.0,
+  "balance": 50075.95,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-03",
+  "description": "EXAMPLE RESTAURANT",
+  "debit": 918.19,
+  "credit": 0.0,
+  "balance": 49157.76,
+  "category": "Food & Dining",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-05",
+  "description": "DEMO MOBILFUNK AG REAL",
+  "debit": 1696.07,
+  "credit": 0.0,
+  "balance": 47461.69,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-05",
+  "description": "DEMO SUPERMARKT AG",
+  "debit": 1533.68,
+  "credit": 0.0,
+  "balance": 45928.01,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-06",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 1279.05,
+  "credit": 0.0,
+  "balance": 44648.96,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-06",
+  "description": "FAKE KINO AG",
+  "debit": 616.21,
+  "credit": 0.0,
+  "balance": 44032.75,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-07",
+  "description": "FAKE KAFFEE AG",
+  "debit": 1782.47,
+  "credit": 0.0,
+  "balance": 42250.28,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-07",
+  "description": "UEBERWEISUNG - SPECIMEN FREELANCE KUNDE",
+  "debit": 0.0,
+  "credit": 10438.34,
+  "balance": 52688.62,
+  "category": "Income",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-08",
+  "description": "SAMPLE MIETE AG",
+  "debit": 433.49,
+  "credit": 0.0,
+  "balance": 52255.13,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-08",
+  "description": "EXAMPLE RESTAURANT A",
+  "debit": 1562.05,
+  "credit": 0.0,
+  "balance": 50693.08,
+  "category": "Food & Dining",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-08",
+  "description": "TEST HAUSRATVERSICHERUNG",
+  "debit": 147.16,
+  "credit": 0.0,
+  "balance": 50545.92,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-08",
+  "description": "SAMPLE WASSERWERK",
+  "debit": 1264.91,
+  "credit": 0.0,
+  "balance": 49281.01,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-10",
+  "description": "NOT DEMO APOTHEKE",
+  "debit": 1614.54,
+  "credit": 0.0,
+  "balance": 47666.47,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-10",
+  "description": "EXAMPLE RESTAURANT",
+  "debit": 528.17,
+  "credit": 0.0,
+  "balance": 47138.3,
+  "category": "Food & Dining",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-10",
+  "description": "SAMPLE WASSERWERK",
+  "debit": 1837.24,
+  "credit": 0.0,
+  "balance": 45301.06,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-10",
+  "description": "SAMPLE ARBEITGEBER AG - LOHN",
+  "debit": 0.0,
+  "credit": 8673.87,
+  "balance": 53974.93,
+  "category": "Income",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-11",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 130.63,
+  "credit": 0.0,
+  "balance": 53844.3,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-12",
+  "description": "SAMPLE WASSERWERK",
+  "debit": 942.71,
+  "credit": 0.0,
+  "balance": 52901.59,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-12",
+  "description": "TEST HAUSRATVERSICHERUNG",
+  "debit": 68.3,
+  "credit": 0.0,
+  "balance": 52833.29,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-13",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 731.0,
+  "credit": 0.0,
+  "balance": 52102.29,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-13",
+  "description": "TEST ONLINE SHOP",
+  "debit": 1209.19,
+  "credit": 0.0,
+  "balance": 50893.1,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-13",
+  "description": "SAMPLE FLUGBUCHUNG Fictional SPECIMEN data - not a real person, account, or tran",
+  "debit": 1350.26,
+  "credit": 0.0,
+  "balance": 49542.84,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-13",
+  "description": "SPECIMEN GEMEINDESTEUER",
+  "debit": 1854.82,
+  "credit": 0.0,
+  "balance": 47688.02,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-14",
+  "description": "SAMPLE FITNESSCENTER",
+  "debit": 520.63,
+  "credit": 0.0,
+  "balance": 47167.39,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-14",
+  "description": "DEMO BAUMARKT AG",
+  "debit": 245.06,
+  "credit": 0.0,
+  "balance": 46922.33,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-14",
+  "description": "RUECKERSTATTUNG - DEMO HAENDLER DOCUMENT",
+  "debit": 0.0,
+  "credit": 5177.36,
+  "balance": 52099.69,
+  "category": "Income",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-14",
+  "description": "SAMPLE MIETE AG",
+  "debit": 1466.31,
+  "credit": 0.0,
+  "balance": 50633.38,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-16",
+  "description": "DEMO SUPERMARKT AG",
+  "debit": 413.59,
+  "credit": 0.0,
+  "balance": 50219.79,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ },
+ {
+  "date": "2026-01-17",
+  "description": "TEST HAUSRATVERSICHERUNG SPECIMEN REAL A NOT Fictional SPECIMEN data - not a rea",
+  "debit": 905.58,
+  "credit": 0.0,
+  "balance": 49314.21,
+  "category": "Other",
+  "bank": "Specimen Credit Suisse"
+ }
+]

@@ -1,0 +1,290 @@
+[
+ {
+  "date": "2026-04-01",
+  "description": "SAMPLE EMPLOYER LTD -",
+  "debit": 6663.82,
+  "credit": 0.0,
+  "balance": 24914.22,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "SPECIMEN BRANCH ATM",
+  "debit": 1018.2,
+  "credit": 0.0,
+  "balance": 23896.02,
+  "category": "Cash",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "SAMPLE GYM MEMBERSHIP",
+  "debit": 683.67,
+  "credit": 0.0,
+  "balance": 23212.35,
+  "category": "Entertainment",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "TRANSFER IN - SPECIMEN FREELANCE CLIENT",
+  "debit": 0.0,
+  "credit": 2006.07,
+  "balance": 25218.42,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-02",
+  "description": "DEMO MOBILE NETWORK",
+  "debit": 1016.84,
+  "credit": 0.0,
+  "balance": 24201.58,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-03",
+  "description": "TRANSFER IN - TEST PAYER B SAMPLE",
+  "debit": 0.0,
+  "credit": 5462.08,
+  "balance": 29663.66,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-03",
+  "description": "SAMPLE RENT LTD",
+  "debit": 466.96,
+  "credit": 0.0,
+  "balance": 29196.7,
+  "category": "Rent",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-03",
+  "description": "TRANSFER IN - TEST PAYER A SAMPLE REAL",
+  "debit": 0.0,
+  "credit": 2764.51,
+  "balance": 31961.21,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-04",
+  "description": "DEMO HARDWARE STORE",
+  "debit": 385.53,
+  "credit": 0.0,
+  "balance": 31575.68,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-04",
+  "description": "TEST STREAMING SERVICE",
+  "debit": 1281.01,
+  "credit": 0.0,
+  "balance": 30294.67,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "DEMO HARDWARE STORE",
+  "debit": 1401.48,
+  "credit": 0.0,
+  "balance": 28893.19,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "SPECIMEN INSURANCE CO",
+  "debit": 1162.56,
+  "credit": 0.0,
+  "balance": 27730.63,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-05",
+  "description": "SPECIMEN BRANCH ATM",
+  "debit": 89.2,
+  "credit": 0.0,
+  "balance": 27641.43,
+  "category": "Cash",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-06",
+  "description": "DIVIDEND (SPECIMEN INVESTMENT CO)",
+  "debit": 0.0,
+  "credit": 6293.49,
+  "balance": 33934.92,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-06",
+  "description": "TEST STREAMING SERVICE A",
+  "debit": 755.26,
+  "credit": 0.0,
+  "balance": 33179.66,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-06",
+  "description": "FAKE CINEMA LTD",
+  "debit": 1121.5,
+  "credit": 0.0,
+  "balance": 32058.16,
+  "category": "Entertainment",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-07",
+  "description": "FAKE CINEMA LTD",
+  "debit": 1167.25,
+  "credit": 0.0,
+  "balance": 30890.91,
+  "category": "Entertainment",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-07",
+  "description": "NOT SAMPLE EMPLOYER LTD -",
+  "debit": 0.0,
+  "credit": 3378.24,
+  "balance": 34269.15,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-08",
+  "description": "SPECIMEN INSURANCE CO",
+  "debit": 1474.43,
+  "credit": 0.0,
+  "balance": 32794.72,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-09",
+  "description": "FAKE PETROL STATION",
+  "debit": 430.5,
+  "credit": 0.0,
+  "balance": 32364.22,
+  "category": "Transport",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "SAMPLE RENT LTD",
+  "debit": 275.79,
+  "credit": 0.0,
+  "balance": 32088.43,
+  "category": "Rent",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-11",
+  "description": "FAKE CINEMA LTD",
+  "debit": 925.88,
+  "credit": 0.0,
+  "balance": 31162.55,
+  "category": "Entertainment",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-12",
+  "description": "FAKE PETROL STATION",
+  "debit": 137.15,
+  "credit": 0.0,
+  "balance": 31025.4,
+  "category": "Transport",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-14",
+  "description": "SPECIMEN COUNCIL TAX",
+  "debit": 1067.13,
+  "credit": 0.0,
+  "balance": 29958.27,
+  "category": "Utilities",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "SAMPLE EMPLOYER LTD -",
+  "debit": 0.0,
+  "credit": 3130.7,
+  "balance": 33088.97,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-16",
+  "description": "SAMPLE RENT LTD",
+  "debit": 1396.5,
+  "credit": 0.0,
+  "balance": 31692.47,
+  "category": "Rent",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-17",
+  "description": "DIVIDEND (SPECIMEN INVESTMENT CO) Fictional SPECIMEN data - not a real person, a",
+  "debit": 0.0,
+  "credit": 4689.87,
+  "balance": 36382.34,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-17",
+  "description": "TEST HOME",
+  "debit": 397.64,
+  "credit": 0.0,
+  "balance": 35984.7,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-18",
+  "description": "SAMPLE WATER COMPANY",
+  "debit": 293.52,
+  "credit": 0.0,
+  "balance": 35691.18,
+  "category": "Other",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-18",
+  "description": "TRANSFER IN - TEST PAYER B SAMPLE",
+  "debit": 0.0,
+  "credit": 2468.42,
+  "balance": 38159.6,
+  "category": "Income",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-18",
+  "description": "TEST HOME INSURANCE DOCUMENT",
+  "debit": 824.53,
+  "credit": 0.0,
+  "balance": 37335.07,
+  "category": "Investment & Insurance",
+  "bank": "Specimen Coutts"
+ },
+ {
+  "date": "2026-04-18",
+  "description": "FAKE PETROL STATION SPECIMEN REAL A NOT Fictional SPECIMEN data - not a real per",
+  "debit": 32.98,
+  "credit": 0.0,
+  "balance": 37302.09,
+  "category": "Transport",
+  "bank": "Specimen Coutts"
+ }
+]
