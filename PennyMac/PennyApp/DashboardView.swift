@@ -14,8 +14,13 @@ struct DashboardView: View {
                 onUpload: { showingImporter = true },
                 onSwitchModel: { app.stage = .modelPicker }
             )
-            ChatView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                switch app.centerView {
+                case .chat:    ChatView()
+                case .history: ChatHistoryView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             ContextPanelView()
         }
         .background(Theme.bg)

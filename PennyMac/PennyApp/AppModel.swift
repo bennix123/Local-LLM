@@ -13,13 +13,25 @@ enum ModelPhase: Equatable {
     case ready
 }
 
-struct ChatMessage: Identifiable, Equatable {
-    enum Role { case user, assistant }
-    let id = UUID()
+struct ChatMessage: Identifiable, Equatable, Codable {
+    enum Role: String, Codable { case user, assistant }
+    var id = UUID()
     let role: Role
     var content: String
     var engine: String?   // e.g. "MLX" — the badge shown on assistant bubbles
 }
+
+/// An archived conversation — created when the user starts a new chat, listed
+/// in the History view, and persisted to disk so it survives relaunches.
+struct ChatSession: Identifiable, Equatable, Codable {
+    let id: UUID
+    var title: String       // first user message (trimmed)
+    var date: Date          // when it was archived
+    var messages: [ChatMessage]
+}
+
+/// Which view fills the centre column of the dashboard.
+enum CenterView { case chat, history }
 
 /// A statement the user imported: its PDFKit-extracted text (grounding for chat)
 /// plus the transactions the deterministic `PennyTxnStore` parser pulled out of it
@@ -61,6 +73,52 @@ struct CategorySpend: Identifiable, Equatable {
 final class AppModel: ObservableObject {
     @Published var stage: AppStage = .onboarding
 
+    // MARK: onboarding flow (the template's 7-step wizard)
+
+    /// Which of the 7 onboarding screens is showing (1 = welcome … 7 = insights).
+    @Published var onboardStep: Int = 1
+
+    /// First name from step 2 — persisted so Penny greets returning users.
+    @Published var userName: String = UserDefaults.standard.string(forKey: "penny.userName") ?? "" {
+        didSet { UserDefaults.standard.set(userName, forKey: "penny.userName") }
+    }
+
+    /// Account kinds picked in step 4 (template pre-selects these three).
+    @Published var selectedAccountKinds: [String] = ["current", "credit", "stocks"]
+
+    /// Which account tab is active on the upload screen (index into selectedAccountKinds).
+    @Published var uploadKindIndex: Int = 0
+
+    /// Statement files imported per account kind (doc names, in import order).
+    @Published var uploadsByKind: [String: [String]] = [:]
+
+    func goToStep(_ n: Int) { onboardStep = max(1, min(7, n)) }
+
+    /// "Take me to Penny →" — model still has to be picked/loaded before chat.
+    func finishOnboarding() {
+        stage = modelPhase == .ready ? .dashboard : .modelPicker
+    }
+
+    /// The account kind currently receiving uploads on step 5.
+    var currentUploadKind: String? {
+        selectedAccountKinds.indices.contains(uploadKindIndex) ? selectedAccountKinds[uploadKindIndex] : nil
+    }
+
+    /// Docs imported for a given account kind (dropped docs are filtered out).
+    func uploads(for kind: String) -> [LoadedDoc] {
+        (uploadsByKind[kind] ?? []).compactMap { name in docs.first { $0.name == name } }
+    }
+
+    /// Remove an onboarding upload everywhere it's tracked.
+    func removeDoc(named name: String) {
+        docs.removeAll { $0.name == name }
+        selectedDocNames.remove(name)
+        for (kind, names) in uploadsByKind {
+            uploadsByKind[kind] = names.filter { $0 != name }
+        }
+        recomputeSummary()
+    }
+
     // model
     @Published var selectedModelID: String = PennyLLM.sliceModelID
     @Published var modelPhase: ModelPhase = .idle
@@ -83,6 +141,10 @@ final class AppModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isThinking = false
     @Published var errorMessage: String?
+
+    // chat history
+    @Published var centerView: CenterView = .chat
+    @Published var history: [ChatSession] = AppModel.loadHistory()
 
     // ui prefs
     @Published var offlineOnly = true
@@ -273,7 +335,9 @@ final class AppModel: ObservableObject {
     /// Import a PDF WITHOUT freezing the UI: PDFKit text extraction and the
     /// deterministic `PennyTxnStore` parse both run off the main thread while the
     /// picker shows an "importing" state. Results are applied on the main actor.
-    func importPDF(from url: URL) {
+    /// `kind` tags the import to an onboarding account tab (step 5), so the
+    /// upload screen can show per-account progress.
+    func importPDF(from url: URL, kind: String? = nil) {
         guard !isImporting else { return }
         isImporting = true
         isAnalyzing = true
@@ -306,6 +370,9 @@ final class AppModel: ObservableObject {
                                           currency: r.currency, analyzed: true))
                 }
                 selectedDocNames.insert(r.name)
+                if let kind, uploadsByKind[kind]?.contains(r.name) != true {
+                    uploadsByKind[kind, default: []].append(r.name)
+                }
                 isAnalyzing = false
                 recomputeSummary()   // deterministic figures → fills the Today panel
             case .failure(let failure):
@@ -459,9 +526,63 @@ final class AppModel: ObservableObject {
         return chosen.map { "### \($0.name)\n\($0.text)" }.joined(separator: "\n\n")
     }
 
-    // MARK: chat
+    // MARK: chat history
 
-    func newChat() { messages.removeAll() }
+    /// "✨ New chat" — archive whatever was said, then start fresh.
+    func newChat() {
+        archiveCurrentChat()
+        messages.removeAll()
+        centerView = .chat
+    }
+
+    /// Move the live transcript into History (skipped when nothing was said).
+    private func archiveCurrentChat() {
+        let kept = messages.filter { !$0.content.isEmpty }
+        guard kept.contains(where: { $0.role == .user }) else { return }
+        let title = kept.first(where: { $0.role == .user })?.content ?? "Chat"
+        history.insert(ChatSession(id: UUID(),
+                                   title: String(title.prefix(80)),
+                                   date: Date(),
+                                   messages: kept), at: 0)
+        saveHistory()
+    }
+
+    /// Reopen a past conversation: it becomes the live chat again (and will be
+    /// re-archived, updated, the next time the user starts a new chat).
+    func openSession(_ session: ChatSession) {
+        archiveCurrentChat()
+        history.removeAll { $0.id == session.id }
+        messages = session.messages
+        centerView = .chat
+        saveHistory()
+    }
+
+    func deleteSession(_ session: ChatSession) {
+        history.removeAll { $0.id == session.id }
+        saveHistory()
+    }
+
+    // History lives as JSON in the app's sandboxed Application Support — on
+    // this Mac only, like everything else.
+    private static var historyURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Penny", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("chat-history.json")
+    }
+
+    private static func loadHistory() -> [ChatSession] {
+        guard let data = try? Data(contentsOf: historyURL) else { return [] }
+        return (try? JSONDecoder().decode([ChatSession].self, from: data)) ?? []
+    }
+
+    private func saveHistory() {
+        if let data = try? JSONEncoder().encode(history) {
+            try? data.write(to: Self.historyURL, options: .atomic)
+        }
+    }
+
+    // MARK: chat
 
     func send(_ raw: String) {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)

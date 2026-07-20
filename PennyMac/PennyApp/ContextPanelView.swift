@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The right-hand "Today" panel — SwiftUI port of `components/ContextPanel.jsx`.
-/// Every figure is summed deterministically in Swift from the extracted
-/// transactions (`AppModel.summary`); nothing here is guessed by the model.
+/// The right-hand "Today" panel — restyled to the template's `.cp`: serif
+/// title, mono meta line, hard-shadow stat cards with handwriting labels, and
+/// the category bar card. Every figure is summed deterministically in Swift
+/// from the extracted transactions (`AppModel.summary`); nothing is guessed.
 struct ContextPanelView: View {
     @EnvironmentObject var app: AppModel
 
@@ -13,34 +14,39 @@ struct ContextPanelView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             header
+                .padding(.horizontal, 18).padding(.top, 13).padding(.bottom, 11)
+                .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
 
-            statCard("total balance", money(s.balance), sub: "latest statement balance")
-            statCard("total spent", money(app.contextReady ? s.spent : nil),
-                     sub: "sum of debits", tone: .warn)
-            statCard("net · income − spend", money(app.contextReady ? s.net : nil),
-                     sub: "across loaded statements",
-                     tone: (s.net < 0 && app.contextReady) ? .warn : .good)
-
-            categoriesSection
-            Spacer(minLength: 0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 11) {
+                    statCard("total balance", money(s.balance), sub: "latest statement balance")
+                    statCard("spent · loaded statements", money(app.contextReady ? s.spent : nil),
+                             sub: "sum of debits", tone: .warn)
+                    statCard("net · income − spend", money(app.contextReady ? s.net : nil),
+                             sub: "across loaded statements",
+                             tone: (s.net < 0 && app.contextReady) ? .warn : .good)
+                    categoriesSection
+                }
+                .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 18)
+            }
         }
-        .padding(16)
-        .frame(width: 260)
+        .frame(width: 300)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Theme.paper)
+        .background(Theme.bg)
         .overlay(Rectangle().fill(Theme.line).frame(width: 1), alignment: .leading)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Today").font(Theme.font(15, .bold)).foregroundStyle(Theme.ink)
+            Text("Today").font(Theme.serif(17, .heavy)).foregroundStyle(Theme.ink)
             HStack(spacing: 6) {
                 if app.isAnalyzing { ProgressView().controlSize(.small) }
-                Text(statusLine).font(Theme.font(11)).foregroundStyle(Theme.dim)
+                Text(statusLine).font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusLine: String {
@@ -87,45 +93,48 @@ struct ContextPanelView: View {
             }
         }()
         return VStack(alignment: .leading, spacing: 3) {
-            Text(label).font(Theme.font(10, .semibold)).foregroundStyle(Theme.dim).textCase(.uppercase)
-            Text(value).font(Theme.font(22, .heavy)).foregroundStyle(valueColor)
+            Text(label).font(Theme.caveat(12)).foregroundStyle(Theme.dim)
+            Text(value).font(Theme.serif(22, .heavy)).kerning(-0.4).foregroundStyle(valueColor)
                 .contentTransition(.numericText())
-            Text(sub).font(Theme.font(10)).foregroundStyle(Theme.dim.opacity(0.85))
+            Text(sub).font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
         }
-        .padding(12)
+        .padding(.horizontal, 13).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+        .hardCard(radius: 12, border: 2, shadow: 3)
     }
 
     private var categoryBars: some View {
         let total = s.categories.reduce(0) { $0 + abs($1.amount) }
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("spending by category").font(Theme.font(11, .bold)).foregroundStyle(Theme.dim)
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("spend by category")
+                .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
+                .padding(.bottom, 4)
             ForEach(s.categories.prefix(6)) { cat in
                 let meta = CategoryMeta.style(for: cat.name)
                 let pct = total > 0 ? abs(cat.amount) / total : 0
-                HStack(spacing: 8) {
-                    Text(meta.icon).font(.system(size: 13))
-                    Text(cat.name).font(Theme.font(11, .medium)).foregroundStyle(Theme.ink2)
-                        .lineLimit(1).frame(width: 66, alignment: .leading)
+                HStack(spacing: 7) {
+                    Text(meta.icon).font(.system(size: 13)).frame(width: 18)
+                    Text(cat.name).font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.ink2)
+                        .lineLimit(1).frame(width: 56, alignment: .leading)
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Theme.line.opacity(0.6))
-                            Capsule().fill(meta.fill).frame(width: geo.size.width * pct)
+                            RoundedRectangle(cornerRadius: 3).fill(Theme.bg2)
+                            RoundedRectangle(cornerRadius: 3).fill(meta.fill)
+                                .frame(width: geo.size.width * pct)
                         }
                     }
-                    .frame(height: 7)
+                    .frame(height: 12)
                     Text(Money.format(abs(cat.amount), currency: s.currency))
-                        .font(Theme.font(9.5, .semibold)).foregroundStyle(Theme.dim)
+                        .font(Theme.mono(10)).foregroundStyle(Theme.ink)
                         .lineLimit(1)
+                        .frame(minWidth: 40, alignment: .trailing)
                 }
+                .padding(.vertical, 2)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 13).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+        .hardCard(radius: 12, border: 2, shadow: 3)
     }
 
     private func infoCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -133,5 +142,9 @@ struct ContextPanelView: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.tint, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Theme.line, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            )
     }
 }

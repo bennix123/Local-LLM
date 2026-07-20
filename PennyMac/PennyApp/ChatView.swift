@@ -6,11 +6,13 @@ struct ChatView: View {
     @EnvironmentObject var app: AppModel
     @State private var draft = ""
 
-    private let starters: [(emoji: String, title: String, sub: String, action: String)] = [
-        ("🔥", "Roast me", "Brutal honesty about your spending.", "roast"),
-        ("👻", "Banish zombie subs", "Find recurring subs you forgot you had.", "ghosts"),
-        ("📊", "Spending patterns", "What Penny notices across your statements.", "patterns"),
-        ("📈", "Compound my savings", "If I fix the leaks, what's it worth?", "compound"),
+    // The template's `.qsg` quick-start cards, gradient fills included.
+    private let starters: [(emoji: String, title: String, sub: String, action: String,
+                            from: UInt, to: UInt)] = [
+        ("🔥", "Roast me", "Brutal honesty about your spending.", "roast", 0xffe4e1, 0xffcfc7),
+        ("👻", "Banish zombie subs", "Find recurring subs you forgot you had.", "ghosts", 0xf3e8ff, 0xe9d5ff),
+        ("⚡", "Spending patterns", "What Penny notices across your statements.", "patterns", 0xfef3c7, 0xfde68a),
+        ("📈", "Compound my savings", "If I fix the leaks, what's it worth?", "compound", 0xdcfce7, 0xbbf7d0),
     ]
 
     private let chips: [(label: String, action: String)] = [
@@ -32,25 +34,35 @@ struct ChatView: View {
 
     // MARK: header
 
+    @State private var pulsing = false
+
     private var header: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
-                PennyWordmark(size: 20)
-                Text("running locally · ready · \(app.modelDisplayName)")
-                    .font(Theme.font(11)).foregroundStyle(Theme.dim)
+        HStack(spacing: 11) {
+            PennyAvatar(size: 56, mood: app.isThinking ? .thinking : .happy)
+            VStack(alignment: .leading, spacing: 2) {
+                PennyWordmark(size: 17, design: .serif)
+                HStack(spacing: 5) {
+                    Circle().fill(Theme.limeD).frame(width: 5, height: 5)
+                        .opacity(pulsing ? 0.4 : 1)
+                        .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true),
+                                   value: pulsing)
+                    Text("running locally · ready · \(app.modelDisplayName)")
+                        .font(Theme.mono(9.5)).foregroundStyle(Theme.limeD)
+                }
             }
             Spacer()
             Button { app.newChat() } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
                     .frame(width: 30, height: 30)
-                    .background(Theme.tint, in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1.5))
             }
             .buttonStyle(.plain)
             .help("New chat")
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 22).padding(.vertical, 10)
+        .onAppear { pulsing = true }
     }
 
     // MARK: scrollback
@@ -84,23 +96,34 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        let cols = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
-        return VStack(spacing: 14) {
-            Text("ask penny anything about your money")
-                .font(Theme.font(15, .semibold)).foregroundStyle(Theme.dim)
-            LazyVGrid(columns: cols, spacing: 14) {
+        let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+        let name = app.userName.trimmingCharacters(in: .whitespaces)
+        return VStack(spacing: 16) {
+            VStack(spacing: 6) {
+                Text(name.isEmpty ? "hey, i'm all yours ☀️" : "morning \(name) ☀️")
+                    .font(Theme.caveat(18)).foregroundStyle(Theme.ink)
+                Text("pick a card below or just ask me anything 💬")
+                    .font(Theme.font(13, .medium)).foregroundStyle(Theme.dim)
+            }
+            LazyVGrid(columns: cols, spacing: 12) {
                 ForEach(starters, id: \.action) { s in
                     Button { app.runFlow(s.action) } label: {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(s.emoji).font(.system(size: 22))
-                            Text(s.title).font(Theme.font(14, .bold)).foregroundStyle(Theme.ink)
-                            Text(s.sub).font(Theme.font(11)).foregroundStyle(Theme.dim)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(s.emoji).font(.system(size: 22)).padding(.bottom, 1)
+                            Text(s.title).font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
+                            Text(s.sub).font(Theme.font(11, .medium)).foregroundStyle(Theme.ink2)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-                        .padding(14)
-                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
+                        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                        .padding(13)
+                        .background(
+                            LinearGradient(colors: [Color(hex: s.from), Color(hex: s.to)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 13)
+                        )
+                        .background(RoundedRectangle(cornerRadius: 13).fill(Theme.ink).offset(y: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.ink, lineWidth: 2.5))
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -119,15 +142,16 @@ struct ChatView: View {
                     HStack(spacing: 8) {
                         ForEach(chips, id: \.action) { chip in
                             Button { app.runFlow(chip.action) } label: {
-                                Text(chip.label).font(Theme.font(12, .semibold)).foregroundStyle(Theme.ink2)
-                                    .padding(.horizontal, 12).padding(.vertical, 7)
-                                    .background(Theme.card, in: Capsule())
-                                    .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                                Text(chip.label).font(Theme.font(11.5, .bold)).foregroundStyle(Theme.ink)
+                                    .padding(.horizontal, 11).padding(.vertical, 6)
+                                    .background(Capsule().fill(Theme.card))
+                                    .background(Capsule().fill(Theme.ink).offset(y: 3))
+                                    .overlay(Capsule().stroke(Theme.ink, lineWidth: 2))
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 2)
+                    .padding(.horizontal, 2).padding(.vertical, 3)
                 }
             }
             HStack(spacing: 8) {
@@ -136,22 +160,25 @@ struct ChatView: View {
                     .font(Theme.font(13))
                     .foregroundStyle(Theme.ink)   // explicit: never white-on-cream
                     .tint(Theme.limeD)             // brand-colored caret
-                    .padding(.horizontal, 14).padding(.vertical, 11)
-                    .background(Theme.card, in: Capsule())
-                    .overlay(Capsule().stroke(Theme.line, lineWidth: 1.5))
+                    .padding(.horizontal, 15).padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.card))
+                    .background(Capsule().fill(Theme.ink).offset(y: 3))
+                    .overlay(Capsule().stroke(Theme.ink, lineWidth: 2))
                     .onSubmit(sendDraft)
                     .disabled(app.isThinking)
 
                 Button(action: sendDraft) {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.ink)
-                        .frame(width: 40, height: 40)
-                        .background(canSend ? Theme.lime : Theme.line, in: Circle())
-                        .overlay(Circle().stroke(Theme.ink.opacity(canSend ? 1 : 0), lineWidth: 1.5))
+                        .frame(width: 38, height: 38)
+                        .background(Circle().fill(canSend ? Theme.lime : Theme.line))
+                        .background(Circle().fill(Theme.ink).offset(y: 3))
+                        .overlay(Circle().stroke(Theme.ink, lineWidth: 2))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
             }
+            .padding(.bottom, 3)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Theme.paper)
@@ -180,10 +207,20 @@ struct MessageBubble: View {
         return MD.hasTable(message.content) ? 820 : 560
     }
 
+    /// Template `.bb` corners: speech-pointer corner tightened to 5.
+    private var bubbleShape: UnevenRoundedRectangle {
+        message.role == .user
+            ? UnevenRoundedRectangle(topLeadingRadius: 15, bottomLeadingRadius: 15,
+                                     bottomTrailingRadius: 15, topTrailingRadius: 5)
+            : UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 15,
+                                     bottomTrailingRadius: 15, topTrailingRadius: 15)
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 6) {
             if message.role == .assistant {
-                PennyAvatar(size: 24, mood: message.content.isEmpty ? .thinking : .happy)
+                PennyAvatar(size: 30, mood: message.content.isEmpty ? .thinking : .happy)
+                    .padding(.bottom, 5)
             } else {
                 Spacer(minLength: 40)
             }
@@ -191,7 +228,7 @@ struct MessageBubble: View {
                 if message.role == .assistant, let engine = message.engine, !message.content.isEmpty {
                     Text("⚡ \(engine.uppercased()) ENGINE")
                         .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                        .foregroundStyle(Theme.ink)
+                        .foregroundStyle(Theme.limeD)
                         .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(Theme.limeS, in: Capsule())
                         .overlay(Capsule().stroke(Theme.limeD, lineWidth: 1.5))
@@ -200,17 +237,17 @@ struct MessageBubble: View {
                     Group {
                         if message.role == .user {
                             Text(message.content)
-                                .font(Theme.font(13))
+                                .font(Theme.font(13, .bold))
                                 .foregroundStyle(Theme.ink)
                         } else {
                             ChatMarkdown(text: message.content)   // renders markdown tables as grids
                         }
                     }
                     .textSelection(.enabled)
-                    .padding(.horizontal, 13).padding(.vertical, 10)
-                    .background(message.role == .user ? Theme.lime : Theme.card,
-                                in: RoundedRectangle(cornerRadius: 13))
-                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.line, lineWidth: 1))
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(bubbleShape.fill(message.role == .user ? Theme.lime : Theme.card))
+                    .background(bubbleShape.fill(Theme.ink).offset(y: 3))
+                    .overlay(bubbleShape.stroke(Theme.ink, lineWidth: 2))
                     .frame(maxWidth: maxBubbleWidth,
                            alignment: message.role == .user ? .trailing : .leading)
                 }
@@ -228,19 +265,25 @@ struct MessageBubble: View {
 
 struct TypingIndicator: View {
     @State private var t = 0.0
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 15,
+                               bottomTrailingRadius: 15, topTrailingRadius: 15)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            PennyAvatar(size: 24, mood: .thinking)
-            HStack(spacing: 4) {
+        HStack(alignment: .bottom, spacing: 6) {
+            PennyAvatar(size: 30, mood: .thinking).padding(.bottom, 5)
+            HStack(spacing: 5) {
                 ForEach(0..<3) { i in
-                    Circle().fill(Theme.dim)
+                    Circle().fill(Theme.lime)
                         .frame(width: 6, height: 6)
                         .opacity(0.3 + 0.7 * abs(sin(t + Double(i) * 0.6)))
                 }
             }
-            .padding(.horizontal, 13).padding(.vertical, 12)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 13))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Theme.line, lineWidth: 1))
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(shape.fill(Theme.card))
+            .background(shape.fill(Theme.ink).offset(y: 3))
+            .overlay(shape.stroke(Theme.ink, lineWidth: 2))
             Spacer(minLength: 40)
         }
         .onAppear {

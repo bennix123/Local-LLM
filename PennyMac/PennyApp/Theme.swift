@@ -31,6 +31,37 @@ enum Theme {
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .rounded)
     }
+
+    // Fraunces → New York (system serif) for display headlines and card titles.
+    static func serif(_ size: CGFloat, _ weight: Font.Weight = .black) -> Font {
+        .system(size: size, weight: weight, design: .serif)
+    }
+
+    // JetBrains Mono → SF Mono for the little technical labels and badges.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .bold) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    // Caveat (handwriting) → italic serif is the closest system stand-in.
+    static func caveat(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .bold, design: .serif).italic()
+    }
+}
+
+extension View {
+    /// The template's signature card: flat fill, ink outline, hard offset shadow
+    /// (`border:2px solid var(--ink); box-shadow:0 3px 0 var(--ink)`).
+    func hardCard(fill: Color = Theme.card,
+                  radius: CGFloat = 13,
+                  border: CGFloat = 2,
+                  borderColor: Color = Theme.ink,
+                  shadow: CGFloat = 3,
+                  shadowColor: Color = Theme.ink) -> some View {
+        self
+            .background(RoundedRectangle(cornerRadius: radius).fill(fill))
+            .background(RoundedRectangle(cornerRadius: radius).fill(shadowColor).offset(y: shadow))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(borderColor, lineWidth: border))
+    }
 }
 
 extension Color {
