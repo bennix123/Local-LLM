@@ -47,16 +47,18 @@ struct OnboardingView: View {
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
     }
 
-    /// Seven dashes: done = lime, current = wide ink, upcoming = line colour.
+    /// Six dashes: done = lime, current = wide ink, upcoming = line colour.
+    /// The 7th screen (insights reveal) rides under step 6 — the header never counts it.
     private var stepProgress: some View {
-        HStack(spacing: 7) {
-            ForEach(1...7, id: \.self) { i in
+        let shown = min(app.onboardStep, 6)
+        return HStack(spacing: 7) {
+            ForEach(1...6, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(i < app.onboardStep ? Theme.limeD
-                          : i == app.onboardStep ? Theme.ink : Theme.line)
-                    .frame(width: i == app.onboardStep ? 30 : 18, height: 5)
+                    .fill(i < shown ? Theme.limeD
+                          : i == shown ? Theme.ink : Theme.line)
+                    .frame(width: i == shown ? 30 : 18, height: 5)
             }
-            Text("Step \(app.onboardStep) of 7")
+            Text("Step \(shown) of 6")
                 .font(Theme.mono(10.5))
                 .foregroundStyle(Theme.dim)
                 .padding(.leading, 6)
@@ -207,6 +209,8 @@ struct WelcomeStep: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            SkipButton("skip → choose model") { app.skipToModelPicker() }
         }
     }
 }

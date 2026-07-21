@@ -13,10 +13,7 @@ struct SidebarView: View {
         ("🔥", "Roast me", "roast"),
         ("👻", "Ghosts", "ghosts"),
         ("⚡", "Patterns", "patterns"),
-        ("⛅", "Forecast", "forecast"),
-        ("📈", "Compound math", "compound"),
         ("📊", "Reports", "reports"),
-        ("💸", "Can I splurge?", "splurge"),
     ]
 
     /// Real badge counts (never hardcoded): Ghosts = detected recurring
@@ -142,10 +139,11 @@ struct SidebarView: View {
                     .background(Theme.tint, in: RoundedRectangle(cornerRadius: 5))
                     .overlay(RoundedRectangle(cornerRadius: 5)
                         .stroke(selected ? Theme.ink : Theme.line, lineWidth: 1))
-                Text(doc.name)
+                Text(doc.displayName)
                     .font(Theme.font(11, .semibold))
                     .foregroundStyle(selected ? Theme.ink2 : Theme.dim)
                     .lineLimit(1).truncationMode(.middle)
+                    .help(doc.name)   // hover shows the underlying file
                 Spacer(minLength: 4)
                 if let balance {
                     Text(Money.format(balance, currency: doc.currency))

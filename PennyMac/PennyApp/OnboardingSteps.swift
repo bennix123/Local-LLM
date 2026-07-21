@@ -13,6 +13,7 @@ struct AccountKind: Identifiable, Equatable {
     let exportSteps: [String] // "How to export" steps (**bold** markdown)
     let demoFile: String      // stand-in file when the user skips uploads
     let demoMeta: String
+    var comingSoon: Bool = false   // greyed-out, non-selectable teaser card
 
     static let sections: [(title: String, kinds: [AccountKind])] = [
         ("SPENDING", [
@@ -37,45 +38,40 @@ struct AccountKind: Identifiable, Equatable {
                         exportSteps: ["Open your savings bank", "Find **Statements**",
                                       "Pick **last 12 months**", "Drag CSV or PDF here"],
                         demoFile: "savings_2024.csv", demoMeta: "3.2 KB · 24 rows"),
-            AccountKind(id: "isa", icon: "🛡️", name: "Cash ISA", cardSub: "Tax-free savings",
-                        uploadSub: "drop a statement file",
-                        exportSteps: ["Log into your ISA provider", "Find statements",
-                                      "Export **12 months** as CSV or PDF", "Drag here"],
-                        demoFile: "isa.pdf", demoMeta: "42 KB · PDF 4 pages"),
         ]),
         ("INVESTMENTS", [
             AccountKind(id: "stocks", icon: "📈", name: "Stocks & shares", cardSub: "Vanguard, T212, HL",
                         uploadSub: "drop your broker report · PDF / CSV",
                         exportSteps: ["Log into broker (Vanguard, T212, HL)", "Find **Account history**",
                                       "Export **12 months** as CSV", "Drag here — I'll read trades & dividends"],
-                        demoFile: "t212_report.csv", demoMeta: "6.7 KB · 89 trades"),
+                        demoFile: "t212_report.csv", demoMeta: "6.7 KB · 89 trades", comingSoon: true),
             AccountKind(id: "crypto", icon: "🪙", name: "Crypto wallet", cardSub: "Coinbase, Kraken",
                         uploadSub: "drop an exchange CSV",
                         exportSteps: ["Log into exchange (Coinbase, Kraken)", "Go to **Reports**",
                                       "Export transactions as CSV", "Drag here"],
-                        demoFile: "coinbase.csv", demoMeta: "4.1 KB · 47 txns"),
+                        demoFile: "coinbase.csv", demoMeta: "4.1 KB · 47 txns", comingSoon: true),
             AccountKind(id: "pension", icon: "🏛", name: "Pension", cardSub: "Nest, PenFold, workplace",
                         uploadSub: "drop annual statement · PDF",
                         exportSteps: ["Log into your pension provider", "Download **most recent statement**",
                                       "PDF is fine", "Drag here"],
-                        demoFile: "pension_2024.pdf", demoMeta: "180 KB · PDF 12 pages"),
+                        demoFile: "pension_2024.pdf", demoMeta: "180 KB · PDF 12 pages", comingSoon: true),
             AccountKind(id: "property", icon: "🏠", name: "Property / mortgage", cardSub: "Statement-based",
                         uploadSub: "drop mortgage statement · PDF",
                         exportSteps: ["Log into your mortgage provider", "Download annual statement",
                                       "Upload PDF — I track principal & equity"],
-                        demoFile: "mortgage.pdf", demoMeta: "96 KB · PDF 6 pages"),
+                        demoFile: "mortgage.pdf", demoMeta: "96 KB · PDF 6 pages", comingSoon: true),
         ]),
         ("OTHER", [
             AccountKind(id: "business", icon: "💼", name: "Business account", cardSub: "Ltd co or sole trader",
                         uploadSub: "drop a statement file",
                         exportSteps: ["Log into business bank", "Find **Statements**",
                                       "Pick **12 months** CSV", "Drag here"],
-                        demoFile: "tide_business.csv", demoMeta: "22.4 KB · 1,847 rows"),
+                        demoFile: "tide_business.csv", demoMeta: "22.4 KB · 1,847 rows", comingSoon: true),
             AccountKind(id: "other", icon: "+", name: "Something else", cardSub: "Any financial file",
                         uploadSub: "drop any financial file",
                         exportSteps: ["Export from wherever the money lives", "Any format works",
                                       "Drag the file here"],
-                        demoFile: "statement.csv", demoMeta: "~15 KB · ~1,000 rows"),
+                        demoFile: "statement.csv", demoMeta: "~15 KB · ~1,000 rows", comingSoon: true),
         ]),
     ]
 
@@ -237,9 +233,9 @@ struct HowItWorksStep: View {
             .padding(.bottom, 18)
 
             HStack(alignment: .top, spacing: 13) {
-                stepCard(1, "🗂️", "Pick what to track",
-                         "Current accounts, credit cards, savings, investments — any account you can export from.",
-                         time: "~30 SECONDS")
+                stepCard(1, "⬇️", "Download the AI model",
+                         "One-time download of **\(app.modelDisplayName)**, sized to fit this Mac's RAM. No internet needed after that.",
+                         time: "~3 MINUTES")
                 stepCard(2, "📥", "Drop in your files",
                          "**CSV, PDF, Excel, or QIF/OFX.** Export from your bank or investment app, drag into Penny.",
                          time: "~3 MINUTES")
@@ -396,12 +392,22 @@ struct AccountsStep: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .opacity(kind.comingSoon ? 0.45 : 1)
             .hardCard(fill: selected ? Color(hex: 0xf6fce0) : Theme.card,
                       radius: 11, border: 2,
-                      borderColor: selected ? Theme.limeD : Theme.ink,
-                      shadow: 4)
+                      borderColor: kind.comingSoon ? Theme.line : (selected ? Theme.limeD : Theme.ink),
+                      shadow: kind.comingSoon ? 0 : 4)
             .overlay(alignment: .topTrailing) {
-                if selected {
+                if kind.comingSoon {
+                    Text("COMING SOON")
+                        .font(Theme.mono(7.5, .bold))
+                        .kerning(0.8)
+                        .foregroundStyle(Theme.dim)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.tint))
+                        .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+                        .padding(7)
+                } else if selected {
                     Text("✓")
                         .font(Theme.font(10, .bold))
                         .foregroundStyle(Theme.ink)
@@ -413,6 +419,7 @@ struct AccountsStep: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(kind.comingSoon)
     }
 
     // right — "What I read" info rail

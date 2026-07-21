@@ -27,6 +27,8 @@ struct ContextPanelView: View {
                     statCard("net · income − spend", money(app.contextReady ? s.net : nil),
                              sub: "across loaded statements",
                              tone: (s.net < 0 && app.contextReady) ? .warn : .good)
+                    statCard("bank accounts", "\(app.docs.count)",
+                             sub: app.docs.count == 1 ? "statement loaded" : "statements loaded")
                     categoriesSection
                 }
                 .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 18)

@@ -69,24 +69,28 @@ struct ChatView: View {
 
     private var scrollback: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            Group {
                 if app.messages.isEmpty {
-                    emptyState.padding(.top, 40)
+                    // Not scrollable — a fixed column so the starter cards can pin
+                    // to the bottom edge, just above the input bar.
+                    emptyState
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(app.messages) { msg in
-                            // Skip the not-yet-streamed assistant placeholder — the typing
-                            // indicator represents it (otherwise its lone avatar duplicates).
-                            if !(msg.role == .assistant && msg.content.isEmpty) {
-                                MessageBubble(message: msg).id(msg.id)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            ForEach(app.messages) { msg in
+                                // Skip the not-yet-streamed assistant placeholder — the typing
+                                // indicator represents it (otherwise its lone avatar duplicates).
+                                if !(msg.role == .assistant && msg.content.isEmpty) {
+                                    MessageBubble(message: msg).id(msg.id)
+                                }
                             }
+                            if app.isThinking, app.messages.last?.content.isEmpty == true {
+                                TypingIndicator().id("typing")
+                            }
+                            Color.clear.frame(height: 1).id("bottom")
                         }
-                        if app.isThinking, app.messages.last?.content.isEmpty == true {
-                            TypingIndicator().id("typing")
-                        }
-                        Color.clear.frame(height: 1).id("bottom")
+                        .padding(18)
                     }
-                    .padding(18)
                 }
             }
             .onChange(of: app.messages.last?.content) {
@@ -105,6 +109,8 @@ struct ChatView: View {
                 Text("pick a card below or just ask me anything 💬")
                     .font(Theme.font(13, .medium)).foregroundStyle(Theme.dim)
             }
+            .padding(.top, 40)
+            Spacer(minLength: 24)   // pins the card grid to the bottom of the column
             LazyVGrid(columns: cols, spacing: 12) {
                 ForEach(starters, id: \.action) { s in
                     Button { app.runFlow(s.action) } label: {
@@ -129,8 +135,10 @@ struct ChatView: View {
                 }
             }
             .frame(maxWidth: 520)
+            .padding(.bottom, 14)   // keep the cards' offset ink shadow clear of the input bar
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 18)
     }
 
     // MARK: input

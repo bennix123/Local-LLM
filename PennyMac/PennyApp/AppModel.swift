@@ -43,8 +43,11 @@ struct LoadedDoc: Identifiable, Equatable {
     var transactions: [PennyCore.Transaction] = []   // PennyCore-qualified: SwiftUI also has a `Transaction`
     var rows: [TxnRow] = []                           // richer canonical rows, for the deterministic query router
     var currency: String = "INR"                     // currency the parser detected for this statement
+    var bank: String? = nil                          // bank name the parser detected ("HDFC Bank", …)
     var analyzed = false
     var charCount: Int { text.count }
+    /// Sidebar display name — detected bank when we have one, else the filename.
+    var displayName: String { bank ?? name }
 }
 
 /// Deterministically-computed figures for the Today panel (all summed in Swift
@@ -83,8 +86,8 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(userName, forKey: "penny.userName") }
     }
 
-    /// Account kinds picked in step 4 (template pre-selects these three).
-    @Published var selectedAccountKinds: [String] = ["current", "credit", "stocks"]
+    /// Account kinds picked in step 4 ("stocks" dropped — it's a coming-soon card now).
+    @Published var selectedAccountKinds: [String] = ["current", "credit"]
 
     /// Which account tab is active on the upload screen (index into selectedAccountKinds).
     @Published var uploadKindIndex: Int = 0
@@ -98,6 +101,9 @@ final class AppModel: ObservableObject {
     func finishOnboarding() {
         stage = modelPhase == .ready ? .dashboard : .modelPicker
     }
+
+    /// Welcome-screen "skip" — jump straight to the model-select page.
+    func skipToModelPicker() { stage = .modelPicker }
 
     /// The account kind currently receiving uploads on step 5.
     var currentUploadKind: String? {
@@ -329,6 +335,7 @@ final class AppModel: ObservableObject {
         let txns: [PennyCore.Transaction]
         let rows: [TxnRow]
         let currency: String
+        let bank: String?
     }
     private struct ImportFailure: Error, Sendable { let message: String }
 
@@ -363,11 +370,12 @@ final class AppModel: ObservableObject {
                     docs[i].transactions = r.txns
                     docs[i].rows = r.rows
                     docs[i].currency = r.currency
+                    docs[i].bank = r.bank
                     docs[i].analyzed = true
                 } else {
                     docs.append(LoadedDoc(name: r.name, text: r.text,
                                           transactions: r.txns, rows: r.rows,
-                                          currency: r.currency, analyzed: true))
+                                          currency: r.currency, bank: r.bank, analyzed: true))
                 }
                 selectedDocNames.insert(r.name)
                 if let kind, uploadsByKind[kind]?.contains(r.name) != true {
@@ -398,7 +406,7 @@ final class AppModel: ObservableObject {
                     ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
                 return .success(ExtractResult(name: url.lastPathComponent, text: text,
                                               txns: parsed.transactions, rows: parsed.rows,
-                                              currency: parsed.currency))
+                                              currency: parsed.currency, bank: parsed.bank))
             } catch {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
