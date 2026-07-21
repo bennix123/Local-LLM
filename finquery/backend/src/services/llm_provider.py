@@ -272,7 +272,8 @@ def complete(user: str, system: str = None, temperature: float = 0.2,
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}"
+            "Authorization": f"Bearer {key}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         messages = []
         if system:
@@ -327,7 +328,8 @@ def stream(user: str, system: str = None, temperature: float = 0.3,
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}"
+            "Authorization": f"Bearer {key}",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         }
         messages = []
         if system:
