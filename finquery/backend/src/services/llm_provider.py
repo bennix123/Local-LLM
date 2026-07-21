@@ -18,6 +18,7 @@ import os
 import json
 import queue
 import threading
+import urllib.request
 
 # --- Catalogue (MLX-format weights on HuggingFace) --------------------------------------
 MODEL_CATALOG = [
@@ -32,26 +33,113 @@ MODEL_CATALOG = [
 ]
 DEFAULT_MODEL = MODEL_CATALOG[0]["id"]
 
+# GGUF corresponding mappings for Windows/Linux local testing
+GGUF_MAPPING = {
+    "mlx-community/Llama-3.1-8B-Instruct-4bit": {
+        "repo_id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+        "filename": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+    },
+    "mlx-community/Qwen2.5-7B-Instruct-4bit": {
+        "repo_id": "Qwen/Qwen2.5-7B-Instruct-GGUF",
+        "filename": "qwen2.5-7b-instruct-q4_k_m.gguf"
+    },
+    "mlx-community/Llama-3.2-3B-Instruct-4bit": {
+        "repo_id": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+        "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+    },
+    "mlx-community/Qwen2.5-3B-Instruct-4bit": {
+        "repo_id": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+        "filename": "qwen2.5-3b-instruct-q4_k_m.gguf"
+    }
+}
+
+# Ollama mappings and helper functions
+OLLAMA_MAPPING = {
+    "mlx-community/Llama-3.1-8B-Instruct-4bit": "llama3.1:latest",
+    "mlx-community/Qwen2.5-7B-Instruct-4bit": "qwen2.5:7b",
+    "mlx-community/Llama-3.2-3B-Instruct-4bit": "llama3.2:latest",
+    "mlx-community/Qwen2.5-3B-Instruct-4bit": "qwen2.5:3b"
+}
+
+def _is_ollama_running() -> bool:
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as res:
+            return res.status == 200
+    except Exception:
+        return False
+
+def _call_ollama(model_name: str, messages: list, temperature: float = 0.2, max_tokens: int = 512, json_mode: bool = False):
+    url = "http://127.0.0.1:11434/api/chat"
+    data = {
+        "model": model_name,
+        "messages": messages,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens
+        },
+        "stream": False
+    }
+    if json_mode:
+        data["format"] = "json"
+    
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            resp = json.loads(res.read().decode("utf-8"))
+            return resp["message"]["content"].strip()
+    except Exception as e:
+        print(f"[ollama] request failed: {e}")
+        return None
+
+# Resolve MODELS_DIR to finquery/models (4 levels up from this file's directory: finquery/backend/src/services)
+MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "models")
+
 _loaded = {"id": None, "model": None, "tokenizer": None}
-_lock = threading.Lock()   # guards _loaded on MLX platforms
+_lock = threading.Lock()   # guards _loaded on MLX/llama_cpp platforms
 DATA_SENT_OUT = 0
+
+
+def _llama_cpp():
+    """Import llama_cpp lazily — importing this module must work on any OS."""
+    try:
+        from llama_cpp import Llama
+        return Llama
+    except ImportError:
+        return None
 
 
 def get_brain_stats() -> dict:
     global DATA_SENT_OUT
     is_local = True
+    is_llama_cpp = False
+    is_ollama = False
     try:
         _mlx()
     except LLMUnavailable:
-        is_local = False
+        if _is_ollama_running():
+            is_ollama = True
+        elif _llama_cpp() is not None:
+            is_llama_cpp = True
+        else:
+            is_local = False
 
     model_id = active_model()
     
     if is_local:
         model_info = next((m for m in MODEL_CATALOG if m["id"] == model_id), None)
         ram = model_info["size"] if model_info else "4.5 GB"
-        context = "32K tokens"
-        model_name = model_info["name"] if model_info else "Local Model"
+        if is_ollama:
+            context = "8K tokens (Ollama)"
+            model_name = (model_info["name"] if model_info else "Local Model") + " (Ollama)"
+        else:
+            context = "32K tokens" if not is_llama_cpp else "2K/4K tokens (GGUF)"
+            model_name = (model_info["name"] if model_info else "Local Model") + (" (GGUF)" if is_llama_cpp else "")
     else:
         ram = "0.0 GB"
         context = "128K tokens"
@@ -95,7 +183,11 @@ def set_active_model(model_id: str) -> str:
         _mlx()            # only unload if MLX is actually available (Mac)
         unload()          # drop the old weights; next call loads the new ones
     except LLMUnavailable:
-        pass              # Windows/Groq: nothing to unload
+        try:
+            if _llama_cpp() is not None:
+                unload()  # unload GGUF model too
+        except Exception:
+            pass
     return model_id
 
 
@@ -113,33 +205,55 @@ def physical_ram_gb() -> int:
 
 def is_downloaded(repo_id: str) -> bool:
     """On Apple Silicon (mlx available) check the HF cache.
-    On Windows/Linux we use the Groq API fallback, so every model is 'available'."""
+    On Windows/Linux, check if Ollama is running and has the model, or if llama_cpp is available and GGUF exists.
+    Otherwise, default to True (Groq API fallback)."""
     try:
         _mlx()   # raises LLMUnavailable on non-Mac
+        try:
+            from huggingface_hub import scan_cache_dir
+            return any(r.repo_id == repo_id for r in scan_cache_dir().repos)
+        except Exception:
+            return False
     except LLMUnavailable:
-        return True   # Windows / no MLX → Groq handles everything, all models selectable
-    try:
-        from huggingface_hub import scan_cache_dir
-        return any(r.repo_id == repo_id for r in scan_cache_dir().repos)
-    except Exception:
-        return False
+        if _is_ollama_running():
+            try:
+                # Query Ollama to see if it has the mapped model
+                req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=1.0) as res:
+                    data = json.loads(res.read().decode("utf-8"))
+                    installed_names = [m["name"] for m in data.get("models", [])]
+                    target = OLLAMA_MAPPING.get(repo_id, "llama3.1")
+                    return any(target in name or name in target for name in installed_names)
+            except Exception:
+                pass
+        if _llama_cpp() is not None:
+            # Check GGUF mapping
+            mapping = GGUF_MAPPING.get(repo_id)
+            if mapping:
+                gguf_path = os.path.join(MODELS_DIR, mapping["filename"])
+                return os.path.exists(gguf_path)
+            return False
+        return True   # Windows / no MLX, llama_cpp, and Ollama → Groq handles everything, all models selectable
 
 
 def list_models() -> dict:
-    """Feeds the model picker: what's active, what's downloaded, what this machine can hold.
-    On Windows (no MLX) all models show as installed so the user can select any of them."""
+    """Feeds the model picker: what's active, what's downloaded, what this machine can hold."""
     ram = physical_ram_gb()
-    # Check if MLX is available (Mac) or not (Windows → Groq fallback)
+    # Check if MLX is available (Mac) or not (Windows → GGUF / Ollama / Groq fallback)
     try:
         _mlx()
         mlx_available = True
     except LLMUnavailable:
         mlx_available = False
+    
     if mlx_available:
         recs = [{**m, "installed": is_downloaded(m["id"]), "can_run": m["min_ram_gb"] <= ram}
                 for m in MODEL_CATALOG]
+    elif _is_ollama_running() or _llama_cpp() is not None:
+        recs = [{**m, "installed": is_downloaded(m["id"]), "can_run": m["min_ram_gb"] <= ram}
+                for m in MODEL_CATALOG]
     else:
-        # On Windows: show all models as installed (Groq API handles inference)
+        # On Windows without llama_cpp or Ollama: show all models as installed (Groq API handles inference)
         recs = [{**m, "installed": True, "can_run": True} for m in MODEL_CATALOG]
     return {"active": active_model(), "ram_gb": ram, "recommended": recs,
             "installed": [m["id"] for m in recs if m["installed"]]}
@@ -148,13 +262,22 @@ def list_models() -> dict:
 # --- Download (streams progress for the picker's bar) -------------------------------------
 
 def download_model(repo_id: str):
-    """Yield {status, completed, total} dicts while pulling MLX weights from HuggingFace."""
+    """Yield {status, completed, total} dicts while pulling weights from HuggingFace.
+    Downloads MLX format on macOS, GGUF format on Windows/Linux if llama_cpp is available."""
     try:
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import snapshot_download, hf_hub_download
         import huggingface_hub.utils as hf_utils
     except ImportError:
         yield {"status": "error", "error": "huggingface_hub not installed (pip install huggingface_hub)"}
         return
+
+    # Check if we should download the GGUF model
+    use_gguf = False
+    try:
+        _mlx()
+    except LLMUnavailable:
+        if _llama_cpp() is not None:
+            use_gguf = True
 
     q: "queue.Queue" = queue.Queue()
 
@@ -171,7 +294,19 @@ def download_model(repo_id: str):
 
     def _work():
         try:
-            snapshot_download(repo_id, tqdm_class=_ProgressTqdm)
+            if use_gguf:
+                mapping = GGUF_MAPPING.get(repo_id)
+                if not mapping:
+                    raise ValueError(f"No GGUF mapping for model: {repo_id}")
+                os.makedirs(MODELS_DIR, exist_ok=True)
+                hf_hub_download(
+                    repo_id=mapping["repo_id"],
+                    filename=mapping["filename"],
+                    local_dir=MODELS_DIR,
+                    tqdm_class=_ProgressTqdm
+                )
+            else:
+                snapshot_download(repo_id, tqdm_class=_ProgressTqdm)
             result["ok"] = True
         except Exception as e:                # noqa: BLE001
             result["err"] = str(e)
@@ -190,8 +325,6 @@ def download_model(repo_id: str):
         yield {"status": "success"}
 
 
-import urllib.request
-
 # --- Load / unload -------------------------------------------------------------------------
 
 def ensure_loaded(model_id: str = None):
@@ -200,12 +333,43 @@ def ensure_loaded(model_id: str = None):
     with _lock:
         if _loaded["id"] == mid and _loaded["model"] is not None:
             return _loaded["model"], _loaded["tokenizer"]
-        load, _, _, _ = _mlx()
-        print(f"[mlx] loading {mid} …", flush=True)
-        model, tokenizer = load(mid)
-        _loaded.update({"id": mid, "model": model, "tokenizer": tokenizer})
-        print(f"[mlx] {mid} ready", flush=True)
-        return model, tokenizer
+        
+        try:
+            load, _, _, _ = _mlx()
+            print(f"[mlx] loading {mid} …", flush=True)
+            model, tokenizer = load(mid)
+            _loaded.update({"id": mid, "model": model, "tokenizer": tokenizer})
+            print(f"[mlx] {mid} ready", flush=True)
+            return model, tokenizer
+        except LLMUnavailable as e:
+            if _is_ollama_running() and is_downloaded(mid):
+                print(f"[ollama] active and model {mid} downloaded, skipping in-process load", flush=True)
+                return None, None
+            Llama = _llama_cpp()
+            if Llama is not None:
+                mapping = GGUF_MAPPING.get(mid)
+                if not mapping:
+                    raise ValueError(f"No GGUF mapping for model: {mid}") from e
+                
+                # Check if it exists or download it on first use
+                gguf_path = os.path.join(MODELS_DIR, mapping["filename"])
+                if not os.path.exists(gguf_path):
+                    print(f"[llama-cpp] downloading {mid} on first use …", flush=True)
+                    from huggingface_hub import hf_hub_download
+                    os.makedirs(MODELS_DIR, exist_ok=True)
+                    hf_hub_download(
+                        repo_id=mapping["repo_id"],
+                        filename=mapping["filename"],
+                        local_dir=MODELS_DIR
+                    )
+                
+                model = Llama(model_path=gguf_path, n_ctx=2048, verbose=False)
+                _loaded.update({"id": mid, "model": model, "tokenizer": None})
+
+                print(f"[llama-cpp] GGUF {mid} ready", flush=True)
+                return model, None
+            else:
+                raise e
 
 
 def unload():
@@ -218,6 +382,8 @@ def is_ready() -> bool:
         _mlx()
         return _loaded["model"] is not None
     except LLMUnavailable:
+        if _llama_cpp() is not None:
+            return _loaded["model"] is not None or is_downloaded(active_model())
         key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
         if not key:
             try:
@@ -236,6 +402,8 @@ def _build_prompt(tokenizer, system, user) -> str:
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": user})
+    if tokenizer is None:
+        return (f"{system}\n\n" if system else "") + user
     tmpl = getattr(tokenizer, "chat_template", None)
     if tmpl and hasattr(tokenizer, "apply_chat_template"):
         return tokenizer.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
@@ -257,7 +425,40 @@ def complete(user: str, system: str = None, temperature: float = 0.2,
         out = generate(model, tok, prompt=prompt, max_tokens=max_tokens,
                        sampler=sampler, verbose=False)
         return (out or "").strip()
-    except LLMUnavailable:
+    except LLMUnavailable as e:
+        if _is_ollama_running():
+            mid = active_model()
+            ollama_model = OLLAMA_MAPPING.get(mid, "llama3.1:latest")
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": user})
+            
+            res = _call_ollama(ollama_model, messages, temperature=temperature, max_tokens=max_tokens, json_mode=json_mode)
+            if res is not None:
+                return res
+        
+        Llama = _llama_cpp()
+        if Llama is not None:
+            model, _ = ensure_loaded()
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": user})
+            
+            response_format = None
+            if json_mode:
+                response_format = {"type": "json_object"}
+                
+            res = model.create_chat_completion(
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                response_format=response_format
+            )
+            return res["choices"][0]["message"]["content"].strip()
+
         key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
         if not key:
             try:
@@ -267,7 +468,7 @@ def complete(user: str, system: str = None, temperature: float = 0.2,
             except Exception:
                 pass
         if not key:
-            raise LLMUnavailable("MLX is unavailable and GROQ_API_KEY is not set.")
+            raise LLMUnavailable("MLX and llama-cpp are unavailable and GROQ_API_KEY is not set.") from e
         
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -296,8 +497,8 @@ def complete(user: str, system: str = None, temperature: float = 0.2,
             with urllib.request.urlopen(req, timeout=30) as res:
                 resp = json.loads(res.read().decode("utf-8"))
                 return resp["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            raise RuntimeError(f"Groq API call failed: {e}") from e
+        except Exception as e_groq:
+            raise RuntimeError(f"Groq API call failed: {e_groq}") from e_groq
 
 
 def stream(user: str, system: str = None, temperature: float = 0.3,
@@ -313,7 +514,28 @@ def stream(user: str, system: str = None, temperature: float = 0.3,
             piece = getattr(chunk, "text", None)
             if piece:
                 yield piece
-    except LLMUnavailable:
+    except LLMUnavailable as e:
+        Llama = _llama_cpp()
+        if Llama is not None:
+            model, _ = ensure_loaded()
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": user})
+            
+            stream_res = model.create_chat_completion(
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                stream=True
+            )
+            for chunk in stream_res:
+                delta = chunk["choices"][0]["delta"]
+                if "content" in delta:
+                    yield delta["content"]
+            return
+
         key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
         if not key:
             try:
@@ -323,7 +545,7 @@ def stream(user: str, system: str = None, temperature: float = 0.3,
             except Exception:
                 pass
         if not key:
-            raise LLMUnavailable("MLX is unavailable and GROQ_API_KEY is not set.")
+            raise LLMUnavailable("MLX and llama-cpp are unavailable and GROQ_API_KEY is not set.") from e
         
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -368,6 +590,5 @@ def stream(user: str, system: str = None, temperature: float = 0.3,
                                     yield text
                             except Exception:
                                 pass
-        except Exception as e:
-            yield f"\n_(Groq API stream failed: {e})_"
-
+        except Exception as e_groq:
+            yield f"\n_(Groq API stream failed: {e_groq})_"
