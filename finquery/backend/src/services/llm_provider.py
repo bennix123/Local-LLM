@@ -441,23 +441,24 @@ def complete(user: str, system: str = None, temperature: float = 0.2,
         Llama = _llama_cpp()
         if Llama is not None:
             model, _ = ensure_loaded()
-            messages = []
-            if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": user})
-            
-            response_format = None
-            if json_mode:
-                response_format = {"type": "json_object"}
-                
-            res = model.create_chat_completion(
-                messages=messages,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                response_format=response_format
-            )
-            return res["choices"][0]["message"]["content"].strip()
+            if model is not None:      # None when Ollama owns the model (no in-process load)
+                messages = []
+                if system:
+                    messages.append({"role": "system", "content": system})
+                messages.append({"role": "user", "content": user})
+
+                response_format = None
+                if json_mode:
+                    response_format = {"type": "json_object"}
+
+                res = model.create_chat_completion(
+                    messages=messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    response_format=response_format
+                )
+                return res["choices"][0]["message"]["content"].strip()
 
         key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
         if not key:
@@ -515,26 +516,70 @@ def stream(user: str, system: str = None, temperature: float = 0.3,
             if piece:
                 yield piece
     except LLMUnavailable as e:
-        Llama = _llama_cpp()
-        if Llama is not None:
-            model, _ = ensure_loaded()
+        if _is_ollama_running():
+            mid = active_model()
+            ollama_model = OLLAMA_MAPPING.get(mid, "llama3.1:latest")
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": user})
-            
-            stream_res = model.create_chat_completion(
-                messages=messages,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stream=True
+
+            data = {
+                "model": ollama_model,
+                "messages": messages,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens
+                },
+                "stream": True
+            }
+            req = urllib.request.Request(
+                "http://127.0.0.1:11434/api/chat",
+                data=json.dumps(data).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
             )
-            for chunk in stream_res:
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta:
-                    yield delta["content"]
-            return
+            yielded = False
+            try:
+                with urllib.request.urlopen(req, timeout=30) as res:
+                    for line in res:                 # Ollama streams NDJSON, one object per line
+                        line = line.strip()
+                        if not line:
+                            continue
+                        chunk = json.loads(line.decode("utf-8"))
+                        piece = chunk.get("message", {}).get("content")
+                        if piece:
+                            yielded = True
+                            yield piece
+                        if chunk.get("done"):
+                            break
+                return
+            except Exception as e_ollama:
+                print(f"[ollama] stream failed: {e_ollama}")
+                if yielded:
+                    return               # partial output already sent — don't restart on another backend
+
+        Llama = _llama_cpp()
+        if Llama is not None:
+            model, _ = ensure_loaded()
+            if model is not None:      # None when Ollama owns the model (no in-process load)
+                messages = []
+                if system:
+                    messages.append({"role": "system", "content": system})
+                messages.append({"role": "user", "content": user})
+
+                stream_res = model.create_chat_completion(
+                    messages=messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    stream=True
+                )
+                for chunk in stream_res:
+                    delta = chunk["choices"][0]["delta"]
+                    if "content" in delta:
+                        yield delta["content"]
+                return
 
         key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY2")
         if not key:

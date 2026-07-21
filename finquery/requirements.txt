@@ -13,7 +13,7 @@ passlib[bcrypt]>=1.7.4
 # Plaid Sandbox integration (plaid_integration/)
 plaid-python>=15.0.0
 
-# Local GGUF Runner for Windows/Linux
-llama-cpp-python>=0.2.75
+# Local GGUF Runner for Windows/Linux (Mac uses MLX; skip the C++ build there)
+llama-cpp-python>=0.2.75; sys_platform != "darwin"
 huggingface-hub>=0.23.0
 
