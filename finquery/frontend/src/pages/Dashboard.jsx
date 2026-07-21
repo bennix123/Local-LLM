@@ -85,6 +85,8 @@ function Dashboard() {
           setSelectedDocs([data.active_doc_name]);
         }
       }
+      fetchDashboard();
+      fetchStatus();
     } catch (error) {
       console.error('Error fetching documents:', error);
     }
@@ -125,18 +127,38 @@ function Dashboard() {
     }
   };
 
-  const handleSelectDoc = (docName) => {
-    setSelectedDocs((prev) => {
-      if (prev.includes(docName)) {
-        const next = prev.filter(name => name !== docName);
-        toast.success(`Deselected: ${docName}`);
-        return next;
-      } else {
-        const next = [...prev, docName];
-        toast.success(`Selected: ${docName}`);
-        return next;
+  const handleSelectDoc = async (docName) => {
+    try {
+      const res = await fetch('/chat/select_bank', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(),
+        },
+        body: JSON.stringify({ doc_name: docName, thread: 'default' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const active = data.active_doc_name;
+        let isSelected = false;
+        if (Array.isArray(active)) {
+          setSelectedDocs(active);
+          isSelected = active.includes(docName);
+        } else if (active) {
+          setSelectedDocs([active]);
+          isSelected = active === docName;
+        } else {
+          setSelectedDocs([]);
+          isSelected = false;
+        }
+        toast.success(isSelected ? `Selected: ${docName}` : `Deselected: ${docName}`);
+        fetchDashboard();
+        fetchStatus();
       }
-    });
+    } catch (error) {
+      console.error('Error selecting bank:', error);
+      toast.error('Failed to select bank');
+    }
   };
 
   const handleSendMessage = async (question, forceLLM = false) => {

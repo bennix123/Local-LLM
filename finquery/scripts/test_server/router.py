@@ -1189,6 +1189,11 @@ class ConversationState:
     @classmethod
     def from_ctx(cls, ctx):
         c = ctx or {}
+        limit_val = c.get("n") or c.get("limit") or 0
+        try:
+            limit = int(float(limit_val))
+        except (ValueError, TypeError):
+            limit = 0
         return cls(
             topic=c.get("type", "") or "", merchant=c.get("merchant", "") or "",
             category=c.get("category", "") or "", txn_type=c.get("txn_type", "") or "",
@@ -1196,7 +1201,7 @@ class ConversationState:
             start=c.get("start", "") or "", end=c.get("end", "") or "",
             metric=c.get("metric", "") or "", filters=dict(c.get("filters") or {}),
             comparison=list(c.get("comparison") or []), sort=c.get("sort", "") or "",
-            limit=int(c.get("n") or c.get("limit") or 0),
+            limit=limit,
             prev_route=c.get("prev_route", "") or "", prev_query=c.get("prev_query", "") or "",
             prev_entities=list(c.get("prev_entities") or []), prev_answer=c.get("prev_answer", "") or "")
 
