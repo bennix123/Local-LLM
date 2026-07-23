@@ -20,7 +20,22 @@ func take(_ flag: String) -> String? {
 
 if let m = take("--model") { modelID = m }
 if let p = take("--pdf") { pdfPath = p }
+let issuerMode = args.firstIndex(of: "--issuer").map { args.remove(at: $0); return true } ?? false
 let question = args.first ?? "What is the largest expense in this statement?"
+
+// --issuer: just run the on-device issuer classifier and print the result.
+if issuerMode {
+    guard let pdfPath else { print("--issuer needs --pdf <path>"); exit(1) }
+    let text = try StatementText.extract(from: URL(fileURLWithPath: pdfPath))
+    print("[pdf] \(pdfPath): \(text.count) chars")
+    print("[mlx] loading \(modelID) …")
+    let llm = PennyLLM(modelID: modelID)
+    try await llm.load { p in FileHandle.standardOutput.write(Data("\r[load] \(Int(p.fraction*100))%   ".utf8)) }
+    print("\n[mlx] ready")
+    let issuer = try await llm.detectIssuer(from: text)
+    print("[issuer] -> \(issuer.map { "\"\($0)\"" } ?? "nil")")
+    exit(0)
+}
 
 let statement: String
 if let pdfPath {

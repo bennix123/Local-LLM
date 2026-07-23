@@ -13,12 +13,26 @@ import Foundation
 
 public enum FinanceRouter {
 
+    /// One account's latest balance, for multi-account balance answers.
+    /// `isCard` = credit-card semantics: the balance is money OWED, so it
+    /// subtracts from the total rather than adding.
+    public struct AccountBalance: Sendable {
+        public let name: String
+        public let balance: Double?
+        public let isCard: Bool
+        public init(name: String, balance: Double?, isCard: Bool) {
+            self.name = name; self.balance = balance; self.isCard = isCard
+        }
+    }
+
     /// Deterministically answer `question` from `rows`, or return nil to defer
     /// to the model. `money` formats an amount in the statement's currency
     /// (the app passes its `Money.format`; tests pass a simple formatter).
+    /// `accounts` (optional) enables exact multi-account balance answers.
     public static func answer(_ question: String,
                               rows: [TxnRow],
                               currency: String,
+                              accounts: [AccountBalance] = [],
                               money: (Double) -> String) -> String? {
         let low = question.lowercased()
         guard !rows.isEmpty else { return nil }
@@ -26,7 +40,11 @@ public enum FinanceRouter {
         let scope = parseScope(low, rows: rows)
         let sr = scope.rows
         let debits = sr.filter { $0.debit > 0 }
-        let credits = sr.filter { $0.credit > 0 }
+        // Card repayments (category "Payments") are you moving your own money,
+        // not earnings — they never count as income.
+        let credits = sr.filter { $0.credit > 0 && $0.category != "Payments" }
+        let cardRepayments = sr.filter { $0.credit > 0 && $0.category == "Payments" }
+            .reduce(0) { $0 + $1.credit }
         let spent = debits.reduce(0) { $0 + $1.debit }
         let income = credits.reduce(0) { $0 + $1.credit }
 
@@ -50,8 +68,34 @@ public enum FinanceRouter {
 
         // ---- balance -------------------------------------------------------
         if matches(low, #"\bbalance\b|how much do i have|money in my account|in my account"#) {
+            // balance as of a specific date: last running balance up to that day
+            if let iso = scope.dayISO {
+                if let bal = rows.filter({ $0.txnDate <= iso })
+                    .last(where: { $0.balance != nil })?.balance {
+                    return "**Your balance at the end of \(scope.dayLabel ?? iso) was \(money(bal)).**"
+                }
+                return "This statement doesn't show a running balance on or before \(scope.dayLabel ?? iso)."
+            }
+            // multi-account: per-account latest balances, cards subtract (owed)
+            let withBal = accounts.filter { $0.balance != nil }
+            if withBal.count > 1 {
+                let banks = withBal.filter { !$0.isCard }.reduce(0) { $0 + $1.balance! }
+                let cards = withBal.filter { $0.isCard }.reduce(0) { $0 + $1.balance! }
+                var lines = ["**Your total balance is \(money(banks - cards))** across \(withBal.count) accounts:"]
+                for a in withBal {
+                    lines.append("- \(a.name): \(money(a.balance!))\(a.isCard ? " owed (card)" : "")")
+                }
+                if cards > 0 { lines.append("_Total = bank balances − card balances._") }
+                return lines.joined(separator: "\n")
+            }
+            if withBal.count == 1, let a = withBal.first, a.isCard {
+                return "**You currently owe \(money(a.balance!)) on \(a.name)** (statement closing balance)."
+            }
             if let bal = rows.last(where: { $0.balance != nil })?.balance {
                 return "**Your latest balance is \(money(bal)).**"
+            }
+            if let a = withBal.first, let b = a.balance {
+                return "**Your latest balance is \(money(b))** (\(a.name), statement closing balance)."
             }
             return "This statement doesn't show a running balance, so I can't give you a current figure."
         }
@@ -81,19 +125,26 @@ public enum FinanceRouter {
         }
 
         // ---- by-category breakdown -----------------------------------------
-        if matches(low, #"by category|category breakdown|categor\w*\s*(?:report|summary)|categories|each category|split.*categor|breakdown of|where.*money go|what.*spend.*on\b"#),
+        // ("what did I spend on <a date>" is a day-total, not a breakdown — the
+        // "spend on" phrasing only means categories when no day was parsed)
+        if matches(low, #"by category|category breakdown|categor\w*\s*(?:report|summary)|categories|each category|split.*categor|breakdown of|where.*money go"#)
+            || (scope.dayISO == nil && matches(low, #"what.*spend.*on\b"#)),
            !debits.isEmpty {
             return categoryBreakdown(debits, total: spent, scopeLabel: scope.label, money: money)
         }
 
         // ---- income / credits ----------------------------------------------
-        if matches(low, #"\bincome\b|earn|received|credited|\bsalary\b|deposits?\b|money (?:in|received)|\bcredits?\b|paid in"#) {
+        if matches(low, #"\bincome\b|earn|receiv(?:e|ed|ing)|credited|\bsalary\b|deposits?\b|money (?:in|received)|\bcredits?\b|paid in"#) {
             let noun = credits.count == 1 ? "credit" : "credits"
-            return "**You received \(money(income))\(scope.label)** across \(grp(credits.count)) \(noun)."
+            var out = "**You received \(money(income))\(scope.label)** across \(grp(credits.count)) \(noun)."
+            if cardRepayments > 0 {
+                out += " (Card repayments of \(money(cardRepayments)) aren't counted — that's your own money.)"
+            }
+            return out
         }
 
-        // ---- net / savings --------------------------------------------------
-        if matches(low, #"\bnet\b|how much did i save|left over|left-over|surplus|net income"#)
+        // ---- net / profit / loss / savings ----------------------------------
+        if matches(low, #"\bnet\b|how much did i save|left over|left-over|surplus|net income|\bprofit\b|\bloss\b|\bp\s*&\s*l\b|profit and loss|made or lost"#)
             || (matches(low, #"\bsav(?:e|ed|ings?)\b"#) && !matches(low, #"rate|target|goal|should"#)) {
             let net = income - spent
             let verb = net >= 0 ? "kept" : "overspent by"
@@ -136,6 +187,8 @@ public enum FinanceRouter {
         var hasCategory = false
         var hasMerchant = false
         var hasPeriod = false
+        var dayISO: String?      // exact-day scope, "YYYY-MM-DD" (for balance-as-of)
+        var dayLabel: String?    // "4 Jun 2026"
     }
 
     private static func parseScope(_ low: String, rows: [TxnRow]) -> Scope {
@@ -161,8 +214,15 @@ public enum FinanceRouter {
             labelParts.append("at \(merch)")
         }
 
-        // period: month name, or this/last month relative to the data
-        if let (rowsInPeriod, plabel) = matchPeriod(low, rows: s.rows) {
+        // period: an exact day first ("on 4 June", "June 4th", "4/6"), then
+        // month name / this-last month relative to the data
+        if let day = matchDay(low, rows: s.rows) {
+            s.rows = day.rows
+            s.hasPeriod = true
+            s.dayISO = day.iso
+            s.dayLabel = day.dayLabel
+            labelParts.append("on \(day.dayLabel)")
+        } else if let (rowsInPeriod, plabel) = matchPeriod(low, rows: s.rows) {
             s.rows = rowsInPeriod
             s.hasPeriod = true
             labelParts.append(plabel)
@@ -170,6 +230,51 @@ public enum FinanceRouter {
 
         s.label = labelParts.isEmpty ? "" : " " + labelParts.joined(separator: " ")
         return s
+    }
+
+    /// Exact-day scope: "on 4 June", "June 4th 2026", "the 4th of June", "4/6".
+    /// Returns the matching rows (possibly empty — "nothing on that date" is a
+    /// valid, exact answer), a display label, and the resolved ISO date.
+    private static func matchDay(_ low: String,
+                                 rows: [TxnRow]) -> (rows: [TxnRow], dayLabel: String, iso: String)? {
+        var d = 0, m = 0, y = 0
+        var found = false
+        for (name, no) in monthNames {
+            // "4 June [2026]" / "4th of June"
+            if let g = firstTwoGroups(low, #"\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?"# + name + #"[a-z]*\b(?:\s+(\d{4}))?"#) {
+                d = Int(g.0) ?? 0; m = no; y = g.1.flatMap(Int.init) ?? 0
+                found = true; break
+            }
+            // "June 4[th][, 2026]"
+            if let g = firstTwoGroups(low, #"\b"# + name + #"[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}))?"#) {
+                d = Int(g.0) ?? 0; m = no; y = g.1.flatMap(Int.init) ?? 0
+                found = true; break
+            }
+        }
+        // numeric "4/6[/2026]" (day/month, UK order)
+        if !found, let g = firstTwoGroups(low, #"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b"#) {
+            d = Int(g.0) ?? 0
+            m = g.1.flatMap(Int.init) ?? 0
+            if let ym = firstGroup(low, #"\b\d{1,2}/\d{1,2}/(\d{2,4})\b"#), let yv = Int(ym) {
+                y = yv < 100 ? 2000 + yv : yv
+            }
+            found = true
+        }
+        guard found, (1...31).contains(d), (1...12).contains(m) else { return nil }
+
+        // resolve the year from the data when the question doesn't give one
+        if y == 0 {
+            y = rows.filter { $0.monthNo == m && $0.day == d }.map(\.year).max()
+                ?? rows.filter { $0.monthNo == m }.map(\.year).max()
+                ?? rows.map(\.year).max() ?? 0
+        }
+        guard y > 0 else { return nil }
+
+        let iso = String(format: "%04d-%02d-%02d", y, m, d)
+        let abbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m]
+        let scoped = rows.filter { $0.year == y && $0.monthNo == m && $0.day == d }
+        return (scoped, "\(d) \(abbr) \(y)", iso)
     }
 
     /// Common category words → the canonical category, but only if that category

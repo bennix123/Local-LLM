@@ -127,10 +127,11 @@ struct SidebarView: View {
         .buttonStyle(.plain)
     }
 
-    /// `.acrow` — imported statement with its icon tile and latest balance.
+    /// `.acrow` — imported statement with its icon tile and latest balance
+    /// (cards fall back to their stated closing balance — the amount owed).
     private func accountRow(_ doc: LoadedDoc) -> some View {
         let selected = app.selectedDocNames.contains(doc.name)
-        let balance = doc.transactions.last(where: { $0.balance != nil })?.balance
+        let balance = doc.latestBalance
         return Button { app.toggleDoc(doc.name) } label: {
             HStack(spacing: 9) {
                 Text(docIcon(doc.name))

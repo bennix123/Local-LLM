@@ -44,10 +44,67 @@ struct LoadedDoc: Identifiable, Equatable {
     var rows: [TxnRow] = []                           // richer canonical rows, for the deterministic query router
     var currency: String = "INR"                     // currency the parser detected for this statement
     var bank: String? = nil                          // bank name the parser detected ("HDFC Bank", …)
+    var detectedIssuer: String? = nil                // on-device LLM's institution name (async, best-effort)
+    var closingBalance: Double? = nil                // the statement's own closing-balance figure
+    var isCard = false                               // credit-card semantics: balance = owed
     var analyzed = false
     var charCount: Int { text.count }
-    /// Sidebar display name — detected bank when we have one, else the filename.
-    var displayName: String { bank ?? name }
+    /// This account's latest balance: the last running balance in the rows, or
+    /// the statement's stated closing balance (cards carry no per-row balance).
+    var latestBalance: Double? {
+        transactions.last(where: { $0.balance != nil })?.balance ?? closingBalance
+    }
+    /// Sidebar display name. Priority: (1) the on-device LLM's institution name,
+    /// which generalizes to any bank/card issuer (async — filled in once the model
+    /// has run); (2) an issuer matched straight from the text by a fast synchronous
+    /// heuristic, so the row is labelled instantly and even before the model loads;
+    /// (3) the parser's bank name, but only when it reads like a real bank and not
+    /// its filename fallback (which surfaced files like `Sample_Statement_amex.pdf`
+    /// as a bank called "Sample"); (4) the filename.
+    var displayName: String {
+        if let detectedIssuer { return detectedIssuer }
+        if let issuer = Self.detectIssuer(in: text) { return issuer }
+        if let bank, Self.looksLikeBankName(bank) { return bank }
+        return name
+    }
+
+    static func looksLikeBankName(_ s: String) -> Bool {
+        s.range(of: #"\b(bank|banking|financial|cooperative|credit union|building society)\b"#,
+                options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// Display-only issuer detection over the statement text. Runs purely in the
+    /// app layer — it never feeds PennyCore, so the 15/15 conformance contract
+    /// (which pins parser bank names to filename-derived values) is untouched.
+    /// Scans the header region and returns the issuer whose brand appears
+    /// *earliest* — the real letterhead sits at the top, while a stray mention
+    /// of another provider (e.g. a "MONZO" transfer line) appears far lower.
+    static func detectIssuer(in text: String) -> String? {
+        let head = String(text.prefix(1500)).lowercased()
+        let table: [(String, String)] = [
+            (#"american express|\bamex\b"#,               "American Express"),
+            (#"\bnationwide\b"#,                          "Nationwide"),
+            (#"natwest|national westminster"#,            "NatWest"),
+            (#"\brevolut\b"#,                             "Revolut"),
+            (#"\bmonzo\b"#,                               "Monzo"),
+            (#"\bstarling\b"#,                            "Starling Bank"),
+            (#"\bbarclays\b"#,                            "Barclays Bank"),
+            (#"\bhsbc\b"#,                                "HSBC"),
+            (#"\blloyds\b"#,                              "Lloyds Bank"),
+            (#"\bsantander\b"#,                           "Santander"),
+            (#"\bhalifax\b"#,                             "Halifax"),
+            (#"\bmetro bank\b"#,                          "Metro Bank"),
+            (#"co-?operative bank|the co-?op bank"#,      "Co-operative Bank"),
+            (#"\bchase\b"#,                               "Chase"),
+        ]
+        var best: (idx: Int, name: String)? = nil
+        for (pat, name) in table {
+            guard let r = head.range(of: pat, options: .regularExpression) else { continue }
+            let idx = head.distance(from: head.startIndex, to: r.lowerBound)
+            if best == nil || idx < best!.idx { best = (idx, name) }
+        }
+        return best?.name
+    }
 }
 
 /// Deterministically-computed figures for the Today panel (all summed in Swift
@@ -255,6 +312,7 @@ final class AppModel: ObservableObject {
                 modelPhase = .ready
                 loadStatus = "ready ✓"
                 stage = .dashboard
+                refineIssuersViaLLM()   // label statements imported before load
             } catch {
                 modelPhase = .idle
                 errorMessage = "Model load failed: \(error.localizedDescription)"
@@ -336,6 +394,8 @@ final class AppModel: ObservableObject {
         let rows: [TxnRow]
         let currency: String
         let bank: String?
+        let closingBalance: Double?
+        let isCard: Bool
     }
     private struct ImportFailure: Error, Sendable { let message: String }
 
@@ -371,11 +431,15 @@ final class AppModel: ObservableObject {
                     docs[i].rows = r.rows
                     docs[i].currency = r.currency
                     docs[i].bank = r.bank
+                    docs[i].closingBalance = r.closingBalance
+                    docs[i].isCard = r.isCard
                     docs[i].analyzed = true
                 } else {
                     docs.append(LoadedDoc(name: r.name, text: r.text,
                                           transactions: r.txns, rows: r.rows,
-                                          currency: r.currency, bank: r.bank, analyzed: true))
+                                          currency: r.currency, bank: r.bank,
+                                          closingBalance: r.closingBalance, isCard: r.isCard,
+                                          analyzed: true))
                 }
                 selectedDocNames.insert(r.name)
                 if let kind, uploadsByKind[kind]?.contains(r.name) != true {
@@ -383,10 +447,46 @@ final class AppModel: ObservableObject {
                 }
                 isAnalyzing = false
                 recomputeSummary()   // deterministic figures → fills the Today panel
+                detectIssuerViaLLM(for: r.name, text: r.text)   // refine the account label
             case .failure(let failure):
                 isAnalyzing = false
                 errorMessage = failure.message
             }
+        }
+    }
+
+    /// Best-effort: ask the on-device model to name the institution, then refine
+    /// the account's display name. Runs when the model is loaded OR its weights are
+    /// already on disk (loading them into RAM is fine; we just never trigger a fresh
+    /// multi-GB *download* to label a row). The synchronous heuristic
+    /// (`LoadedDoc.detectIssuer`) covers the window before that, and
+    /// `refineIssuersViaLLM()` backfills once the model becomes ready.
+    private func detectIssuerViaLLM(for docName: String, text: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            let loaded = await self.llm.isLoaded
+            let onDisk = DownloadMeter.bytesOnDisk(repo: self.selectedModelID) > 0
+            guard loaded || onDisk else {
+                print("🏦[issuer] skip \(docName): model not loaded and no weights on disk")
+                return
+            }
+            do {
+                let issuer = try await self.llm.detectIssuer(from: text)
+                print("🏦[issuer] \(docName) → \(issuer ?? "nil")  (model loaded=\(loaded))")
+                if let issuer, let i = self.docs.firstIndex(where: { $0.name == docName }) {
+                    self.docs[i].detectedIssuer = issuer
+                }
+            } catch {
+                print("🏦[issuer] \(docName) ERROR: \(error)")
+            }
+        }
+    }
+
+    /// Once the model is loaded, label any already-imported statement the model
+    /// hasn't named yet (e.g. files imported during onboarding, before load).
+    func refineIssuersViaLLM() {
+        for doc in docs where doc.detectedIssuer == nil {
+            detectIssuerViaLLM(for: doc.name, text: doc.text)
         }
     }
 
@@ -406,7 +506,9 @@ final class AppModel: ObservableObject {
                     ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
                 return .success(ExtractResult(name: url.lastPathComponent, text: text,
                                               txns: parsed.transactions, rows: parsed.rows,
-                                              currency: parsed.currency, bank: parsed.bank))
+                                              currency: parsed.currency, bank: parsed.bank,
+                                              closingBalance: parsed.closingBalance,
+                                              isCard: parsed.isCard))
             } catch {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
@@ -421,18 +523,33 @@ final class AppModel: ObservableObject {
 
     // MARK: analysis (deterministic summary from parsed transactions)
 
+    /// The selected documents (all docs when nothing is explicitly selected).
+    private func selectedDocs() -> [LoadedDoc] {
+        docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
+    }
+
     /// Sum the selected documents' transactions in Swift — deterministic, no model.
     func recomputeSummary() {
-        let txns = docs
-            .filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
-            .flatMap(\.transactions)
+        let chosen = selectedDocs()
+        let txns = chosen.flatMap(\.transactions)
         var s = Summary()
         s.currency = detectCurrency()
         s.count = txns.count
         s.spent = txns.compactMap(\.debit).reduce(0, +)
-        s.income = txns.compactMap(\.credit).reduce(0, +)
+        // Card repayments (category "Payments") are your own money moving, not
+        // income — never count them as earnings.
+        s.income = txns.filter { $0.category != "Payments" }.compactMap(\.credit).reduce(0, +)
         s.net = s.income - s.spent
-        s.balance = txns.last(where: { $0.balance != nil })?.balance
+        // Total balance across accounts: each account's latest balance summed,
+        // with credit-card balances SUBTRACTED (they're money owed).
+        let withBal = chosen.filter { $0.latestBalance != nil }
+        if withBal.isEmpty {
+            s.balance = nil
+        } else {
+            s.balance = withBal.reduce(0) { acc, d in
+                acc + (d.isCard ? -d.latestBalance! : d.latestBalance!)
+            }
+        }
         s.categories = categorize(txns)
         summary = s
     }
@@ -613,11 +730,17 @@ final class AppModel: ObservableObject {
         }
 
         // Deterministic finance router: answer factual numeric questions (totals,
-        // counts, balance, category/merchant/period spend, largest/top, income,
-        // net, average) straight from the parsed rows — no model, no hallucinated
-        // figures. Returns nil for advisory/open-ended questions, which fall to MLX.
+        // counts, balance — incl. multi-account and as-of-a-date, category/
+        // merchant/period spend, largest/top, income, net/profit/loss, average)
+        // straight from the parsed rows — no model, no hallucinated figures.
+        // Returns nil for advisory/open-ended questions, which fall to MLX.
         let cur = summary.currency
+        let accounts = selectedDocs().map {
+            FinanceRouter.AccountBalance(name: $0.displayName, balance: $0.latestBalance,
+                                         isCard: $0.isCard)
+        }
         if let answer = FinanceRouter.answer(q, rows: selectedRows(), currency: cur,
+                                             accounts: accounts,
                                              money: { Money.format($0, currency: cur) }) {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
             return
@@ -630,6 +753,7 @@ final class AppModel: ObservableObject {
         let rows = selectedRows()
         let fullText = scopedText()
         let key = retrieverSignature()
+        let facts = computedFacts()
         Task {
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which
@@ -649,6 +773,11 @@ final class AppModel: ObservableObject {
                     grounding = Self.retrievalContext(hits, currency: summary.currency)
                 }
             }
+            // Exact, deterministically-computed figures always ride along, so
+            // free-form model answers quote the same numbers the Today panel shows.
+            if !facts.isEmpty {
+                grounding = facts + "\n\n" + grounding
+            }
             do {
                 // Generous cap so long outputs (e.g. a full transaction table) aren't
                 // truncated mid-row; short answers still stop early at end-of-text.
@@ -665,6 +794,29 @@ final class AppModel: ObservableObject {
             }
             isThinking = false
         }
+    }
+
+    /// Exact figures computed in Swift, prepended to the model's grounding so a
+    /// free-form answer can never contradict the Today panel. (These are the
+    /// same sums `recomputeSummary()` shows — never model-guessed.)
+    private func computedFacts() -> String {
+        let chosen = selectedDocs()
+        guard summary.count > 0 else { return "" }
+        let cur = summary.currency
+        var lines = ["EXACT FIGURES (computed from the parsed statement data — always use these):"]
+        if let bal = summary.balance {
+            lines.append("- Total balance across accounts: \(Money.format(bal, currency: cur))")
+        }
+        for d in chosen {
+            if let b = d.latestBalance {
+                lines.append("- \(d.displayName): balance \(Money.format(b, currency: cur))\(d.isCard ? " owed (credit card)" : "")")
+            }
+        }
+        lines.append("- Total spent (sum of debits): \(Money.format(summary.spent, currency: cur))")
+        lines.append("- Total income (credits, excl. card repayments): \(Money.format(summary.income, currency: cur))")
+        lines.append("- Net (income − spend): \(Money.format(summary.net, currency: cur))")
+        lines.append("- Transactions: \(summary.count)")
+        return lines.joined(separator: "\n")
     }
 
     /// A cheap signature of the selected-document set — the RAG index is rebuilt

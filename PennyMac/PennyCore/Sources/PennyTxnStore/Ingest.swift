@@ -9,6 +9,12 @@ public struct IngestOutput {
     public let bankName: String?
     public let confidence: String
     public let detectedCurrency: String
+    /// The statement's own closing-balance figure, when its summary box states
+    /// one (UK layout parsers). nil for the contract-locked parsers.
+    public var closingBalance: Double? = nil
+    /// Credit-card semantics: the balance is money OWED, charges are debits and
+    /// "payment received" credits are transfers, not income.
+    public var isCard: Bool = false
 }
 
 public final class TxnIngester {
@@ -37,7 +43,15 @@ public final class TxnIngester {
 
         // parser selection
         let profileBank = (matchedProfile?.bankName ?? "").pyLower()
-        enum Route { case barclays, pnb, wrenfield, rowRE, generic }
+        enum Route { case barclays, pnb, wrenfield, rowRE, ukLayout, generic }
+        // UK-layout detectors read the first pages directly (their brand headers
+        // can sit before the table start that `head` is anchored to).
+        var early = ""
+        for i in 0..<min(2, doc.pageCount) { early += doc.page(i)?.text ?? "" }
+        let earlyLow = early.pyLower()
+        let isUKLayout = UKParsers.isAmexCard(earlyLow) || UKParsers.isRevolutTable(earlyLow)
+            || UKParsers.isMonzoTable(earlyLow) || UKParsers.isNatWestTable(earlyLow)
+            || UKParsers.isNationwideTable(earlyLow)
         let route: Route
         if profileBank == "barclays" || BankParsers.isBarclays(head) {
             route = .barclays
@@ -47,6 +61,8 @@ public final class TxnIngester {
             route = .wrenfield
         } else if profileBank == "hdfc" || BankParsers.isTransactionStatement(head) {
             route = .rowRE
+        } else if isUKLayout {
+            route = .ukLayout
         } else {
             route = .generic
         }
@@ -55,6 +71,7 @@ public final class TxnIngester {
 
         var confidence = "high"
         var txns: [TxnRow]
+        var cardSummary: CardStatementSummary? = nil
         switch route {
         case .barclays:
             txns = BankParsers.parseBarclays(doc, pdfPath: path, categories: categories)
@@ -64,14 +81,23 @@ public final class TxnIngester {
             txns = BankParsers.parseWrenfield(doc, categories: categories)
         case .rowRE:
             txns = BankParsers.parsePDF(doc, categories: categories)
+        case .ukLayout:
+            let (rows, summary) = UKParsers.isAmexCard(earlyLow)
+                ? UKParsers.parseAmexCard(doc, categories: categories)
+                : UKParsers.parseColumnTable(doc, categories: categories)
+            txns = rows
+            cardSummary = summary
+            if detectedCur.isEmpty || detectedCur == "INR" { detectedCur = "GBP" }
         case .generic:
             let res = GenericParsers.parseGenericStatement(doc, categories: categories)
             txns = res.rows
             confidence = res.confidence
         }
 
-        // dedicated parser produced nothing -> generic cascade fallback
-        if txns.isEmpty, route != .generic {
+        // dedicated parser produced nothing -> generic cascade fallback.
+        // (Not for UK layouts: the generic cascade is known to misread them —
+        // fake balances, wrong dates — so empty is more honest than garbage.)
+        if txns.isEmpty, route != .generic, route != .ukLayout {
             let res = GenericParsers.parseGenericStatement(doc, categories: categories)
             txns = res.rows
             confidence = res.confidence
@@ -91,7 +117,9 @@ public final class TxnIngester {
 
         if txns.isEmpty {
             return IngestOutput(rows: [], bankName: bankName, confidence: confidence,
-                                detectedCurrency: detectedCur)
+                                detectedCurrency: detectedCur,
+                                closingBalance: cardSummary?.closingBalance,
+                                isCard: cardSummary?.isCard ?? false)
         }
 
         // (LLM categorizer mop-up for "Other" rows lives in the app layer, not here.)
@@ -125,6 +153,8 @@ public final class TxnIngester {
         }
 
         return IngestOutput(rows: txns, bankName: bankName, confidence: confidence,
-                            detectedCurrency: detectedCur)
+                            detectedCurrency: detectedCur,
+                            closingBalance: cardSummary?.closingBalance,
+                            isCard: cardSummary?.isCard ?? false)
     }
 }

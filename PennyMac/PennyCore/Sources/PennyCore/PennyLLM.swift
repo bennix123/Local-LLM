@@ -203,6 +203,53 @@ public actor PennyLLM {
         return Self.parseTransactions(from: raw)
     }
 
+    /// One-shot issuer classification for the account list: read the bank, card
+    /// issuer or provider name off the statement header. This generalizes past the
+    /// deterministic parser's fixed fast-track list (which only knows a handful of
+    /// banks) to any institution the model recognizes. Deterministic (temp 0) and
+    /// tiny — a dozen output tokens. Returns nil when it can't identify one.
+    public func detectIssuer(from statementText: String) async throws -> String? {
+        let container = try await load()
+        let head = String(statementText.prefix(2_000))
+        let system = """
+            You identify the financial institution that issued a bank or credit-card \
+            statement. Reply with ONLY the institution's common name — for example \
+            "American Express", "Monzo", "Barclays", "NatWest". No account type, no \
+            extra words, no punctuation, no quotes, no explanation. If you genuinely \
+            cannot tell, reply exactly UNKNOWN.
+            """
+        let user = "STATEMENT (header text):\n\(head)\n\nInstitution name:"
+        let parameters = GenerateParameters(maxTokens: 16, temperature: 0, topP: 1.0)
+
+        let raw = try await container.perform { context in
+            let input = try await context.processor.prepare(
+                input: UserInput(chat: [.system(system), .user(user)])
+            )
+            var output = ""
+            let stream = try MLXLMCommon.generate(input: input, parameters: parameters, context: context)
+            for await generation in stream {
+                if case .chunk(let piece) = generation { output += piece }
+            }
+            return output
+        }
+        return Self.cleanIssuer(raw)
+    }
+
+    /// Normalize the model's reply to a bare institution name (first line, stripped
+    /// of quotes/punctuation), or nil for an empty / "UNKNOWN" / implausibly long answer.
+    static func cleanIssuer(_ raw: String) -> String? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let nl = s.firstIndex(where: { $0.isNewline }) { s = String(s[..<nl]) }
+        // Drop a leading conversational prefix the model sometimes adds.
+        s = s.replacingOccurrences(
+            of: #"^(the\s+)?(institution|issuer|bank|name)(\s+is|:)?\s+"#,
+            with: "", options: [.regularExpression, .caseInsensitive])
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`.,:;- \t"))
+        if s.isEmpty || s.caseInsensitiveCompare("UNKNOWN") == .orderedSame { return nil }
+        if s.count > 40 { return nil }   // the model rambled — not a name
+        return s
+    }
+
     /// Pull the JSON array out of the model's reply (it may wrap it in prose/fences) and
     /// decode it, tolerating malformed output by returning what parses.
     static func parseTransactions(from raw: String) -> [Transaction] {

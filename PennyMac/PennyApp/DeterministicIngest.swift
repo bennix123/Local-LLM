@@ -17,6 +17,8 @@ enum DeterministicIngest {
         var rows: [TxnRow]          // richer canonical rows (merchant/category/period) for the query router
         var currency: String        // ISO-ish code the parser detected ("INR", "GBP", …)
         var bank: String?
+        var closingBalance: Double? = nil   // the statement's own closing-balance figure, when stated
+        var isCard: Bool = false            // credit-card semantics: balance = owed
     }
 
     enum IngestError: Error, LocalizedError {
@@ -35,7 +37,8 @@ enum DeterministicIngest {
         // The parser returns "" when it can't sniff a currency; normalize to INR
         // (the app's default) so the Today panel never shows an empty symbol.
         let currency = out.detectedCurrency.isEmpty ? "INR" : out.detectedCurrency
-        return Result(transactions: txns, rows: out.rows, currency: currency, bank: out.bankName)
+        return Result(transactions: txns, rows: out.rows, currency: currency, bank: out.bankName,
+                      closingBalance: out.closingBalance, isCard: out.isCard)
     }
 
     // MARK: - Bundled resources

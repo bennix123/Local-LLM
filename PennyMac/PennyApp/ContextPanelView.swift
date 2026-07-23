@@ -21,13 +21,13 @@ struct ContextPanelView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
-                    statCard("total balance", money(s.balance), sub: "latest statement balance")
+                    statCard("total balance", money(s.balance), sub: balanceSub)
                     statCard("spent · loaded statements", money(app.contextReady ? s.spent : nil),
                              sub: "sum of debits", tone: .warn)
                     statCard("net · income − spend", money(app.contextReady ? s.net : nil),
-                             sub: "across loaded statements",
+                             sub: "excl. card repayments",
                              tone: (s.net < 0 && app.contextReady) ? .warn : .good)
-                    statCard("bank accounts", "\(app.docs.count)",
+                    statCard("accounts", "\(app.docs.count)",
                              sub: app.docs.count == 1 ? "statement loaded" : "statements loaded")
                     categoriesSection
                 }
@@ -55,6 +55,19 @@ struct ContextPanelView: View {
         if app.isAnalyzing { return "reading your transactions…" }
         if app.contextReady { return "\(s.count) transactions · on-device" }
         return "on-device · upload a statement to begin"
+    }
+
+    /// "latest statement balance" for one account; when several are combined,
+    /// say what the number actually is (cards subtract — they're money owed).
+    private var balanceSub: String {
+        let chosen = app.docs.filter {
+            app.selectedDocNames.isEmpty || app.selectedDocNames.contains($0.name)
+        }
+        let withBal = chosen.filter { $0.latestBalance != nil }
+        if withBal.count <= 1 { return "latest statement balance" }
+        return withBal.contains(where: \.isCard)
+            ? "across accounts · cards deducted"
+            : "across \(withBal.count) accounts"
     }
 
     @ViewBuilder private var categoriesSection: some View {
