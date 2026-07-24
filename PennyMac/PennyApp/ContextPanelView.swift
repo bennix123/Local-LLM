@@ -22,13 +22,21 @@ struct ContextPanelView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
                     statCard("total balance", money(s.balance), sub: balanceSub)
+                        .todayCardAccessibility(id: "today.balance",
+                                                label: "total balance \(money(s.balance)) \(balanceSub)")
                     statCard("spent · loaded statements", money(app.contextReady ? s.spent : nil),
                              sub: "sum of debits", tone: .warn)
+                        .todayCardAccessibility(id: "today.spent",
+                                                label: "spent \(money(app.contextReady ? s.spent : nil)) sum of debits")
                     statCard("net · income − spend", money(app.contextReady ? s.net : nil),
                              sub: "excl. card repayments",
                              tone: (s.net < 0 && app.contextReady) ? .warn : .good)
+                        .todayCardAccessibility(id: "today.net",
+                                                label: "net \(money(app.contextReady ? s.net : nil)) excl. card repayments")
                     statCard("accounts", "\(app.docs.count)",
                              sub: app.docs.count == 1 ? "statement loaded" : "statements loaded")
+                        .todayCardAccessibility(id: "today.accounts",
+                                                label: "accounts \(app.docs.count) \(app.docs.count == 1 ? "statement loaded" : "statements loaded")")
                     categoriesSection
                 }
                 .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 18)
@@ -161,5 +169,16 @@ struct ContextPanelView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Theme.line, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             )
+    }
+}
+
+private extension View {
+    /// One flat accessibility element with an explicit, deterministic label —
+    /// `.combine` yields an empty label for these stat-card stacks, which broke
+    /// UI-test reads of the Today figures.
+    func todayCardAccessibility(id: String, label: String) -> some View {
+        self.accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(id)
     }
 }

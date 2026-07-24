@@ -139,8 +139,10 @@ final class AppModel: ObservableObject {
     @Published var onboardStep: Int = 1
 
     /// First name from step 2 — persisted so Penny greets returning users.
-    @Published var userName: String = UserDefaults.standard.string(forKey: "penny.userName") ?? "" {
-        didSet { UserDefaults.standard.set(userName, forKey: "penny.userName") }
+    /// (In `--uitest` runs nothing persists: the Debug build shares its sandbox
+    /// container with the installed app, so tests must never write real prefs.)
+    @Published var userName: String = TestMode.active ? "" : (UserDefaults.standard.string(forKey: "penny.userName") ?? "") {
+        didSet { if !TestMode.active { UserDefaults.standard.set(userName, forKey: "penny.userName") } }
     }
 
     /// Account kinds picked in step 4 ("stocks" dropped — it's a coming-soon card now).
@@ -214,6 +216,29 @@ final class AppModel: ObservableObject {
 
     private var llm = PennyLLM(modelID: PennyLLM.sliceModelID)
     private var tickCount = 0   // 0.5 s ticks, for the elapsed clock
+
+    init() {
+        // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
+        // optionally skip to the dashboard, and import a fixture statement
+        // directly — the sandboxed NSOpenPanel can't be driven reliably.
+        if TestMode.modelReady { modelPhase = .ready }
+        if TestMode.startAtDashboard {
+            // One runloop later, NOT in the first frame: launching straight
+            // into DashboardView kills the XCUITest automation channel (live
+            // AX queries die at the XPC timeout), while the same dashboard
+            // reached via navigation serves them fine.
+            DispatchQueue.main.async { [weak self] in self?.stage = .dashboard }
+        }
+        if let path = TestMode.importPath {
+            // Deferred past app-launch: importing during init races the XCTest
+            // automation handshake, leaving the session half-attached — every
+            // later AX query/event then times out. Tests already wait for the
+            // Today status line, so the extra beat is invisible to them.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.importPDF(from: URL(fileURLWithPath: path))
+            }
+        }
+    }
 
     // Hybrid-RAG retriever, cached per selected-document set (rebuilding embeds
     // every row, so we only redo it when the selection actually changes).
@@ -688,8 +713,13 @@ final class AppModel: ObservableObject {
     }
 
     // History lives as JSON in the app's sandboxed Application Support — on
-    // this Mac only, like everything else.
+    // this Mac only, like everything else. UI-test runs write to a per-process
+    // temp file instead, so they start empty and never touch real history.
     private static var historyURL: URL {
+        if TestMode.active {
+            return URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("penny-uitest-history-\(getpid()).json")
+        }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Penny", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -754,6 +784,13 @@ final class AppModel: ObservableObject {
         let fullText = scopedText()
         let key = retrieverSignature()
         let facts = computedFacts()
+        // UI-test stub: deterministic reply on the MLX fallback path — no model
+        // load, no NLEmbedding, so tests are fast and repeatable.
+        if TestMode.modelReady {
+            messages[idx].content = "\(TestMode.stubReplyPrefix) · grounded on \(rows.count) rows · \(q)"
+            isThinking = false
+            return
+        }
         Task {
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which

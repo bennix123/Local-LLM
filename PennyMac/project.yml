@@ -58,6 +58,11 @@ targets:
         DEVELOPMENT_TEAM: P4ANR778GY
         # Mac App Store uses the App Sandbox, NOT the Hardened Runtime.
         ENABLE_HARDENED_RUNTIME: NO
+        # No previews debug-dylib: the Penny.debug.dylib stub duplicates the
+        # PennyTxnStore classes (objc warnings) and breaks the XCUITest
+        # automation channel — app-side AX/testability queries die at the XPC
+        # timeout while the app idles.
+        ENABLE_DEBUG_DYLIB: NO
       configs:
         # Local dev: automatic signing, dev entitlements (Penny.entitlements from
         # the `entitlements:` block above). Run this config in Xcode day to day.
@@ -73,3 +78,92 @@ targets:
           CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Penny Mac App Store"
           CODE_SIGN_ENTITLEMENTS: PennyApp/Penny-dist.entitlements
+
+  # Hosted unit tests — app-layer logic (AppModel summaries, markdown/table
+  # parser, issuer detection). Injected into the running Penny app process.
+  PennyTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - PennyTests
+      # Real-MLX generation smoke: hosted here because only Xcode builds the
+      # Cmlx Metal shader bundle (plain `swift test` can't load MLX), and the
+      # sandboxed host app's container is where the model weights live.
+      - path: PennyCore/Tests/PennyCoreSmokeTests/LLMSmokeTests.swift
+      # Statement corpus for the multi-doc / 1000-question stress tests —
+      # bundled as resources because the sandboxed host app can't read the
+      # repo checkout at runtime.
+      - path: ../finquery/contract/fixtures/Coop_Demo_Statement.pdf
+        buildPhase: resources
+      - path: ../finquery/contract/fixtures/chase_dummy_statement.pdf
+        buildPhase: resources
+      - path: ../test-data/DeutscheBank_Demo_Statement.pdf
+        buildPhase: resources
+      - path: ../test-data/Wrenfield_Bank_Statement_Tinku_Kesariya-1.pdf
+        buildPhase: resources
+      - path: ../indian_bank_statement.pdf
+        buildPhase: resources
+    dependencies:
+      - target: Penny
+      - package: PennyCore
+        product: PennyCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app.tests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.0"
+        DEVELOPMENT_TEAM: P4ANR778GY
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Penny.app/Contents/MacOS/Penny"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  # UI automation — drives the real app (onboarding wizard, model picker,
+  # dashboard/chat) via XCUITest. The app exposes inert `--uitest` launch
+  # hooks so tests never touch real user data or trigger model downloads.
+  PennyUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - PennyUITests
+    dependencies:
+      - target: Penny
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app.uitests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.0"
+        DEVELOPMENT_TEAM: P4ANR778GY
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Penny
+
+# Explicit scheme so `xcodebuild test -scheme Penny` runs both bundles.
+# Archive stays on Release (the TestFlight/App Store path — see TESTFLIGHT.md).
+schemes:
+  Penny:
+    build:
+      targets:
+        Penny: all
+        PennyTests: [test]
+        PennyUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - PennyTests
+        - PennyUITests
+      # Hosted tests run inside the real (sandboxed) app process; this flips
+      # TestMode.active so they can never persist into the real container.
+      # MODEL_READY stubs chat's MLX fallback so the 1000-question stress can
+      # exercise every routing path without loading (or downloading) a model.
+      environmentVariables:
+        PENNY_UITEST: "1"
+        PENNY_UITEST_MODEL_READY: "1"
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

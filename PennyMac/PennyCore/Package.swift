@@ -54,5 +54,19 @@ let package = Package(
             name: "penny-conformance",
             dependencies: ["PennyTxnStore"]
         ),
+        // XCTest layer over the same deterministic pipeline: the 22-fixture
+        // conformance contract plus component tests (router, retriever, DB,
+        // dates/money/categorisation). No MLX dependency — runs with `swift test`.
+        .testTarget(
+            name: "PennyTxnStoreTests",
+            dependencies: ["PennyTxnStore"]
+        ),
+        // Real-model integration smoke: loads an already-downloaded MLX model and
+        // runs one short grounded generation. Skips itself when no weights are on
+        // disk, so plain `swift test` stays fast and network-free.
+        .testTarget(
+            name: "PennyCoreSmokeTests",
+            dependencies: ["PennyCore"]
+        ),
     ]
 )

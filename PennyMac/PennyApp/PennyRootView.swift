@@ -16,6 +16,10 @@ struct PennyRootView: View {
         .environmentObject(app)
         .frame(minWidth: 900, minHeight: 620)
         .animation(.easeInOut(duration: 0.2), value: app.stage)
+        .onAppear {
+            TestWindowFix.applyIfTesting()
+            AXAudit.runIfRequested()
+        }
         // The whole design is a light, warm theme. Pin it to light so default
         // controls (e.g. the chat TextField's text) don't render white-on-cream
         // when the user's Mac is in Dark Mode.

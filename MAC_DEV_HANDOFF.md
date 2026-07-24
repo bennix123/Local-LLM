@@ -15,6 +15,62 @@ so Penny actually ships on TestFlight / the App Store.
 
 > Live status so the web/backend team can see what the Mac side has landed and what's next.
 
+### 2026-07-24 — Test infrastructure + parser correctness fixes 🧪
+The native app now has a real test pyramid (previously only the conformance runner):
+- **`PennyTxnStoreTests`** (SPM, `swift test`): the 22-fixture contract as XCTest, a
+  ground-truthed sweep over every `test-data/` statement + TEST-1000 + indian_bank,
+  FinanceRouter (~40 cases), retriever, SQLite store, dates/money/PyKit — **230 tests**.
+- **`PennyTests`** (hosted in the app): AppModel summary math, markdown/table renderer,
+  issuer detection, chat history, plus a **real-MLX generation smoke** (loads cached
+  weights from the app container, asserts a grounded streamed answer; skips if no
+  weights, never downloads). **48 tests.**
+- **`PennyUITests`** (XCUITest): onboarding walk, model picker, dashboard/chat/history,
+  driven through inert `--uitest` launch hooks (`PennyApp/TestMode.swift`) — no real
+  user data touched, no model downloads, no NSOpenPanel.
+- `project.yml` gained both app test targets + a `Penny` scheme test action
+  (`xcodebuild test -scheme Penny`). Remember: **re-run `xcodegen generate` after
+  adding test files.**
+
+**Real bugs found & fixed (Swift side — Python reference has the same bugs):**
+1. **US MM/DD dates parsed as DD/MM** (`parsers.py` `parse_date`/`_gen_row_date`
+   ports): chase's "06/30/26" became month-30 garbage, which also *reversed the
+   whole statement* and **flipped debit/credit classification** from the backwards
+   running-balance walk (SHELL OIL showed as a credit). Fixed with per-document
+   month-first inference (any second component >12 while no first component is) in
+   `DateParse`/`GenericParsers`; `chase_dummy_statement_expected.json` regenerated
+   from the corrected output — **the Python reference now fails this fixture until
+   it gets the same fix.**
+2. **`splitlines` CRLF bug** (`PyKit.pySplitLines`): Swift treats "\r\n" as ONE
+   grapheme cluster, so a Character-level walk never matched and CRLF leaked into
+   line content. Now walks unicode scalars. `pyRSplit` whitespace mode also aligned
+   with CPython (no empty parts).
+3. **Currency: statements declaring "Currency: EUR/USD/…" were ignored** —
+   DeutscheBank demo shipped rows with an empty currency. An explicit declaration
+   now beats cue-word sniffing (`GenericParsers.sniffCurrency`).
+
+**UI-suite (XCUITest) operational notes — read before blaming the tests:**
+- **Launching straight into the dashboard broke the automation channel**: with the
+  `--uitest-dashboard` stage set during `AppModel.init`, every live AX query/event
+  died at the XPC timeout while the app idled. Fixed by deferring the stage jump
+  one runloop tick (`AppModel.init`). Symptom if it regresses: UI tests failing at
+  ~50–115 s each with "Failed to get matching snapshots".
+- The suite REQUIRES an idle desktop: synthesized keystrokes go to the system-wide
+  active app, so any typing/app-switching during a run silently steals them
+  (tests then report "typed text never landed"). Run
+  `xcodebuild test -scheme Penny -only-testing:PennyUITests` and walk away.
+- Never synthesize ⌘-chords in tests (a latched modifier turned "how…" into ⌘H
+  and hid the app mid-suite), and freeze repeat-forever animations under
+  `--uitest` (`TestMode.freezeAnimations`) or quiescence waits time out.
+
+**Known parity quirks documented, NOT changed (contract decisions for both teams):**
+- Summary lines ("BALANCE CARRIED FORWARD", "BEGINNING/ENDING BALANCE") still ingest
+  as transactions on boi/lloyds/metrobank/santander/tsb/revolut/chase — inflates
+  spent/income figures; pinned by the shared expected JSONs.
+- PDF *title metadata* leaks into bank detection ("NOT A REAL BANK DOCUMENT" as the
+  bank name on 6 synthetic statements). Masked in the app by display-name heuristics.
+- The first row after an opening-balance line can misclassify credit/debit (the
+  reference never seeds the running balance from it).
+
 ### 2026-07-18 — P5 prepped: TestFlight/App Store signing pipeline 🚀
 Everything the signing pipeline needs is verified in place (Team `P4ANR778GY`, bundle
 `com.localbankrag.app`, Apple Distribution + 3rd Party Mac Developer Installer certs in the

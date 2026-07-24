@@ -15,8 +15,17 @@ enum GenericParsers {
 
     // ---- currency sniffing shared by the layers
 
+    /// "Currency: EUR" style declarations — a statement naming its own currency
+    /// beats any cue-word guess (Deutsche Bank's demo declares EUR but carries
+    /// no €/sort-code cues, so it used to sniff to "" and rows shipped with an
+    /// empty currency).
+    static let currencyDeclRe = PyRegex("currency\\s*:\\s*(inr|gbp|eur|usd|omr)", ignoreCase: true)
+
     static func sniffCurrency(_ head: String, extraGBP: [String] = []) -> String {
         let low = head.pyLower()
+        if let m = currencyDeclRe.search(low), let code = m.groups().first ?? nil {
+            return code.uppercased()
+        }
         if ["ifsc", "micr", "state bank", "hdfc", "icici", "₹", "rs.", "pnb"].contains(where: { low.pyContains($0) }) {
             return "INR"
         }
@@ -51,6 +60,9 @@ enum GenericParsers {
             var dateVal: (Int, Int, Int)
             var moneyTokens: [(Int, String)]
             var desc: String
+            /// Raw (first, second) numeric components of an ambiguous date token
+            /// ("06/30/26" -> (6, 30)); nil for unambiguous formats.
+            var numericDM: (Int, Int)?
         }
         var rawRows: [RawRow] = []
 
@@ -68,10 +80,12 @@ enum GenericParsers {
 
                 var dateIdx = -1
                 var dateVal: (Int, Int, Int)? = nil
+                var numericDM: (Int, Int)? = nil
                 for (idx, t) in tokens.enumerated() {
                     if let d = DateParse.parseDate(t) {
                         dateIdx = idx
                         dateVal = d
+                        numericDM = DateParse.numericDayMonth(t)
                         break
                     }
                 }
@@ -96,11 +110,28 @@ enum GenericParsers {
                         .contains(where: { descLow.pyContains($0) }) {
                     continue
                 }
-                rawRows.append(RawRow(dateVal: dateVal, moneyTokens: moneyTokens, desc: desc))
+                rawRows.append(RawRow(dateVal: dateVal, moneyTokens: moneyTokens, desc: desc,
+                                      numericDM: numericDM))
             }
         }
 
         if rawRows.isEmpty { return [] }
+
+        // US-order repair. `parseDate` mirrors the Python reference's day-first
+        // reading of numeric dates, which turns a US statement's "06/30/26"
+        // into month 30 — and, because the garbled dates run backwards, used to
+        // reverse the whole statement and flip every credit/debit derived from
+        // the running-balance walk. If any numeric date's second component
+        // exceeds 12 while no first component does, the document is month-first:
+        // swap day/month on every numeric-date row. Ambiguous documents keep the
+        // day-first reading (parity with the reference).
+        if DateParse.inferMonthFirst(rawRows.compactMap(\.numericDM)) {
+            for i in rawRows.indices {
+                if let (first, second) = rawRows[i].numericDM {
+                    rawRows[i].dateVal = (rawRows[i].dateVal.0, first, second)
+                }
+            }
+        }
 
         if tuple3Greater(rawRows[0].dateVal, rawRows[rawRows.count - 1].dateVal) {
             rawRows.reverse()
@@ -242,11 +273,24 @@ enum GenericParsers {
         var curDate: (Int?, Int, Int)? = nil
         var curTxn: GTxn? = nil
 
+        // US-order inference over the numeric dates this parser will see —
+        // same day/month repair as the columnar layer (see there for the why).
+        var dmPairs: [(Int, Int)] = []
+        for pageIdx in startPage..<doc.pageCount {
+            guard let page = doc.page(pageIdx) else { continue }
+            for toks in genRows(page) {
+                for t in toks {
+                    if let p = DateParse.numericDayMonth(t) { dmPairs.append(p) }
+                }
+            }
+        }
+        let monthFirst = DateParse.inferMonthFirst(dmPairs)
+
         for pageIdx in startPage..<doc.pageCount {
             guard let page = doc.page(pageIdx) else { continue }
             for toks in genRows(page) {
                 let moneyToks = toks.filter { DateParse.genMoneyRe.match($0) != nil }
-                let (dt, used) = DateParse.genRowDate(toks)
+                let (dt, used) = DateParse.genRowDate(toks, monthFirst: monthFirst)
                 let text = toks.enumerated()
                     .filter { !used.contains($0.offset) && DateParse.genMoneyRe.match($0.element) == nil }
                     .map { $0.element }

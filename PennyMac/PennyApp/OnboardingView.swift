@@ -26,7 +26,7 @@ struct OnboardingView: View {
         }
         .background(Theme.bg)
         .animation(.easeInOut(duration: 0.25), value: app.onboardStep)
-        .onAppear { pulsing = true }
+        .onAppear { if !TestMode.freezeAnimations { pulsing = true } }
     }
 
     // MARK: - Top bar (.hdr)
@@ -105,6 +105,7 @@ struct WelcomeStep: View {
         }
         .clipped()
         .onAppear {
+            guard !TestMode.freezeAnimations else { return }
             floating = true
             waving = true
         }

@@ -81,9 +81,15 @@ extension StringProtocol {
     }
 
     /// Python `s.rsplit(maxsplit=n)` — whitespace split from the right.
+    /// Python's whitespace mode never yields empty parts: trailing whitespace is
+    /// ignored before splitting, and an empty/whitespace-only left remainder is
+    /// dropped ("a b ".rsplit(2) == ["a","b"], " a b".rsplit(5) == ["a","b"]) —
+    /// but an unsplit remainder keeps its leading/internal whitespace
+    /// (" a b".rsplit(1) == [" a","b"]).
     public func pyRSplit(maxsplit: Int) -> [String] {
         var parts: [String] = []
         var rest = String(self)
+        while let last = rest.last, last.isWhitespace { rest.removeLast() }
         for _ in 0..<maxsplit {
             // find last whitespace run in `rest`
             guard let r = rest.rangeOfCharacter(from: .whitespaces, options: .backwards) else { break }
@@ -98,28 +104,33 @@ extension StringProtocol {
             rest = String(rest[..<lo])
             if rest.rangeOfCharacter(from: .whitespaces) == nil { break }
         }
-        parts.insert(rest, at: 0)
+        if rest.contains(where: { !$0.isWhitespace }) {
+            parts.insert(rest, at: 0)
+        }
         return parts
     }
 
-    /// Python `s.splitlines()` (only \n and \r\n occur in our data).
+    /// Python `s.splitlines()` — \n, \r and \r\n are each ONE separator.
+    /// Walks unicode scalars, not Characters: in Swift "\r\n" is a single
+    /// grapheme cluster, so a Character-level walk never matches "\n"/"\r"
+    /// and CRLF text would leak into line content.
     public func pySplitLines() -> [String] {
         var lines: [String] = []
         var cur = ""
-        var i = String(self).startIndex
-        let s = String(self)
-        while i < s.endIndex {
-            let ch = s[i]
+        let scalars = String(self).unicodeScalars
+        var i = scalars.startIndex
+        while i < scalars.endIndex {
+            let ch = scalars[i]
             if ch == "\n" || ch == "\r" {
                 lines.append(cur); cur = ""
                 if ch == "\r" {
-                    let nxt = s.index(after: i)
-                    if nxt < s.endIndex, s[nxt] == "\n" { i = nxt }
+                    let nxt = scalars.index(after: i)
+                    if nxt < scalars.endIndex, scalars[nxt] == "\n" { i = nxt }
                 }
             } else {
-                cur.append(ch)
+                cur.unicodeScalars.append(ch)
             }
-            i = s.index(after: i)
+            i = scalars.index(after: i)
         }
         if !cur.isEmpty { lines.append(cur) }
         return lines

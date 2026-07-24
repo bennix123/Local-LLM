@@ -92,7 +92,7 @@ struct SidebarView: View {
         .frame(maxHeight: .infinity)
         .background(Theme.bg2)
         .overlay(Rectangle().fill(Theme.line).frame(width: 1), alignment: .trailing)
-        .onAppear { pulsing = true }
+        .onAppear { if !TestMode.freezeAnimations { pulsing = true } }
     }
 
     // MARK: pieces

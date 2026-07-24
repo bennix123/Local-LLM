@@ -62,7 +62,7 @@ struct ChatView: View {
             .help("New chat")
         }
         .padding(.horizontal, 22).padding(.vertical, 10)
-        .onAppear { pulsing = true }
+        .onAppear { if !TestMode.freezeAnimations { pulsing = true } }
     }
 
     // MARK: scrollback
@@ -174,6 +174,7 @@ struct ChatView: View {
                     .overlay(Capsule().stroke(Theme.ink, lineWidth: 2))
                     .onSubmit(sendDraft)
                     .disabled(app.isThinking)
+                    .accessibilityIdentifier("chat.input")
 
                 Button(action: sendDraft) {
                     Image(systemName: "arrow.right")
@@ -185,6 +186,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
+                .accessibilityIdentifier("chat.send")
             }
             .padding(.bottom, 3)
         }
@@ -240,6 +242,10 @@ struct MessageBubble: View {
                         .padding(.horizontal, 8).padding(.vertical, 2)
                         .background(Theme.limeS, in: Capsule())
                         .overlay(Capsule().stroke(Theme.limeD, lineWidth: 1.5))
+                        // Explicit: this Text otherwise surfaces its string as the
+                        // AX *value* with an empty label, which VoiceOver reads
+                        // poorly and UI tests can't match by label.
+                        .accessibilityLabel("\(engine.uppercased()) ENGINE")
                 }
                 if !message.content.isEmpty {
                     Group {
@@ -258,6 +264,13 @@ struct MessageBubble: View {
                     .overlay(bubbleShape.stroke(Theme.ink, lineWidth: 2))
                     .frame(maxWidth: maxBubbleWidth,
                            alignment: message.role == .user ? .trailing : .leading)
+                    // One flat element whose label IS the message text (raw
+                    // markdown for assistant replies) — `.combine` produces an
+                    // empty label for the ChatMarkdown stack, which UI tests
+                    // (and VoiceOver) can't read.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(message.content)
+                    .accessibilityIdentifier(message.role == .user ? "chat.msg.user" : "chat.msg.assistant")
                 }
             }
             if message.role == .user {
@@ -295,6 +308,7 @@ struct TypingIndicator: View {
             Spacer(minLength: 40)
         }
         .onAppear {
+            guard !TestMode.freezeAnimations else { t = .pi / 2; return }
             withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { t = .pi * 2 }
         }
     }

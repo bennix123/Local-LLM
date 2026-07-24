@@ -42,6 +42,26 @@ enum DateParse {
         return nil
     }
 
+    /// The two numeric components of an ambiguous numeric date token, in the
+    /// order they appear: "06/30/26" -> (6, 30). nil for month-name and
+    /// ISO (yyyy-mm-dd) formats, which are unambiguous. Used for per-document
+    /// day/month order inference: if any token's SECOND component exceeds 12
+    /// while no FIRST component does, the document is month-first (US MM/DD)
+    /// and the day-first reading `parseDate`/`genRowDate` mirror from the
+    /// Python reference must be swapped.
+    static let numericDMRe = PyRegex("^(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{2,4})$")
+    static func numericDayMonth(_ t: String) -> (Int, Int)? {
+        guard let m = numericDMRe.match(t.pyStrip()) else { return nil }
+        let g = m.groups()
+        guard let a = g[0], let b = g[1], let x = Int(a), let y = Int(b) else { return nil }
+        return (x, y)
+    }
+
+    /// Decide month-first (US) date order from every numeric date in a document.
+    static func inferMonthFirst(_ pairs: [(Int, Int)]) -> Bool {
+        pairs.contains { $0.1 > 12 } && !pairs.contains { $0.0 > 12 }
+    }
+
     // ---- _gen_row_date machinery (generic date-inherited parser)
 
     static let genMoneyRe = PyRegex("^-?[£$€₹]?[\\d,]+\\.\\d{2}(?:\\s?(?:cr|dr))?$", ignoreCase: true)
@@ -58,7 +78,10 @@ enum DateParse {
     }
 
     /// _gen_row_date(): ((year?, month, day), consumed indices) or (nil, []).
-    static func genRowDate(_ toks: [String]) -> ((Int?, Int, Int)?, Set<Int>) {
+    /// `monthFirst` swaps the numeric day/month reading for US (MM/DD) docs —
+    /// decided per-document via `inferMonthFirst`, default keeps the Python
+    /// reference's day-first reading.
+    static func genRowDate(_ toks: [String], monthFirst: Bool = false) -> ((Int?, Int, Int)?, Set<Int>) {
         let full1 = PyRegex("(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})")
         let full2 = PyRegex("(\\d{4})-(\\d{2})-(\\d{2})")
         for (i, t) in toks.enumerated() {
@@ -72,7 +95,12 @@ enum DateParse {
             } else {
                 var yy = Int(g2)!
                 if yy < 100 { yy += 2000 }
-                y = yy; mo = Int(g1)!; d = Int(g0)!
+                y = yy
+                if monthFirst {
+                    mo = Int(g0)!; d = Int(g1)!
+                } else {
+                    mo = Int(g1)!; d = Int(g0)!
+                }
             }
             if genValid(mo, d) {
                 return ((y, mo, d), [i])
