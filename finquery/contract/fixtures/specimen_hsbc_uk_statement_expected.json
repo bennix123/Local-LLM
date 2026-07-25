@@ -203,7 +203,7 @@
     "debit": 255.3,
     "credit": 0.0,
     "balance": 4826.5,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -275,7 +275,7 @@
     "debit": 83.34,
     "credit": 0.0,
     "balance": 3233.01,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -833,7 +833,7 @@
     "debit": 397.73,
     "credit": 0.0,
     "balance": 6273.7,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -1022,7 +1022,7 @@
     "debit": 389.1,
     "credit": 0.0,
     "balance": 6714.08,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Specimen Hsbc Uk"
   },
   {

@@ -13,6 +13,23 @@ enum GenericParsers {
 
     static let RULE_BASED_MAX_VIOLATION_RATIO = 0.10
 
+    // ---- summary-row exclusion shared by both generic layers
+
+    /// Balance-display rows ("BALANCE CARRIED FORWARD", "BEGINNING BALANCE" …)
+    /// are statement furniture, not transactions — ingesting them inflates
+    /// spent/income. Matched ANYWHERE in the row text: fixture rows carry a
+    /// leading "26 " day fragment and trailing stitched footer text.
+    static let summaryRowRe = PyRegex(
+        "balance carried forward|balance brought forward|beginning balance|ending balance",
+        ignoreCase: true)
+    /// The statement-OPENING subset whose balance figure legitimately seeds the
+    /// running-balance walk: with the seed in place the first real row
+    /// classifies by balance delta instead of falling back to cue words
+    /// (fixes e.g. the chase ZELLE first-row debit/credit misclassification).
+    static let seedSummaryRe = PyRegex(
+        "balance brought forward|beginning balance|opening balance|start balance|balance b/?f",
+        ignoreCase: true)
+
     // ---- currency sniffing shared by the layers
 
     /// "Currency: EUR" style declarations — a statement naming its own currency
@@ -144,6 +161,24 @@ enum GenericParsers {
         for row in rawRows {
             let moneyTokens = row.moneyTokens
             let desc = row.desc
+            let descLow = desc.pyLower()
+
+            // Summary balance-display rows are never transactions — skip them
+            // regardless of the running balance (a BEGINNING BALANCE row
+            // arrives with runningBalance == nil, so the single-money
+            // equality check below never caught it and it leaked as a
+            // credit). A statement-opening row's balance figure seeds the
+            // walk so the NEXT row classifies by delta.
+            if summaryRowRe.search(descLow) != nil {
+                if runningBalance == nil, seedSummaryRe.search(descLow) != nil,
+                   let balTok = moneyTokens.last?.1 {
+                    var b = money(balTok)
+                    if balTok.pyLower().pyContains("dr") { b = -b }
+                    runningBalance = b
+                }
+                continue
+            }
+
             var amt = 0.0
             var bal = 0.0
             var isCredit = false
@@ -155,7 +190,6 @@ enum GenericParsers {
                 bal = money(balStr)
                 if balStr.pyLower().pyContains("dr") { bal = -bal }
 
-                let descLow = desc.pyLower()
                 if let rb = runningBalance {
                     let diff = bal - rb
                     if diff > 0.01 {
@@ -272,6 +306,7 @@ enum GenericParsers {
         var txns: [GTxn] = []
         var curDate: (Int?, Int, Int)? = nil
         var curTxn: GTxn? = nil
+        var seedBalance: Double? = nil
 
         // US-order inference over the numeric dates this parser will see —
         // same day/month repair as the columnar layer (see there for the why).
@@ -296,10 +331,26 @@ enum GenericParsers {
                     .map { $0.element }
                     .joined(separator: " ").pyStrip()
                 if let dt { curDate = dt }
-                if !moneyToks.isEmpty, let cd = curDate, DateParse.genSummaryRe.search(text) == nil {
+                // genSummaryRe alone missed "BALANCE CARRIED FORWARD" /
+                // "BEGINNING/ENDING BALANCE" rows, which then ingested as
+                // transactions; summaryRowRe closes that gap.
+                let isSummary = DateParse.genSummaryRe.search(text) != nil
+                    || summaryRowRe.search(text) != nil
+                if !moneyToks.isEmpty, isSummary {
+                    // A summary row carrying a balance figure is never a
+                    // transaction: close any open transaction so trailing
+                    // footer text can't stitch into it, and let a
+                    // statement-opening row seed the running-balance walk
+                    // (the first real row then classifies by delta).
+                    if let t = curTxn { txns.append(t); curTxn = nil }
+                    if txns.isEmpty, seedSummaryRe.search(text) != nil,
+                       let last = moneyToks.last {
+                        seedBalance = DateParse.genMoney(last)
+                    }
+                } else if !moneyToks.isEmpty, let cd = curDate, !isSummary {
                     if let t = curTxn { txns.append(t) }
                     curTxn = GTxn(date: cd, desc: text, money: moneyToks)
-                } else if !text.isEmpty, curTxn != nil, dt == nil, DateParse.genSummaryRe.search(text) == nil {
+                } else if !text.isEmpty, curTxn != nil, dt == nil, !isSummary {
                     curTxn!.desc = (curTxn!.desc + " " + text).pyStrip()
                 }
             }
@@ -322,7 +373,7 @@ enum GenericParsers {
 
         var out: [TxnRow] = []
         var seq = 0
-        var running: Double? = nil
+        var running: Double? = seedBalance
         for t in txns {
             let mny = t.money
             let amt = abs(DateParse.genMoney(mny[0]))

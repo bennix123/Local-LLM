@@ -1,290 +1,281 @@
 [
- {
-  "date": "2026-06-07",
-  "description": "26 TOP-UP FROM BANK ACCOUNT",
-  "debit": 649.99,
-  "credit": 0.0,
-  "balance": 1899.99,
-  "category": "Other",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-07",
-  "description": "26 SALARY - EMPLOYER LTD TEST",
-  "debit": 0.0,
-  "credit": 1707.91,
-  "balance": 3607.9,
-  "category": "Income",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-08",
-  "description": "26 AMAZON MKTPLACE",
-  "debit": 177.97,
-  "credit": 0.0,
-  "balance": 3429.93,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-09",
-  "description": "26 SALARY - EMPLOYER LTD",
-  "debit": 0.0,
-  "credit": 585.66,
-  "balance": 4015.59,
-  "category": "Income",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-10",
-  "description": "26 TESCO STORES",
-  "debit": 169.25,
-  "credit": 0.0,
-  "balance": 3846.34,
-  "category": "Groceries",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-11",
-  "description": "26 DECATHLON SYNTHETIC",
-  "debit": 164.39,
-  "credit": 0.0,
-  "balance": 3681.95,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-12",
-  "description": "26 THAMES WATER DD",
-  "debit": 84.9,
-  "credit": 0.0,
-  "balance": 3597.05,
-  "category": "Utilities",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-13",
-  "description": "26 WISE TRANSFER ACCOUNT",
-  "debit": 242.13,
-  "credit": 0.0,
-  "balance": 3354.92,
-  "category": "Other",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-14",
-  "description": "26 UBER TRIP",
-  "debit": 84.81,
-  "credit": 0.0,
-  "balance": 3270.11,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-15",
-  "description": "26 WISE",
-  "debit": 102.31,
-  "credit": 0.0,
-  "balance": 3167.8,
-  "category": "Other",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-16",
-  "description": "26 SALARY - EMPLOYER LTD",
-  "debit": 0.0,
-  "credit": 929.5,
-  "balance": 4097.3,
-  "category": "Income",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-17",
-  "description": "26 ASDA SUPERSTORE",
-  "debit": 242.52,
-  "credit": 0.0,
-  "balance": 3854.78,
-  "category": "Groceries",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-18",
-  "description": "26 BRITISH GAS DD",
-  "debit": 39.2,
-  "credit": 0.0,
-  "balance": 3815.58,
-  "category": "Utilities",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-19",
-  "description": "26 AMAZON MKTPLACE",
-  "debit": 166.51,
-  "credit": 0.0,
-  "balance": 3649.07,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-20",
-  "description": "26 VODAFONE - DD SAMPLE",
-  "debit": 265.86,
-  "credit": 0.0,
-  "balance": 3383.21,
-  "category": "Utilities",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-21",
-  "description": "26 SPOTIFY REAL",
-  "debit": 211.96,
-  "credit": 0.0,
-  "balance": 3171.25,
-  "category": "Entertainment",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-22",
-  "description": "26 HMRC",
-  "debit": 0.0,
-  "credit": 1944.02,
-  "balance": 5115.27,
-  "category": "Income",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-23",
-  "description": "26 SHELL GARAGE",
-  "debit": 260.21,
-  "credit": 0.0,
-  "balance": 4855.06,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-24",
-  "description": "26 PURE GYM DD",
-  "debit": 191.43,
-  "credit": 0.0,
-  "balance": 4663.63,
-  "category": "Entertainment",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-25",
-  "description": "26 M&S FOODHALL A",
-  "debit": 107.87,
-  "credit": 0.0,
-  "balance": 4555.76,
-  "category": "Groceries",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-26",
-  "description": "26 DECATHLON",
-  "debit": 281.12,
-  "credit": 0.0,
-  "balance": 4274.64,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-27",
-  "description": "NOT 26 VODAFONE DD",
-  "debit": 191.22,
-  "credit": 0.0,
-  "balance": 4083.42,
-  "category": "Utilities",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-28",
-  "description": "26 SHELL GARAGE",
-  "debit": 50.69,
-  "credit": 0.0,
-  "balance": 4032.73,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-29",
-  "description": "26 APPLE.COM/BILL",
-  "debit": 207.07,
-  "credit": 0.0,
-  "balance": 3825.66,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-06-30",
-  "description": "26 UBER TRIP",
-  "debit": 253.17,
-  "credit": 0.0,
-  "balance": 3572.49,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-01",
-  "description": "26 SHELL GARAGE",
-  "debit": 246.9,
-  "credit": 0.0,
-  "balance": 3325.59,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-02",
-  "description": "26 JOHN LEWIS",
-  "debit": 81.79,
-  "credit": 0.0,
-  "balance": 3243.8,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-03",
-  "description": "26 THAMES WATER DD",
-  "debit": 263.16,
-  "credit": 0.0,
-  "balance": 2980.64,
-  "category": "Utilities",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-04",
-  "description": "26 APPLE.COM/BILL",
-  "debit": 150.77,
-  "credit": 0.0,
-  "balance": 2829.87,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-05",
-  "description": "26 APPLE.COM/BILL",
-  "debit": 138.74,
-  "credit": 0.0,
-  "balance": 2691.13,
-  "category": "Shopping",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-06",
-  "description": "26 SHELL GARAGE",
-  "debit": 224.01,
-  "credit": 0.0,
-  "balance": 2467.12,
-  "category": "Transport",
-  "bank": "Revolut Dummy"
- },
- {
-  "date": "2026-07-06",
-  "description": "26 BALANCE CARRIED FORWARD This is a computer-generated SYNTHETIC statement crea",
-  "debit": 2467.12,
-  "credit": 0.0,
-  "balance": 2467.12,
-  "category": "Other",
-  "bank": "Revolut Dummy"
- }
+  {
+    "date": "2026-06-07",
+    "description": "26 TOP-UP FROM BANK ACCOUNT",
+    "debit": 0.0,
+    "credit": 649.99,
+    "balance": 1899.99,
+    "category": "Income",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-07",
+    "description": "26 SALARY - EMPLOYER LTD TEST",
+    "debit": 0.0,
+    "credit": 1707.91,
+    "balance": 3607.9,
+    "category": "Income",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-08",
+    "description": "26 AMAZON MKTPLACE",
+    "debit": 177.97,
+    "credit": 0.0,
+    "balance": 3429.93,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-09",
+    "description": "26 SALARY - EMPLOYER LTD",
+    "debit": 0.0,
+    "credit": 585.66,
+    "balance": 4015.59,
+    "category": "Income",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-10",
+    "description": "26 TESCO STORES",
+    "debit": 169.25,
+    "credit": 0.0,
+    "balance": 3846.34,
+    "category": "Groceries",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-11",
+    "description": "26 DECATHLON SYNTHETIC",
+    "debit": 164.39,
+    "credit": 0.0,
+    "balance": 3681.95,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-12",
+    "description": "26 THAMES WATER DD",
+    "debit": 84.9,
+    "credit": 0.0,
+    "balance": 3597.05,
+    "category": "Utilities",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-13",
+    "description": "26 WISE TRANSFER ACCOUNT",
+    "debit": 242.13,
+    "credit": 0.0,
+    "balance": 3354.92,
+    "category": "Other",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-14",
+    "description": "26 UBER TRIP",
+    "debit": 84.81,
+    "credit": 0.0,
+    "balance": 3270.11,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-15",
+    "description": "26 WISE",
+    "debit": 102.31,
+    "credit": 0.0,
+    "balance": 3167.8,
+    "category": "Other",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-16",
+    "description": "26 SALARY - EMPLOYER LTD",
+    "debit": 0.0,
+    "credit": 929.5,
+    "balance": 4097.3,
+    "category": "Income",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-17",
+    "description": "26 ASDA SUPERSTORE",
+    "debit": 242.52,
+    "credit": 0.0,
+    "balance": 3854.78,
+    "category": "Groceries",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-18",
+    "description": "26 BRITISH GAS DD",
+    "debit": 39.2,
+    "credit": 0.0,
+    "balance": 3815.58,
+    "category": "Utilities",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-19",
+    "description": "26 AMAZON MKTPLACE",
+    "debit": 166.51,
+    "credit": 0.0,
+    "balance": 3649.07,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-20",
+    "description": "26 VODAFONE - DD SAMPLE",
+    "debit": 265.86,
+    "credit": 0.0,
+    "balance": 3383.21,
+    "category": "Utilities",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-21",
+    "description": "26 SPOTIFY REAL",
+    "debit": 211.96,
+    "credit": 0.0,
+    "balance": 3171.25,
+    "category": "Subscriptions",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-22",
+    "description": "26 HMRC",
+    "debit": 0.0,
+    "credit": 1944.02,
+    "balance": 5115.27,
+    "category": "Income",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-23",
+    "description": "26 SHELL GARAGE",
+    "debit": 260.21,
+    "credit": 0.0,
+    "balance": 4855.06,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-24",
+    "description": "26 PURE GYM DD",
+    "debit": 191.43,
+    "credit": 0.0,
+    "balance": 4663.63,
+    "category": "Subscriptions",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-25",
+    "description": "26 M&S FOODHALL A",
+    "debit": 107.87,
+    "credit": 0.0,
+    "balance": 4555.76,
+    "category": "Groceries",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-26",
+    "description": "26 DECATHLON",
+    "debit": 281.12,
+    "credit": 0.0,
+    "balance": 4274.64,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-27",
+    "description": "NOT 26 VODAFONE DD",
+    "debit": 191.22,
+    "credit": 0.0,
+    "balance": 4083.42,
+    "category": "Utilities",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-28",
+    "description": "26 SHELL GARAGE",
+    "debit": 50.69,
+    "credit": 0.0,
+    "balance": 4032.73,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-29",
+    "description": "26 APPLE.COM/BILL",
+    "debit": 207.07,
+    "credit": 0.0,
+    "balance": 3825.66,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-06-30",
+    "description": "26 UBER TRIP",
+    "debit": 253.17,
+    "credit": 0.0,
+    "balance": 3572.49,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-01",
+    "description": "26 SHELL GARAGE",
+    "debit": 246.9,
+    "credit": 0.0,
+    "balance": 3325.59,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-02",
+    "description": "26 JOHN LEWIS",
+    "debit": 81.79,
+    "credit": 0.0,
+    "balance": 3243.8,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-03",
+    "description": "26 THAMES WATER DD",
+    "debit": 263.16,
+    "credit": 0.0,
+    "balance": 2980.64,
+    "category": "Utilities",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-04",
+    "description": "26 APPLE.COM/BILL",
+    "debit": 150.77,
+    "credit": 0.0,
+    "balance": 2829.87,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-05",
+    "description": "26 APPLE.COM/BILL",
+    "debit": 138.74,
+    "credit": 0.0,
+    "balance": 2691.13,
+    "category": "Shopping",
+    "bank": "Revolut Dummy"
+  },
+  {
+    "date": "2026-07-06",
+    "description": "26 SHELL GARAGE",
+    "debit": 224.01,
+    "credit": 0.0,
+    "balance": 2467.12,
+    "category": "Transport",
+    "bank": "Revolut Dummy"
+  }
 ]

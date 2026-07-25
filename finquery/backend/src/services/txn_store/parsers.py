@@ -406,9 +406,9 @@ UK_MERCHANT_CAT = {
     "o2": "Utilities", "vodafone": "Utilities", "virgin media": "Utilities",
     "british gas": "Utilities", "thames water": "Utilities", "council tax": "Utilities",
     "octopus energy": "Utilities", "sky": "Utilities",
-    "google": "Entertainment", "youtube": "Entertainment", "netflix": "Entertainment",
-    "spotify": "Entertainment", "disney": "Entertainment", "cricket": "Entertainment",
-    "puregym": "Entertainment", "gym": "Entertainment", "cinema": "Entertainment",
+    "google": "Entertainment", "youtube": "Entertainment", "netflix": "Subscriptions",
+    "spotify": "Subscriptions", "disney": "Subscriptions", "cricket": "Entertainment",
+    "puregym": "Subscriptions", "gym": "Subscriptions", "cinema": "Entertainment",
     "tesco": "Groceries", "sainsbury": "Groceries", "asda": "Groceries", "aldi": "Groceries",
     "lidl": "Groceries", "morrisons": "Groceries", "waitrose": "Groceries", "co-op": "Groceries",
     "amazon": "Shopping", "argos": "Shopping", "ebay": "Shopping", "ikea": "Shopping",
@@ -1197,6 +1197,20 @@ def parse_with_llm_fallback(pdf_path: str, local_cur: str) -> tuple[list[dict], 
 
 MONEY_PAT = re.compile(r"^-?[\d,]+\.\d{2}$")
 
+# ---------------------------------------------------------------- summary-row exclusion
+# Balance-display rows ("BALANCE CARRIED FORWARD", "BEGINNING BALANCE", ...) are
+# statement furniture, not transactions — ingesting them inflates spent/income.
+# Matched ANYWHERE in the row text: fixture rows carry a leading "26 " day
+# fragment and trailing stitched footer text. Shared by both generic layers.
+_SUMMARY_ROW_RE = re.compile(
+    r"balance carried forward|balance brought forward|beginning balance|ending balance", re.I)
+# The statement-OPENING subset whose balance figure legitimately seeds the
+# running-balance walk: with the seed in place the first real row classifies by
+# balance delta instead of falling back to cue words (fixes e.g. the chase
+# ZELLE first-row debit/credit misclassification).
+_SEED_SUMMARY_RE = re.compile(
+    r"balance brought forward|beginning balance|opening balance|start balance|balance b/?f", re.I)
+
 
 def _parse_generic_columnar(pdf_path):
     """Generic fallback: extract transactions from visual layout coordinates, one date-bearing
@@ -1287,7 +1301,23 @@ def _parse_generic_columnar(pdf_path):
         date_val = row["date_val"]
         money_tokens = row["money_tokens"]
         desc = row["desc"]
-        
+        desc_low = desc.lower()
+
+        # Summary balance-display rows are never transactions — skip them
+        # regardless of the running balance (a BEGINNING BALANCE row arrives
+        # with running_balance None, so the single-money equality check below
+        # never caught it and it leaked as a credit). A statement-opening
+        # row's balance figure seeds the walk so the NEXT row classifies by
+        # delta.
+        if _SUMMARY_ROW_RE.search(desc_low):
+            if running_balance is None and _SEED_SUMMARY_RE.search(desc_low) and money_tokens:
+                bal_tok = money_tokens[-1][1]
+                b = _money(bal_tok)
+                if "dr" in bal_tok.lower():
+                    b = -b
+                running_balance = b
+            continue
+
         amt = 0.0
         bal = 0.0
         is_credit = False
@@ -1435,6 +1465,7 @@ def _parse_generic_dateinherited(pdf_path):
     base_year = min(years) if years else 2000
 
     txns, cur_date, cur_txn = [], None, None
+    seed_balance = None
     for page_idx, page in enumerate(doc):
         if page_idx < start_page:
             continue
@@ -1444,11 +1475,26 @@ def _parse_generic_dateinherited(pdf_path):
             text = " ".join(t for j, t in enumerate(toks) if j not in used and not _GEN_MONEY_RE.match(t)).strip()
             if dt:
                 cur_date = dt
-            if money and cur_date and not _GEN_SUMMARY_RE.search(text):
+            # _GEN_SUMMARY_RE alone missed "BALANCE CARRIED FORWARD" /
+            # "BEGINNING/ENDING BALANCE" rows, which then ingested as
+            # transactions; _SUMMARY_ROW_RE closes that gap.
+            is_summary = bool(_GEN_SUMMARY_RE.search(text)) or bool(_SUMMARY_ROW_RE.search(text))
+            if money and is_summary:
+                # A summary row carrying a balance figure is never a
+                # transaction: close any open transaction so trailing footer
+                # text can't stitch into it, and let a statement-opening row
+                # seed the running-balance walk (the first real row then
+                # classifies by delta).
+                if cur_txn:
+                    txns.append(cur_txn)
+                    cur_txn = None
+                if not txns and _SEED_SUMMARY_RE.search(text):
+                    seed_balance = _gen_money(money[-1])
+            elif money and cur_date and not is_summary:
                 if cur_txn:
                     txns.append(cur_txn)
                 cur_txn = {"date": cur_date, "desc": text, "money": money}
-            elif text and cur_txn and not dt and not _GEN_SUMMARY_RE.search(text):
+            elif text and cur_txn and not dt and not is_summary:
                 cur_txn["desc"] = (cur_txn["desc"] + " " + text).strip()
     if cur_txn:
         txns.append(cur_txn)
@@ -1468,7 +1514,7 @@ def _parse_generic_dateinherited(pdf_path):
     if txns[0]["iso"] > txns[-1]["iso"]:
         txns.reverse()
 
-    seq, running = 0, None
+    seq, running = 0, seed_balance
     for t in txns:
         mny = t["money"]
         amt = abs(_gen_money(mny[0])); bal = _gen_money(mny[-1])
@@ -1662,8 +1708,8 @@ def is_statement_pdf(path):
 def categorize_descriptions_with_llm(descriptions: list) -> dict[str, dict]:
     """Uses the local MLX model to extract clean merchant names and classify categories for a batch of transaction descriptions."""
     valid_categories = ["Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
-                        "Entertainment", "Healthcare", "Investment & Insurance", "Income",
-                        "Cash", "Transfers", "Rent", "Other"]
+                        "Entertainment", "Subscriptions", "Healthcare", "Investment & Insurance",
+                        "Income", "Fees & Charges", "Education", "Cash", "Transfers", "Rent", "Other"]
 
     items_to_send = []
     idx_to_desc = {}
@@ -1831,8 +1877,8 @@ def ingest_pdf(pdf_path, doc_name, user_id, batch=5000):
                 print(f"[categorizer] Batch classification failed for chunk {i}: {e}")
         
         valid_categories = {"Groceries", "Transport", "Food & Dining", "Shopping", "Utilities",
-                            "Entertainment", "Healthcare", "Investment & Insurance", "Income",
-                            "Cash", "Transfers", "Rent", "Other"}
+                            "Entertainment", "Subscriptions", "Healthcare", "Investment & Insurance",
+                            "Income", "Fees & Charges", "Education", "Cash", "Transfers", "Rent", "Other"}
         cat_lower_map = {c.lower(): c for c in valid_categories}
         
         for t in txns:
@@ -1953,8 +1999,16 @@ def _normalize_category(val: str) -> str | None:
         return "Transport"
     if any(k in vl for k in ("shopping", "retail", "clothing", "amazon", "argos", "boots", "john lewis", "ebay")):
         return "Shopping"
-    if any(k in vl for k in ("subscriptions", "subscription", "entertainment", "netflix", "spotify", "gym", "pure gym", "cinema")):
+    if any(k in vl for k in ("subscriptions", "subscription", "netflix", "spotify", "gym", "pure gym")):
+        return "Subscriptions"
+    if any(k in vl for k in ("entertainment", "cinema")):
         return "Entertainment"
+    if any(k in vl for k in ("education", "school", "tuition", "college", "university", "coursera", "udemy")):
+        return "Education"
+    if any(k in vl for k in ("fees", "charges", "overdraft", "late fee", "annual fee", "card fee",
+                             "service charge", "account fee", "maintenance charge", "finance charge",
+                             "interest charged", "markup fee", "penal")):
+        return "Fees & Charges"
     if any(k in vl for k in ("salary", "income", "freelance", "interest", "refund", "dividend", "bonus", "pension")):
         return "Income"
     if any(k in vl for k in ("insurance", "investment", "isa", "savings", "shares", "stocks", "bond")):
@@ -1968,10 +2022,11 @@ _CATEGORY_HINT_WORDS_2 = {
     "transfer in", "transfer out", "direct debit", "standing order", "card payment"
 }
 _CATEGORY_HINT_WORDS_1 = {
-    "groceries", "grocer", "salary", "income", "transport", "travel", "dining", "food", 
-    "utilities", "bills", "shopping", "rent", "subscriptions", "subscription", "entertainment", 
-    "healthcare", "health", "insurance", "pension", "refund", "interest", "deposit", 
-    "transfer", "outgoings", "incomings", "fees", "fee", "bonus", "cash", "fuel", "dining"
+    "groceries", "grocer", "salary", "income", "transport", "travel", "dining", "food",
+    "utilities", "bills", "shopping", "rent", "subscriptions", "subscription", "entertainment",
+    "healthcare", "health", "insurance", "pension", "refund", "interest", "deposit",
+    "transfer", "outgoings", "incomings", "fees", "fee", "bonus", "cash", "fuel", "dining",
+    "education", "tuition", "charges"
 }
 
 def _extract_description_category_hint(desc: str) -> tuple[str, str | None]:
@@ -2105,7 +2160,8 @@ def ingest_csv(csv_path: str, doc_name: str, user_id: str, currency: str = "INR"
         try:
             cmap = categorize_descriptions_with_llm(other_txns)
             valid_cats = {"Groceries","Transport","Food & Dining","Shopping","Utilities",
-                          "Entertainment","Healthcare","Investment & Insurance","Income","Other"}
+                          "Entertainment","Subscriptions","Healthcare","Investment & Insurance",
+                          "Income","Fees & Charges","Education","Other"}
             cat_lower = {c.lower(): c for c in valid_cats}
             for t in txns:
                 if t["descr"] in cmap:

@@ -103,7 +103,7 @@ enum Describe {
         "travel", "dining", "food", "utilities", "bills", "shopping", "rent", "subscriptions",
         "subscription", "entertainment", "healthcare", "health", "insurance", "pension", "refund",
         "interest", "deposit", "transfer", "outgoings", "incomings", "fees", "fee", "bonus",
-        "cash", "fuel"]
+        "cash", "fuel", "education", "tuition", "charges"]
 
     /// _extract_description_category_hint(): (clean_desc, hint?).
     static func extractCategoryHint(_ desc: String) -> (String, String?) {
@@ -151,8 +151,19 @@ enum Describe {
         if anyIn(["shopping", "retail", "clothing", "amazon", "argos", "boots", "john lewis", "ebay"]) {
             return "Shopping"
         }
-        if anyIn(["subscriptions", "subscription", "entertainment", "netflix", "spotify", "gym", "pure gym", "cinema"]) {
+        if anyIn(["subscriptions", "subscription", "netflix", "spotify", "gym", "pure gym"]) {
+            return "Subscriptions"
+        }
+        if anyIn(["entertainment", "cinema"]) {
             return "Entertainment"
+        }
+        if anyIn(["education", "school", "tuition", "college", "university", "coursera", "udemy"]) {
+            return "Education"
+        }
+        if anyIn(["fees", "charges", "overdraft", "late fee", "annual fee", "card fee",
+                  "service charge", "account fee", "maintenance charge", "finance charge",
+                  "interest charged", "markup fee", "penal"]) {
+            return "Fees & Charges"
         }
         if anyIn(["salary", "income", "freelance", "interest", "refund", "dividend", "bonus", "pension"]) {
             return "Income"

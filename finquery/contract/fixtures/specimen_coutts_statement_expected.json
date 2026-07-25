@@ -2,8 +2,8 @@
   {
     "date": "2026-04-01",
     "description": "SAMPLE EMPLOYER LTD -",
-    "debit": 6663.82,
-    "credit": 0.0,
+    "debit": 0.0,
+    "credit": 6663.82,
     "balance": 24914.22,
     "category": "Income",
     "bank": "Specimen Coutts"
@@ -23,7 +23,7 @@
     "debit": 683.67,
     "credit": 0.0,
     "balance": 23212.35,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Specimen Coutts"
   },
   {

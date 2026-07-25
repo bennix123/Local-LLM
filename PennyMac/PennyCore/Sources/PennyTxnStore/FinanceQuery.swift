@@ -286,6 +286,11 @@ public enum FinanceRouter {
         ("bill", "Bills & Utilities"), ("utilit", "Bills & Utilities"),
         ("cash", "Cash & ATM"), ("atm", "Cash & ATM"), ("transfer", "Transfers"),
         ("entertain", "Entertainment"), ("health", "Health"), ("rent", "Rent"),
+        // "fees"/" fee" (leading space so "coffee" can't match) / "charges"
+        ("fees", "Fees & Charges"), (" fee", "Fees & Charges"), ("charges", "Fees & Charges"),
+        ("education", "Education"), ("school", "Education"), ("tuition", "Education"),
+        // "subs " (trailing space so "subsequent"/"subsidy" can't match)
+        ("subscription", "Subscriptions"), ("subs ", "Subscriptions"), ("recurring", "Subscriptions"),
     ]
 
     private static func matchCategory(_ low: String, rows: [TxnRow]) -> String? {

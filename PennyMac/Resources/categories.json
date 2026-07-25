@@ -10,8 +10,8 @@
     "dmart": ["DMart", "Groceries"],
     "ola": ["Ola", "Transport"],
     "irctc": ["IRCTC", "Transport"],
-    "netflix": ["Netflix", "Entertainment"],
-    "spotify": ["Spotify", "Entertainment"],
+    "netflix": ["Netflix", "Subscriptions"],
+    "spotify": ["Spotify", "Subscriptions"],
     "bookmyshow": ["BookMyShow", "Entertainment"],
     "airtel": ["Airtel", "Utilities"],
     "tata_power": ["Tata Power", "Utilities"],
@@ -35,10 +35,10 @@
     "mcdonald": ["McDonald's", "Food & Dining"],
     "kfc": ["KFC", "Food & Dining"],
     "starbucks": ["Starbucks", "Food & Dining"],
-    "hotstar": ["JioHotstar", "Entertainment"],
-    "jiocinema": ["JioCinema", "Entertainment"],
-    "sonyliv": ["SonyLIV", "Entertainment"],
-    "zee5": ["ZEE5", "Entertainment"],
+    "hotstar": ["JioHotstar", "Subscriptions"],
+    "jiocinema": ["JioCinema", "Subscriptions"],
+    "sonyliv": ["SonyLIV", "Subscriptions"],
+    "zee5": ["ZEE5", "Subscriptions"],
     "groww": ["Groww", "Investment & Insurance"],
     "upstox": ["Upstox", "Investment & Insurance"],
     "indianoil": ["Indian Oil", "Transport"],
@@ -79,7 +79,13 @@
   "category_rules": [
     ["Food & Dining", ["uber eats", "ubereats"]],
     ["Groceries", ["jiomart", "jio mart", "reliance fresh", "reliance smart", "big bazaar"]],
-    ["Entertainment", ["jiocinema", "jio cinema", "jiohotstar", "jio tv", "amazon prime", "prime video", "apple music", "apple tv"]],
+    ["Subscriptions", [
+      "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
+      "apple tv", "youtube premium", "audible", "patreon", "hotstar", "jiohotstar", "jiocinema",
+      "jio cinema", "sonyliv", "zee5", "jiosaavn", "gaana", "wynk",
+      "puregym", "the gym", "anytime fitness", "cult.fit", "cultfit", "cult fit", "gym"
+    ]],
+    ["Entertainment", ["jio tv"]],
     ["Shopping", ["reliance digital", "amazon pay", "reliance trends"]],
     ["Investment & Insurance", [
       "insurance", "assurance", "aviva", "axa", "admiral", "direct line", "hastings", "churchill",
@@ -122,18 +128,14 @@
       "bbps", "bharat billpay", "mobile recharge"
     , "con edison", "at&t", "verizon", "t-mobile", "comcast", "xfinity", "duke energy", "mobile network", "mobile telecom", "mobilfunk", "energy co", "energie co", "wasserwerk", "water company", "stadtwerke", "gemeindesteuer"]],
     ["Entertainment", [
-      "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
-      "apple tv", "youtube premium", "youtube music", "audible", "kindle", "patreon", "twitch",
-      "hotstar", "jiocinema", "sonyliv", "zee5", "voot", "altbalaji", "hulu", "hbo", "paramount",
+      "youtube music", "kindle", "twitch", "voot", "altbalaji", "hulu", "hbo", "paramount",
       "youtube", "vue cinema", "odeon", "cineworld", "picturehouse", "everyman cinema",
       "showcase cinema", "pvr", "inox", "bookmyshow", "cinema", "theatre", "concert",
       "ticketmaster", "steam games", "playstation", "xbox", "nintendo", "epic games", "riot games",
-      "roblox", "ubisoft", "puregym", "the gym", "david lloyd", "nuffield", "virgin active",
-      "fitness first", "anytime fitness", "cult.fit", "cultfit", "cult fit", "gold's gym",
-      "golds gym", "gym", "cricket", "golf club", "rugby", "leisure centre", "bowling",
-      "gaana", "wynk", "jiosaavn", "sun nxt", "hoichoi", "mx player", "cinepolis",
-      "carnival cinema", "paytm insider", "dream11", "google play", "play store",
-      "app store", "eros now"
+      "roblox", "ubisoft", "david lloyd", "nuffield", "virgin active", "fitness first",
+      "gold's gym", "golds gym", "cricket", "golf club", "rugby", "leisure centre", "bowling",
+      "sun nxt", "hoichoi", "mx player", "cinepolis", "carnival cinema", "paytm insider",
+      "dream11", "google play", "play store", "app store", "eros now"
     , "kino", "streaming service", "fitnesscenter", "fitness center"]],
     ["Transport", [
       "shell", "esso", "texaco", "gulf ", "morrisons petrol", "tesco petrol", "asda petrol",
@@ -200,6 +202,15 @@
       "cash withdrawal", "atm", "link atm", "cash machine", "cash deposit", "cardless cash",
       "withdrawal link", "cdm", "cash dep"
     , "bankomat", "geldautomat", "retrait dab"]],
+    ["Fees & Charges", [
+      "overdraft fee", "annual fee", "late fee", "late payment fee", "card fee", "service charge",
+      "account fee", "maintenance charge", "finance charge", "interest charged", "markup fee",
+      "penal"
+    ]],
+    ["Education", [
+      "school fee", "tuition", "college fee", "university fee", "exam fee", "coursera", "udemy",
+      "byjus", "unacademy", "vedantu", "khan academy"
+    ]],
     ["Income", [
       "salary", "payroll", "wages", "dividend", "interest earned", "interest paid", "credit interest",
       "cashback", "reimburs", "bonus", "pension credit", "tax refund", "refund", "reversal"

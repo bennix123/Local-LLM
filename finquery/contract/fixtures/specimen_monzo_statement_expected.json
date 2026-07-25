@@ -14,7 +14,7 @@
     "debit": 84.59,
     "credit": 0.0,
     "balance": 480.56,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -95,7 +95,7 @@
     "debit": 76.1,
     "credit": 0.0,
     "balance": 781.97,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -212,7 +212,7 @@
     "debit": 130.83,
     "credit": 0.0,
     "balance": 2654.08,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {

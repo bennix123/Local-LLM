@@ -2,8 +2,8 @@
   {
     "date": "2026-06-07",
     "description": "26 TRANSFER FROM SAVINGS",
-    "debit": 649.99,
-    "credit": 0.0,
+    "debit": 0.0,
+    "credit": 649.99,
     "balance": 1899.99,
     "category": "Transfers",
     "bank": "NOT A REAL BANK DOCUMENT"
@@ -68,7 +68,7 @@
     "debit": 210.05,
     "credit": 0.0,
     "balance": 3387.0,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -276,15 +276,6 @@
     "credit": 0.0,
     "balance": 5804.92,
     "category": "Shopping",
-    "bank": "NOT A REAL BANK DOCUMENT"
-  },
-  {
-    "date": "2026-07-06",
-    "description": "26 BALANCE CARRIED FORWARD This is a computer-generated SYNTHETIC statement crea",
-    "debit": 5804.92,
-    "credit": 0.0,
-    "balance": 5804.92,
-    "category": "Other",
     "bank": "NOT A REAL BANK DOCUMENT"
   }
 ]

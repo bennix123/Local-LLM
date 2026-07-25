@@ -170,4 +170,11 @@ public final class TxnIngester {
                             closingBalance: cardSummary?.closingBalance,
                             isCard: cardSummary?.isCard ?? false)
     }
+
+    /// Parse a CSV statement/export into canonical rows — ingest_csv() from
+    /// parsers.py, flowing through the same TxnRow shape, classification,
+    /// order normalization and card semantics as the PDF path.
+    public func ingestCSV(path: String) throws -> IngestOutput {
+        try CSVIngest.ingest(path: path, categories: categories)
+    }
 }

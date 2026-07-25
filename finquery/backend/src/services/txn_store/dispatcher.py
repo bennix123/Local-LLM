@@ -467,11 +467,14 @@ def answer(question, user_id, doc_name=None):
 
     # ---- category spend ----
     for cat in ("groceries", "transport", "food", "dining", "shopping", "utilities",
-                "entertainment", "healthcare", "investment", "insurance"):
+                "entertainment", "healthcare", "investment", "insurance",
+                "fees", "charges", "education", "subscription"):
         if cat in q and re.search(r"spend|spent|spending|cost|paid|expense", q):
             rows = by_category(user_id, doc_name, period)
             target = "Food & Dining" if cat in ("food", "dining") else \
-                     "Investment & Insurance" if cat in ("investment", "insurance") else cat.capitalize()
+                     "Investment & Insurance" if cat in ("investment", "insurance") else \
+                     "Fees & Charges" if cat in ("fees", "charges") else \
+                     "Subscriptions" if cat == "subscription" else cat.capitalize()
             for c, total, cnt in rows:
                 if c.lower().startswith(cat) or c == target:
                     return f"**{c}{_suffix(plabel)}:** {inr(total)} across {grp(cnt)} transactions"

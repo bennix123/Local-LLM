@@ -5,7 +5,7 @@ from .formatters import inr, grp, _money, _mlabel, _plabel, _norm_period, _mname
 from . import formatters
 from .parsers import MERCHANT_MAP, clean_description
 
-DISCRETIONARY = {"Shopping", "Entertainment", "Food & Dining", "Other"}
+DISCRETIONARY = {"Shopping", "Entertainment", "Subscriptions", "Food & Dining", "Other"}
 SUBSCRIPTION_MERCHANTS = {"netflix", "spotify", "jio", "airtel", "tata power", "amazon prime"}
 
 ACTIVE_DOC_NAME = None
@@ -246,8 +246,8 @@ def filtered_summary(user_id, merchant=None, category=None, period=None, doc_nam
 
 
 # categories that are realistically discretionary (easy to trim) vs largely fixed
-DISCRETIONARY = {"Shopping", "Food & Dining", "Entertainment"}
-FIXED_CATS = {"Utilities", "Healthcare", "Investment & Insurance", "Rent"}
+DISCRETIONARY = {"Shopping", "Food & Dining", "Entertainment", "Subscriptions"}
+FIXED_CATS = {"Utilities", "Healthcare", "Investment & Insurance", "Rent", "Fees & Charges", "Education"}
 
 
 def advice_context(user_id, doc_name=None, period=None):

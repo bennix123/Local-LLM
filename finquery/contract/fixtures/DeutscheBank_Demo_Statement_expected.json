@@ -68,7 +68,7 @@
     "debit": 10.99,
     "credit": 0.0,
     "balance": 3640.62,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Deutschebank Demo"
   },
   {
@@ -149,7 +149,7 @@
     "debit": 9.99,
     "credit": 0.0,
     "balance": 3515.67,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Deutschebank Demo"
   },
   {
@@ -203,7 +203,7 @@
     "debit": 24.99,
     "credit": 0.0,
     "balance": 3045.58,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Deutschebank Demo"
   },
   {
@@ -293,7 +293,7 @@
     "debit": 2.99,
     "credit": 0.0,
     "balance": 3732.59,
-    "category": "Entertainment",
+    "category": "Subscriptions",
     "bank": "Deutschebank Demo"
   },
   {
@@ -311,7 +311,7 @@
     "debit": 5.0,
     "credit": 0.0,
     "balance": 3705.19,
-    "category": "Other",
+    "category": "Fees & Charges",
     "bank": "Deutschebank Demo"
   },
   {

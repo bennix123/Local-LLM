@@ -265,8 +265,10 @@ final class CategorizationTests: XCTestCase {
         // "everything falls into Other" complaint on US/EU statements.
         XCTAssertEqual(cats.merchantRules.count, 75,
                        "merchant_map in contract/categories.json has 75 keys")
-        XCTAssertEqual(cats.categoryRules.count, 16,
-                       "category_rules in contract/categories.json has 16 entries")
+        // 16 → 19 on 2026-07-25: Subscriptions (before both Entertainment
+        // entries), Fees & Charges and Education added.
+        XCTAssertEqual(cats.categoryRules.count, 19,
+                       "category_rules in contract/categories.json has 19 entries")
     }
 
     func testMerchantRulesPreserveFileOrder() {
@@ -284,8 +286,9 @@ final class CategorizationTests: XCTestCase {
         // "uber eats" (rule 1, Food & Dining) must beat "uber" (Transport).
         XCTAssertEqual(cats.keywordCategory("UBER EATS X"), "Food & Dining")
         XCTAssertEqual(cats.keywordCategory("UBER X"), "Transport")
-        // "amazon prime" (Entertainment) precedes plain "amazon" (Shopping).
-        XCTAssertEqual(cats.keywordCategory("AMAZON PRIME VIDEO"), "Entertainment")
+        // "amazon prime" (Subscriptions since 2026-07-25) precedes plain
+        // "amazon" (Shopping).
+        XCTAssertEqual(cats.keywordCategory("AMAZON PRIME VIDEO"), "Subscriptions")
         XCTAssertEqual(cats.keywordCategory("AMAZON PAY BALANCE"), "Shopping")
         XCTAssertEqual(cats.keywordCategory("AMAZON MARKETPLACE"), "Shopping")
     }
@@ -324,7 +327,7 @@ final class CategorizationTests: XCTestCase {
     func testClassifyStripsLeadingSerialAndDate() {
         // "1 04/05/2024 " (row serial + date) is removed before rule matching.
         assertClassify("1 04/05/2024 NETFLIX.COM SUBSCRIPTION", credit: false,
-                       ("Netflix", "Entertainment"))
+                       ("Netflix", "Subscriptions"))
     }
 
     func testClassifyPersonishUPITransfer() {
@@ -422,7 +425,7 @@ final class CategorizationTests: XCTestCase {
         XCTAssertEqual(Describe.normalizeCategory("groceries"), "Groceries")
         XCTAssertEqual(Describe.normalizeCategory("salary"), "Income")
         XCTAssertEqual(Describe.normalizeCategory("petrol"), "Transport")
-        XCTAssertEqual(Describe.normalizeCategory("Subscription"), "Entertainment")
+        XCTAssertEqual(Describe.normalizeCategory("Subscription"), "Subscriptions")
         // Substring quirk, parity with Python: "neTFLix" contains "tfl" and the
         // Transport check runs before Entertainment.
         XCTAssertEqual(Describe.normalizeCategory("netflix"), "Transport")
