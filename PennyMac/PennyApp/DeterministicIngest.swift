@@ -32,7 +32,18 @@ enum DeterministicIngest {
     /// responsible for holding the file's security scope (see `AppModel.extract`).
     static func ingest(pdfAt url: URL) throws -> Result {
         let ingester = try makeIngester()
-        let out = try ingester.ingestPDF(path: url.path)
+        return toResult(try ingester.ingestPDF(path: url.path))
+    }
+
+    /// Parse a statement CSV at `url` — the same canonical pipeline
+    /// (categorization, currency detection) through the ingester's CSV entry
+    /// point, so CSV exports land as first-class statements.
+    static func ingest(csvAt url: URL) throws -> Result {
+        let ingester = try makeIngester()
+        return toResult(try ingester.ingestCSV(path: url.path))
+    }
+
+    private static func toResult(_ out: IngestOutput) -> Result {
         let txns = out.rows.map(Self.toTransaction)
         // The parser returns "" when it can't sniff a currency; normalize to INR
         // (the app's default) so the Today panel never shows an empty symbol.
@@ -60,7 +71,10 @@ enum DeterministicIngest {
 
     /// Map a `PennyTxnStore.TxnRow` (0.0 = "no amount") onto the app's
     /// `PennyCore.Transaction` (nil = "no amount"), carrying the real category.
-    private static func toTransaction(_ r: TxnRow) -> PennyCore.Transaction {
+    /// Internal (not private): `StatementStore` rebuilds transactions from its
+    /// persisted rows through this same mapping, so restored docs are
+    /// figure-identical to freshly imported ones.
+    static func toTransaction(_ r: TxnRow) -> PennyCore.Transaction {
         PennyCore.Transaction(
             date: r.txnDate,
             description: r.descr,

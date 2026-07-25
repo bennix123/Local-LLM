@@ -13,6 +13,40 @@ struct ContextPanelView: View {
         app.contextReady ? Money.format(v, currency: s.currency) : "—"
     }
 
+    // MARK: per-currency card lines (single-currency docs keep today's exact
+    // one-figure rendering; multi-currency docs get one line per currency —
+    // never a mixed-currency sum). Ordering follows `currencyList`, so the
+    // accessibility labels stay deterministic.
+
+    private var balanceLines: [String] {
+        guard app.contextReady, s.isMultiCurrency else { return [money(s.balance)] }
+        let lines = s.currencyList.compactMap { cur in
+            s.perCurrency[cur]?.balance.map { Money.format($0, currency: cur) }
+        }
+        return lines.isEmpty ? ["—"] : lines
+    }
+
+    private var spentLines: [String] {
+        guard app.contextReady, s.isMultiCurrency else { return [money(app.contextReady ? s.spent : nil)] }
+        return s.currencyList.compactMap { cur in
+            s.perCurrency[cur].map { Money.format($0.spent, currency: cur) }
+        }
+    }
+
+    private var netLines: [String] {
+        guard app.contextReady, s.isMultiCurrency else { return [money(app.contextReady ? s.net : nil)] }
+        return s.currencyList.compactMap { cur in
+            s.perCurrency[cur].map { Money.format($0.net, currency: cur) }
+        }
+    }
+
+    /// Warn tone when any currency's net is in the red.
+    private var netTone: Tone {
+        guard app.contextReady else { return .good }
+        if s.isMultiCurrency { return s.perCurrency.values.contains { $0.net < 0 } ? .warn : .good }
+        return s.net < 0 ? .warn : .good
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -21,18 +55,18 @@ struct ContextPanelView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 11) {
-                    statCard("total balance", money(s.balance), sub: balanceSub)
+                    statCard("total balance", balanceLines, sub: balanceSub)
                         .todayCardAccessibility(id: "today.balance",
-                                                label: "total balance \(money(s.balance)) \(balanceSub)")
-                    statCard("spent · loaded statements", money(app.contextReady ? s.spent : nil),
+                                                label: "total balance \(balanceLines.joined(separator: " · ")) \(balanceSub)")
+                    statCard("spent · loaded statements", spentLines,
                              sub: "sum of debits", tone: .warn)
                         .todayCardAccessibility(id: "today.spent",
-                                                label: "spent \(money(app.contextReady ? s.spent : nil)) sum of debits")
-                    statCard("net · income − spend", money(app.contextReady ? s.net : nil),
+                                                label: "spent \(spentLines.joined(separator: " · ")) sum of debits")
+                    statCard("net · income − spend", netLines,
                              sub: "excl. card repayments",
-                             tone: (s.net < 0 && app.contextReady) ? .warn : .good)
+                             tone: netTone)
                         .todayCardAccessibility(id: "today.net",
-                                                label: "net \(money(app.contextReady ? s.net : nil)) excl. card repayments")
+                                                label: "net \(netLines.joined(separator: " · ")) excl. card repayments")
                     statCard("accounts", "\(app.docs.count)",
                              sub: app.docs.count == 1 ? "statement loaded" : "statements loaded")
                         .todayCardAccessibility(id: "today.accounts",
@@ -66,13 +100,19 @@ struct ContextPanelView: View {
     }
 
     /// "latest statement balance" for one account; when several are combined,
-    /// say what the number actually is (cards subtract — they're money owed).
+    /// say what the number actually is (cards subtract — they're money owed;
+    /// mixed currencies are listed per currency, never summed).
     private var balanceSub: String {
         let chosen = app.docs.filter {
             app.selectedDocNames.isEmpty || app.selectedDocNames.contains($0.name)
         }
         let withBal = chosen.filter { $0.latestBalance != nil }
         if withBal.count <= 1 { return "latest statement balance" }
+        if s.isMultiCurrency {
+            return withBal.contains(where: \.isCard)
+                ? "per currency · cards deducted"
+                : "per currency · \(withBal.count) accounts"
+        }
         return withBal.contains(where: \.isCard)
             ? "across accounts · cards deducted"
             : "across \(withBal.count) accounts"
@@ -108,6 +148,12 @@ struct ContextPanelView: View {
     private enum Tone { case neutral, warn, good }
 
     private func statCard(_ label: String, _ value: String, sub: String, tone: Tone = .neutral) -> some View {
+        statCard(label, [value], sub: sub, tone: tone)
+    }
+
+    /// Multi-value variant: one line per currency when statements span
+    /// currencies (slightly smaller figures so several lines still fit).
+    private func statCard(_ label: String, _ values: [String], sub: String, tone: Tone = .neutral) -> some View {
         let valueColor: Color = {
             switch tone {
             case .neutral: return Theme.ink
@@ -117,8 +163,14 @@ struct ContextPanelView: View {
         }()
         return VStack(alignment: .leading, spacing: 3) {
             Text(label).font(Theme.caveat(12)).foregroundStyle(Theme.dim)
-            Text(value).font(Theme.serif(22, .heavy)).kerning(-0.4).foregroundStyle(valueColor)
-                .contentTransition(.numericText())
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .font(Theme.serif(values.count > 1 ? 16 : 22, .heavy))
+                        .kerning(-0.4).foregroundStyle(valueColor)
+                        .contentTransition(.numericText())
+                }
+            }
             Text(sub).font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
         }
         .padding(.horizontal, 13).padding(.vertical, 12)

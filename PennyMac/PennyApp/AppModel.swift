@@ -117,6 +117,24 @@ struct Summary: Equatable {
     var net: Double = 0       // income − spent
     var count: Int = 0
     var categories: [CategorySpend] = []
+    /// Per-currency breakdown of the same figures, keyed by currency code —
+    /// so statements in different currencies are never collapsed into one
+    /// meaningless mixed sum. Single-currency imports produce one entry whose
+    /// figures equal the top-level ones.
+    var perCurrency: [String: CurrencyTotals] = [:]
+    /// Currencies present, sorted for a deterministic display order.
+    var currencyList: [String] { perCurrency.keys.sorted() }
+    /// True when the selected statements span more than one currency.
+    var isMultiCurrency: Bool { perCurrency.count > 1 }
+}
+
+/// One currency's slice of the Today-panel figures (see `Summary.perCurrency`).
+struct CurrencyTotals: Equatable {
+    var balance: Double?
+    var spent: Double = 0
+    var income: Double = 0
+    var net: Double = 0
+    var count: Int = 0
 }
 
 struct CategorySpend: Identifiable, Equatable {
@@ -174,13 +192,29 @@ final class AppModel: ObservableObject {
         (uploadsByKind[kind] ?? []).compactMap { name in docs.first { $0.name == name } }
     }
 
-    /// Remove an onboarding upload everywhere it's tracked.
+    /// Remove an onboarding upload everywhere it's tracked (incl. on disk).
     func removeDoc(named name: String) {
         docs.removeAll { $0.name == name }
         selectedDocNames.remove(name)
         for (kind, names) in uploadsByKind {
             uploadsByKind[kind] = names.filter { $0 != name }
         }
+        StatementStore.remove(named: name)
+        recomputeSummary()
+    }
+
+    /// Delete everything Penny has persisted — statements and chat history —
+    /// and reset the in-memory session. The onboarding privacy copy promises
+    /// "you can wipe everything anytime", so this must really erase disk.
+    func wipeAllData() {
+        StatementStore.wipeAll()
+        try? FileManager.default.removeItem(at: Self.historyURL)
+        docs.removeAll()
+        selectedDocNames.removeAll()
+        uploadsByKind = [:]
+        messages.removeAll()
+        history.removeAll()
+        errorMessage = nil
         recomputeSummary()
     }
 
@@ -212,12 +246,54 @@ final class AppModel: ObservableObject {
     @Published var history: [ChatSession] = AppModel.loadHistory()
 
     // ui prefs
-    @Published var offlineOnly = true
+
+    /// The catalog's 8B model — the upgrade target the brain-panel nudge points
+    /// 16 GB+ Macs at while they're still on the default 3B slice.
+    static let upgradeModelID = "mlx-community/Llama-3.1-8B-Instruct-4bit"
+
+    /// "8B model available for this Mac" hint dismissed — persisted so the
+    /// nudge never nags (in-memory only under TestMode, like `userName`).
+    @Published var upgradeNudgeDismissed: Bool =
+        TestMode.active ? false : UserDefaults.standard.bool(forKey: "penny.upgradeNudgeDismissed") {
+        didSet {
+            if !TestMode.active {
+                UserDefaults.standard.set(upgradeNudgeDismissed, forKey: "penny.upgradeNudgeDismissed")
+            }
+        }
+    }
+
+    /// Show the brain-panel upgrade hint: this Mac fits the 8B model, the 3B
+    /// slice is in use, and the 8B weights aren't already downloaded.
+    var showUpgradeNudge: Bool {
+        !upgradeNudgeDismissed
+            && Self.deviceRAMGB >= 16
+            && selectedModelID == PennyLLM.sliceModelID
+            && !downloadedModelIDs.contains(Self.upgradeModelID)
+    }
 
     private var llm = PennyLLM(modelID: PennyLLM.sliceModelID)
     private var tickCount = 0   // 0.5 s ticks, for the elapsed clock
 
+    /// Restores persisted statements on launch (decode off-main, apply on the
+    /// main actor). Held as a handle so tests can await — or cancel — it.
+    private(set) var restoreTask: Task<Void, Never>?
+
     init() {
+        // Bring back the statements persisted by earlier launches: decode off
+        // the main thread, then apply + recompute on the main actor. In test
+        // mode `StatementStore` points at an empty per-process temp dir, so
+        // this is a no-op there unless the test itself persisted docs.
+        restoreTask = Task { [weak self] in
+            let restored = await Task.detached(priority: .userInitiated) {
+                StatementStore.loadAll()
+            }.value
+            guard let self, !Task.isCancelled, !restored.isEmpty else { return }
+            for doc in restored where !self.docs.contains(where: { $0.name == doc.name }) {
+                self.docs.append(doc)
+                self.selectedDocNames.insert(doc.name)
+            }
+            self.recomputeSummary()
+        }
         // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
         // optionally skip to the dashboard, and import a fixture statement
         // directly — the sandboxed NSOpenPanel can't be driven reliably.
@@ -424,9 +500,10 @@ final class AppModel: ObservableObject {
     }
     private struct ImportFailure: Error, Sendable { let message: String }
 
-    /// Import a PDF WITHOUT freezing the UI: PDFKit text extraction and the
-    /// deterministic `PennyTxnStore` parse both run off the main thread while the
-    /// picker shows an "importing" state. Results are applied on the main actor.
+    /// Import a statement (PDF or CSV) WITHOUT freezing the UI: text extraction
+    /// and the deterministic `PennyTxnStore` parse both run off the main thread
+    /// while the picker shows an "importing" state. Results are applied on the
+    /// main actor and persisted via `StatementStore` so they survive relaunch.
     /// `kind` tags the import to an onboarding account tab (step 5), so the
     /// upload screen can show per-account progress.
     func importPDF(from url: URL, kind: String? = nil) {
@@ -447,7 +524,9 @@ final class AppModel: ObservableObject {
             case .success(let r):
                 if r.text.isEmpty {
                     isAnalyzing = false
-                    errorMessage = "No selectable text in \(r.name) (is it a scanned image?)"
+                    errorMessage = r.name.lowercased().hasSuffix(".csv")
+                        ? "\(r.name) is empty — no rows to read."
+                        : "No selectable text in \(r.name) (is it a scanned image?)"
                     return
                 }
                 if let i = docs.firstIndex(where: { $0.name == r.name }) {
@@ -472,6 +551,9 @@ final class AppModel: ObservableObject {
                 }
                 isAnalyzing = false
                 recomputeSummary()   // deterministic figures → fills the Today panel
+                if let doc = docs.first(where: { $0.name == r.name }) {
+                    StatementStore.save(doc)   // survives relaunch
+                }
                 detectIssuerViaLLM(for: r.name, text: r.text)   // refine the account label
             case .failure(let failure):
                 isAnalyzing = false
@@ -487,6 +569,9 @@ final class AppModel: ObservableObject {
     /// (`LoadedDoc.detectIssuer`) covers the window before that, and
     /// `refineIssuersViaLLM()` backfills once the model becomes ready.
     private func detectIssuerViaLLM(for docName: String, text: String) {
+        // Test runs never touch the real model (there is no stub for issuer
+        // naming): labels stay deterministic via the synchronous heuristic.
+        guard !TestMode.active else { return }
         Task { [weak self] in
             guard let self else { return }
             let loaded = await self.llm.isLoaded
@@ -500,6 +585,7 @@ final class AppModel: ObservableObject {
                 print("🏦[issuer] \(docName) → \(issuer ?? "nil")  (model loaded=\(loaded))")
                 if let issuer, let i = self.docs.firstIndex(where: { $0.name == docName }) {
                     self.docs[i].detectedIssuer = issuer
+                    StatementStore.save(self.docs[i])   // label survives relaunch
                 }
             } catch {
                 print("🏦[issuer] \(docName) ERROR: \(error)")
@@ -524,11 +610,24 @@ final class AppModel: ObservableObject {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
-                // PDFKit text is the chat grounding; the deterministic parser
-                // produces the transactions/figures. Both read the same scoped file.
-                let text = try StatementText.extract(from: url)
-                let parsed = (try? DeterministicIngest.ingest(pdfAt: url))
-                    ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                // Extracted text is the chat grounding (PDFKit page text for
+                // PDFs, the raw file contents for CSVs — already plain text);
+                // the deterministic parser produces the transactions/figures.
+                // Both read the same scoped file.
+                let isCSV = url.pathExtension.lowercased() == "csv"
+                let text: String
+                let parsed: DeterministicIngest.Result
+                if isCSV {
+                    let data = try Data(contentsOf: url)
+                    text = String(data: data, encoding: .utf8)
+                        ?? String(data: data, encoding: .isoLatin1) ?? ""
+                    parsed = (try? DeterministicIngest.ingest(csvAt: url))
+                        ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                } else {
+                    text = try StatementText.extract(from: url)
+                    parsed = (try? DeterministicIngest.ingest(pdfAt: url))
+                        ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                }
                 return .success(ExtractResult(name: url.lastPathComponent, text: text,
                                               txns: parsed.transactions, rows: parsed.rows,
                                               currency: parsed.currency, bank: parsed.bank,
@@ -576,7 +675,39 @@ final class AppModel: ObservableObject {
             }
         }
         s.categories = categorize(txns)
+        // Per-currency breakdown: the same sums grouped by each statement's
+        // own currency, so multi-currency imports never show (or hand the
+        // model) one meaningless mixed figure.
+        var per: [String: CurrencyTotals] = [:]
+        for d in chosen {
+            let cur = Self.effectiveCurrency(of: d)
+            var t = per[cur] ?? CurrencyTotals()
+            t.count += d.transactions.count
+            t.spent += d.transactions.compactMap(\.debit).reduce(0, +)
+            t.income += d.transactions.filter { $0.category != "Payments" }
+                .compactMap(\.credit).reduce(0, +)
+            t.net = t.income - t.spent
+            if let b = d.latestBalance {
+                t.balance = (t.balance ?? 0) + (d.isCard ? -b : b)
+            }
+            per[cur] = t
+        }
+        s.perCurrency = per
         summary = s
+    }
+
+    /// The currency a single statement is denominated in — the per-doc
+    /// analogue of `detectCurrency()` (parser's non-INR verdict first, then a
+    /// symbol/code sniff of the doc's own text, then the parser value). Groups
+    /// the per-currency breakdown.
+    static func effectiveCurrency(of doc: LoadedDoc) -> String {
+        if doc.currency != "INR", !doc.currency.isEmpty { return doc.currency }
+        let text = doc.text
+        if text.contains("₹") || text.range(of: "INR", options: .caseInsensitive) != nil { return "INR" }
+        if text.contains("£") || text.range(of: "GBP", options: .caseInsensitive) != nil { return "GBP" }
+        if text.contains("€") || text.range(of: "EUR", options: .caseInsensitive) != nil { return "EUR" }
+        if text.contains("$") || text.range(of: "USD", options: .caseInsensitive) != nil { return "USD" }
+        return doc.currency
     }
 
     private func detectCurrency() -> String {
@@ -835,23 +966,41 @@ final class AppModel: ObservableObject {
 
     /// Exact figures computed in Swift, prepended to the model's grounding so a
     /// free-form answer can never contradict the Today panel. (These are the
-    /// same sums `recomputeSummary()` shows — never model-guessed.)
+    /// same sums `recomputeSummary()` shows — never model-guessed.) When the
+    /// statements span currencies, every figure is stated per currency — the
+    /// model must never see a mixed-currency sum.
     private func computedFacts() -> String {
         let chosen = selectedDocs()
         guard summary.count > 0 else { return "" }
         let cur = summary.currency
+        let multi = summary.isMultiCurrency
         var lines = ["EXACT FIGURES (computed from the parsed statement data — always use these):"]
-        if let bal = summary.balance {
+        if multi {
+            for c in summary.currencyList {
+                guard let bal = summary.perCurrency[c]?.balance else { continue }
+                lines.append("- Total balance across \(c) accounts: \(Money.format(bal, currency: c))")
+            }
+        } else if let bal = summary.balance {
             lines.append("- Total balance across accounts: \(Money.format(bal, currency: cur))")
         }
         for d in chosen {
             if let b = d.latestBalance {
-                lines.append("- \(d.displayName): balance \(Money.format(b, currency: cur))\(d.isCard ? " owed (credit card)" : "")")
+                let dCur = multi ? Self.effectiveCurrency(of: d) : cur
+                lines.append("- \(d.displayName): balance \(Money.format(b, currency: dCur))\(d.isCard ? " owed (credit card)" : "")")
             }
         }
-        lines.append("- Total spent (sum of debits): \(Money.format(summary.spent, currency: cur))")
-        lines.append("- Total income (credits, excl. card repayments): \(Money.format(summary.income, currency: cur))")
-        lines.append("- Net (income − spend): \(Money.format(summary.net, currency: cur))")
+        if multi {
+            for c in summary.currencyList {
+                guard let t = summary.perCurrency[c] else { continue }
+                lines.append("- Total spent in \(c) (sum of debits): \(Money.format(t.spent, currency: c))")
+                lines.append("- Total income in \(c) (credits, excl. card repayments): \(Money.format(t.income, currency: c))")
+                lines.append("- Net in \(c) (income − spend): \(Money.format(t.net, currency: c))")
+            }
+        } else {
+            lines.append("- Total spent (sum of debits): \(Money.format(summary.spent, currency: cur))")
+            lines.append("- Total income (credits, excl. card repayments): \(Money.format(summary.income, currency: cur))")
+            lines.append("- Net (income − spend): \(Money.format(summary.net, currency: cur))")
+        }
         lines.append("- Transactions: \(summary.count)")
         return lines.joined(separator: "\n")
     }

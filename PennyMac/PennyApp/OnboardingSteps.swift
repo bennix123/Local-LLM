@@ -28,7 +28,7 @@ struct AccountKind: Identifiable, Equatable {
                         uploadSub: "drop a statement file · CSV / PDF",
                         exportSteps: ["Log into your card issuer (Amex, Barclaycard, etc.)",
                                       "Go to **Statements & Activity**",
-                                      "Select **last 12 months**, choose **CSV/Excel**",
+                                      "Select **last 12 months**, choose **CSV or PDF**",
                                       "Drag the file here"],
                         demoFile: "amex_2024.csv", demoMeta: "8.4 KB · 316 rows"),
         ]),
@@ -68,8 +68,8 @@ struct AccountKind: Identifiable, Equatable {
                                       "Pick **12 months** CSV", "Drag here"],
                         demoFile: "tide_business.csv", demoMeta: "22.4 KB · 1,847 rows", comingSoon: true),
             AccountKind(id: "other", icon: "+", name: "Something else", cardSub: "Any financial file",
-                        uploadSub: "drop any financial file",
-                        exportSteps: ["Export from wherever the money lives", "Any format works",
+                        uploadSub: "drop any financial file · CSV / PDF",
+                        exportSteps: ["Export from wherever the money lives", "**CSV or PDF** works",
                                       "Drag the file here"],
                         demoFile: "statement.csv", demoMeta: "~15 KB · ~1,000 rows", comingSoon: true),
         ]),
@@ -77,6 +77,13 @@ struct AccountKind: Identifiable, Equatable {
 
     static let all: [AccountKind] = sections.flatMap(\.kinds)
     static func byID(_ id: String) -> AccountKind { all.first { $0.id == id } ?? all[0] }
+}
+
+/// File-type chip for a statement row ("PDF" / "CSV"), from the filename —
+/// imports are no longer PDF-only, so the meta line must not hardcode "PDF".
+private func statementTypeLabel(_ name: String) -> String {
+    let ext = (name as NSString).pathExtension.uppercased()
+    return ext.isEmpty ? "FILE" : ext
 }
 
 // MARK: - S2 NAME (.s2)
@@ -237,7 +244,7 @@ struct HowItWorksStep: View {
                          "One-time download of **\(app.modelDisplayName)**, sized to fit this Mac's RAM. No internet needed after that.",
                          time: "~3 MINUTES")
                 stepCard(2, "📥", "Drop in your files",
-                         "**CSV, PDF, Excel, or QIF/OFX.** Export from your bank or investment app, drag into Penny.",
+                         "**CSV or PDF.** Export from your bank or investment app, drag into Penny.",
                          time: "~3 MINUTES")
                 stepCard(3, "🧠", "I read everything locally",
                          "**\(app.modelDisplayName)** on your Mac's chip categorises, finds patterns, spots subs.",
@@ -435,8 +442,6 @@ struct AccountsStep: View {
             infoCard("File formats I understand:", [
                 "**CSV** — most common, fastest",
                 "**PDF** — statements, broker reports",
-                "**Excel** — XLS, XLSX",
-                "**QIF / OFX** — older formats",
             ])
             .padding(.bottom, 10)
 
@@ -530,7 +535,7 @@ struct UploadStep: View {
         }
         .background(Theme.bg)
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.pdf],
+                      allowedContentTypes: [.pdf, .commaSeparatedText],
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 for url in urls { app.importPDF(from: url, kind: current.id) }
@@ -696,7 +701,7 @@ struct UploadStep: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 380)
                     HStack(spacing: 5) {
-                        ForEach([".CSV", ".PDF", ".XLSX", ".QIF", ".OFX"], id: \.self) { fmt in
+                        ForEach([".CSV", ".PDF"], id: \.self) { fmt in
                             Text(fmt)
                                 .font(Theme.mono(9))
                                 .foregroundStyle(Theme.ink2)
@@ -747,7 +752,7 @@ struct UploadStep: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(doc.name).font(Theme.font(12, .bold)).foregroundStyle(Theme.ink)
                     .lineLimit(1).truncationMode(.middle)
-                Text("\(doc.rows.count) rows · PDF")
+                Text("\(doc.rows.count) rows · \(statementTypeLabel(doc.name))")
                     .font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
             }
             Spacer(minLength: 6)
@@ -839,7 +844,7 @@ struct ProcessingStep: View {
         return app.docs.map { doc in
             let kind = AccountKind.byID(
                 app.uploadsByKind.first { $0.value.contains(doc.name) }?.key ?? "current")
-            return (kind.icon, doc.name, "\(doc.rows.count) rows · PDF")
+            return (kind.icon, doc.name, "\(doc.rows.count) rows · \(statementTypeLabel(doc.name))")
         }
     }
 

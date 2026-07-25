@@ -8,6 +8,7 @@ struct SidebarView: View {
     var onUpload: () -> Void
     var onSwitchModel: () -> Void
     @State private var pulsing = false
+    @State private var confirmingWipe = false
 
     private let flows: [(icon: String, label: String, action: String)] = [
         ("🔥", "Roast me", "roast"),
@@ -85,6 +86,7 @@ struct SidebarView: View {
             VStack(spacing: 10) {
                 netPanel
                 brainPanel
+                wipeRow
             }
             .padding(12)
         }
@@ -92,7 +94,10 @@ struct SidebarView: View {
         .frame(maxHeight: .infinity)
         .background(Theme.bg2)
         .overlay(Rectangle().fill(Theme.line).frame(width: 1), alignment: .trailing)
-        .onAppear { if !TestMode.freezeAnimations { pulsing = true } }
+        .onAppear {
+            if !TestMode.freezeAnimations { pulsing = true }
+            app.refreshDownloadedModels()   // keeps the 8B-upgrade nudge honest
+        }
     }
 
     // MARK: pieces
@@ -169,40 +174,26 @@ struct SidebarView: View {
         return "🏦"
     }
 
-    /// `.net` — the offline/online privacy card.
+    /// `.net` — the privacy card. Penny has no online mode: this is a static
+    /// statement of fact, not a setting.
     private var netPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                HStack(spacing: 5) {
-                    Circle().fill(app.offlineOnly ? Theme.dim : Theme.limeD)
-                        .frame(width: 6, height: 6)
-                        .opacity(!app.offlineOnly && pulsing ? 0.4 : 1)
-                        .animation(app.offlineOnly ? .default
-                                   : .easeInOut(duration: 1).repeatForever(autoreverses: true),
-                                   value: pulsing)
-                    Text(app.offlineOnly ? "OFFLINE MODE" : "ONLINE WHEN NEEDED")
-                        .font(Theme.mono(8.5))
-                        .foregroundStyle(app.offlineOnly ? Theme.dim : Theme.limeD)
-                        .kerning(0.8)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(get: { !app.offlineOnly },
-                                         set: { app.offlineOnly = !$0 }))
-                    .labelsHidden().toggleStyle(.switch).controlSize(.mini).tint(Theme.lime)
+            HStack(spacing: 5) {
+                Circle().fill(Theme.limeD).frame(width: 6, height: 6)
+                Text("FULLY OFFLINE")
+                    .font(Theme.mono(8.5))
+                    .foregroundStyle(Theme.limeD)
+                    .kerning(0.8)
             }
-            Text(MD.inline(app.offlineOnly
-                 ? "Penny is **fully offline**. She'll never reach the internet."
-                 : "Penny stays local, but can fetch **public numbers** when needed. **Your data never goes out.**"))
+            Text(MD.inline("Penny is **fully offline**. Your statements and questions never leave this Mac."))
                 .font(Theme.font(10.5, .medium)).foregroundStyle(Theme.ink2)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .hardCard(fill: app.offlineOnly ? Color(hex: 0xf4f0e6) : Color(hex: 0xeefbe0),
-                  radius: 13, border: 2,
-                  borderColor: app.offlineOnly ? Theme.ink : Theme.limeD,
-                  shadow: 3)
+        .hardCard(fill: Color(hex: 0xeefbe0), radius: 13, border: 2,
+                  borderColor: Theme.limeD, shadow: 3)
     }
 
     /// `.bp` — "PENNY'S BRAIN" model + stats card.
@@ -228,10 +219,61 @@ struct SidebarView: View {
             stat("Statements", "\(app.docs.count)")
             stat("Transactions", "\(app.transactionCount)")
             stat("Data sent out", "0 bytes", valueColor: Theme.limeD)
+            if app.showUpgradeNudge { upgradeNudge }
         }
         .padding(.horizontal, 11).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hardCard(radius: 13, border: 2, shadow: 3)
+    }
+
+    /// One-line hint for 16 GB+ Macs still on the 3B slice: the 8B model fits —
+    /// tapping it opens the model picker; × dismisses it for good.
+    private var upgradeNudge: some View {
+        HStack(spacing: 6) {
+            Button(action: onSwitchModel) {
+                Text(MD.inline("✨ **8B model** available for this Mac — switch"))
+                    .font(Theme.font(9.5, .semibold))
+                    .foregroundStyle(Theme.limeD)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("brain.upgradeNudge")
+            Spacer(minLength: 4)
+            Button { app.upgradeNudgeDismissed = true } label: {
+                Text("×").font(Theme.font(11, .bold)).foregroundStyle(Theme.dim)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("brain.upgradeNudge.dismiss")
+        }
+        .padding(.top, 3)
+    }
+
+    /// Destructive "wipe all data" affordance — deletes the persisted
+    /// statements + chat history and resets the session, after a confirmation.
+    private var wipeRow: some View {
+        Button { confirmingWipe = true } label: {
+            HStack(spacing: 6) {
+                Text("🗑").font(.system(size: 10))
+                Text("Wipe all data").font(Theme.font(10.5, .bold)).foregroundStyle(Theme.coral)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hardCard(fill: Theme.coralS, radius: 11, border: 2,
+                      borderColor: Theme.coral, shadow: 2, shadowColor: Theme.coral)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar.wipe")
+        .confirmationDialog("Wipe all data?", isPresented: $confirmingWipe, titleVisibility: .visible) {
+            Button("Wipe statements & chats", role: .destructive) { app.wipeAllData() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deletes every imported statement and chat from this Mac. This can't be undone.")
+        }
     }
 
     private func stat(_ k: String, _ v: String, valueColor: Color = Theme.ink) -> some View {

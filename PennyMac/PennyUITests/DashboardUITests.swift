@@ -216,25 +216,17 @@ final class DashboardUITests: PennyUITestCase {
                        "starter cards should disappear once the conversation starts")
     }
 
-    // MARK: - 7. offline / online toggle
+    // MARK: - 7. offline privacy card (the online toggle was removed by design —
+    // Penny claims exactly what it does: fully offline, no dead affordances)
 
-    func testOfflineToggleFlipsPrivacyLabel() throws {
+    func testOfflinePrivacyCardIsStaticAndToggleFree() throws {
         let app = try launchPenny(modelReady: true, dashboard: true)
-        waitFor(app.staticTexts["OFFLINE MODE"], timeout: 10, "sidebar should start in OFFLINE MODE")
-
-        let sw = app.switches.firstMatch
-        let toggle = sw.exists ? sw : app.checkBoxes.firstMatch
-        XCTAssertTrue(toggle.exists, "offline toggle control not found (neither switch nor checkbox)")
-
-        toggle.click()
-        waitFor(app.staticTexts["ONLINE WHEN NEEDED"], timeout: 5,
-                "toggling should flip the label to ONLINE WHEN NEEDED")
-        XCTAssertFalse(app.staticTexts["OFFLINE MODE"].exists,
-                       "OFFLINE MODE label should be gone while online")
-
-        toggle.click()
-        waitFor(app.staticTexts["OFFLINE MODE"], timeout: 5,
-                "toggling back should restore OFFLINE MODE")
+        waitForControl(in: app, containing: "FULLY OFFLINE", timeout: 10,
+                       "sidebar should show the static FULLY OFFLINE privacy card")
+        XCTAssertFalse(staticText(in: app, containing: "ONLINE WHEN NEEDED").exists,
+                       "the removed online mode must not resurface")
+        XCTAssertFalse(app.switches.firstMatch.exists,
+                       "no toggle belongs on the privacy card anymore")
     }
 
     // MARK: - 8. switch → model picker → ready-state continue

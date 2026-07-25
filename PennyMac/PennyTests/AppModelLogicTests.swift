@@ -5,7 +5,8 @@
 //  Guards AppModel's deterministic app-layer logic (AppModel.swift): the Today-
 //  panel sums in recomputeSummary (debits = spent, "Payments" credits excluded
 //  from income, multi-account balances with credit-card balances subtracted,
-//  currency preference order), LoadedDoc's latestBalance and sidebar displayName
+//  currency preference order, the per-currency Summary.perCurrency breakdown
+//  with AppModel.effectiveCurrency grouping), LoadedDoc's latestBalance and sidebar displayName
 //  chain (LLM issuer > earliest-brand text heuristic > bank-like parser name >
 //  filename), the keyword category fallback, the capped/escaped transactions
 //  markdown table, chat-history archiving (newChat / openSession / deleteSession
@@ -63,9 +64,13 @@ final class AppModelLogicTests: XCTestCase {
     }
 
     /// A model with no leftover history from earlier tests in this process.
+    /// The launch-restore task is cancelled so statements persisted by OTHER
+    /// tests (PersistenceTests/StressTests share the per-process temp dir)
+    /// can never appear in these hand-built doc sets mid-test.
     private func freshModel() -> AppModel {
         try? FileManager.default.removeItem(at: historyFileURL)
         let m = AppModel()
+        m.restoreTask?.cancel()
         m.history = []
         return m
     }
@@ -141,6 +146,81 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(m.summary.spent, 100, accuracy: 0.001,
                        "empty selection means ALL docs")
         XCTAssertEqual(m.summary.count, 2)
+    }
+
+    // MARK: - per-currency breakdown (Summary.perCurrency)
+
+    func testPerCurrencySingleCurrencyMatchesTopLevelFigures() {
+        let m = freshModel()
+        m.docs = [makeDoc(name: "bank.pdf", txns: [
+            txn(desc: "TESCO", debit: 100, balance: 900, category: "Groceries"),
+            txn(desc: "PAYROLL", credit: 500, category: "Income"),
+        ], currency: "GBP")]
+        m.recomputeSummary()
+
+        XCTAssertFalse(m.summary.isMultiCurrency)
+        XCTAssertEqual(m.summary.currencyList, ["GBP"])
+        let t = m.summary.perCurrency["GBP"]
+        XCTAssertEqual(t?.spent ?? -1, m.summary.spent, accuracy: 0.001)
+        XCTAssertEqual(t?.income ?? -1, m.summary.income, accuracy: 0.001)
+        XCTAssertEqual(t?.net ?? -1, m.summary.net, accuracy: 0.001)
+        XCTAssertEqual(t?.balance ?? .nan, m.summary.balance ?? .nan, accuracy: 0.001)
+        XCTAssertEqual(t?.count, m.summary.count)
+    }
+
+    func testPerCurrencyMultiCurrencySplitsFigures() {
+        let m = freshModel()
+        let gbp = makeDoc(name: "uk.pdf",
+                          txns: [txn(debit: 100, balance: 900), txn(credit: 50)],
+                          currency: "GBP")
+        let eur = makeDoc(name: "de.pdf",
+                          txns: [txn(debit: 40, balance: 460)],
+                          currency: "EUR")
+        m.docs = [gbp, eur]
+        m.recomputeSummary()
+
+        XCTAssertTrue(m.summary.isMultiCurrency)
+        XCTAssertEqual(m.summary.currencyList, ["EUR", "GBP"], "sorted, deterministic order")
+        XCTAssertEqual(m.summary.perCurrency["GBP"]?.spent ?? -1, 100, accuracy: 0.001)
+        XCTAssertEqual(m.summary.perCurrency["GBP"]?.income ?? -1, 50, accuracy: 0.001)
+        XCTAssertEqual(m.summary.perCurrency["GBP"]?.net ?? -1, -50, accuracy: 0.001)
+        XCTAssertEqual(m.summary.perCurrency["GBP"]?.balance ?? .nan, 900, accuracy: 0.001)
+        XCTAssertEqual(m.summary.perCurrency["EUR"]?.spent ?? -1, 40, accuracy: 0.001)
+        XCTAssertEqual(m.summary.perCurrency["EUR"]?.balance ?? .nan, 460, accuracy: 0.001)
+        // the top-level (legacy) figures still sum everything — single-currency
+        // callers see no change, multi-currency UI reads perCurrency instead
+        XCTAssertEqual(m.summary.spent, 140, accuracy: 0.001)
+    }
+
+    func testPerCurrencyCardBalancesSubtractWithinTheirCurrency() {
+        let m = freshModel()
+        m.docs = [
+            makeDoc(name: "bank.pdf", txns: [txn(credit: 10, balance: 1000)], currency: "GBP"),
+            makeDoc(name: "card.pdf", txns: [txn(debit: 250)], currency: "GBP",
+                    closingBalance: 250, isCard: true),
+            makeDoc(name: "de.pdf", txns: [txn(debit: 5, balance: 500)], currency: "EUR"),
+        ]
+        m.recomputeSummary()
+        XCTAssertEqual(m.summary.perCurrency["GBP"]?.balance ?? .nan, 750, accuracy: 0.001,
+                       "GBP bank 1000 − GBP card 250 owed, EUR untouched")
+        XCTAssertEqual(m.summary.perCurrency["EUR"]?.balance ?? .nan, 500, accuracy: 0.001)
+    }
+
+    func testEffectiveCurrencySniffsDocTextWhenParserFellBack() {
+        // Parser fell back to INR but the text is clearly GBP — the per-doc
+        // grouping must follow the same sniff order detectCurrency() uses.
+        let sniffed = makeDoc(name: "a.pdf", text: "Opening balance £1,022.10", currency: "INR")
+        XCTAssertEqual(AppModel.effectiveCurrency(of: sniffed), "GBP")
+        let parserWins = makeDoc(name: "b.pdf", text: "£100 spent", currency: "USD")
+        XCTAssertEqual(AppModel.effectiveCurrency(of: parserWins), "USD",
+                       "a parser-detected non-INR currency is authoritative")
+        let inr = makeDoc(name: "c.pdf", text: "no symbols here", currency: "INR")
+        XCTAssertEqual(AppModel.effectiveCurrency(of: inr), "INR")
+
+        let m = freshModel()
+        m.docs = [sniffed, makeDoc(name: "d.pdf", txns: [txn(debit: 1)], currency: "EUR")]
+        m.recomputeSummary()
+        XCTAssertEqual(m.summary.currencyList, ["EUR", "GBP"])
     }
 
     // MARK: - currency preference order

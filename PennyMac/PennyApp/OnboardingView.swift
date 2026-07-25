@@ -168,7 +168,7 @@ struct WelcomeStep: View {
     private var bullets: some View {
         VStack(alignment: .leading, spacing: 9) {
             bullet("🔒", "Lives on your Mac.", " Files never leave. Ever.")
-            bullet("📄", "You upload files.", " CSV, PDF, Excel — no passwords.")
+            bullet("📄", "You upload files.", " CSV, PDF — no passwords.")
             bullet("⚡", app.modelDisplayName, " on your Mac's chip. Proper reasoning.")
         }
     }

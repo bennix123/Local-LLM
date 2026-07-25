@@ -37,6 +37,9 @@ final class StressTests: XCTestCase {
     private func loadedCorpus(file: StaticString = #filePath, line: UInt = #line) throws -> AppModel {
         if let m = Self.corpus { return m }
         let model = AppModel()
+        // Statements persisted by other tests in this process (same per-process
+        // StatementStore temp dir) must not restore into the corpus mid-import.
+        model.restoreTask?.cancel()
         let bundle = Bundle(for: StressTests.self)
         for name in Self.fixtureNames {
             guard let url = bundle.url(forResource: name, withExtension: "pdf") else {

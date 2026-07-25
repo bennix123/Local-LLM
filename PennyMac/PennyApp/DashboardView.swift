@@ -24,7 +24,8 @@ struct DashboardView: View {
             ContextPanelView()
         }
         .background(Theme.bg)
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.pdf]) { result in
+        .fileImporter(isPresented: $showingImporter,
+                      allowedContentTypes: [.pdf, .commaSeparatedText]) { result in
             if case .success(let url) = result { app.importPDF(from: url) }
         }
         .overlay {
