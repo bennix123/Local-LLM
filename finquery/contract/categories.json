@@ -50,7 +50,31 @@
     "apollo pharmacy": ["Apollo Pharmacy", "Healthcare"],
     "1mg": ["Tata 1mg", "Healthcare"],
     "netmeds": ["Netmeds", "Healthcare"],
-    "medplus": ["MedPlus", "Healthcare"]
+    "medplus": ["MedPlus", "Healthcare"],
+    "walmart": ["Walmart", "Groceries"],
+    "costco": ["Costco", "Groceries"],
+    "trader joe": ["Trader Joe's", "Groceries"],
+    "kroger": ["Kroger", "Groceries"],
+    "safeway": ["Safeway", "Groceries"],
+    "whole foods": ["Whole Foods", "Groceries"],
+    "rewe": ["REWE", "Groceries"],
+    "edeka": ["EDEKA", "Groceries"],
+    "kaufland": ["Kaufland", "Groceries"],
+    "target": ["Target", "Shopping"],
+    "home depot": ["Home Depot", "Shopping"],
+    "lowes": ["Lowe's", "Shopping"],
+    "best buy": ["Best Buy", "Shopping"],
+    "chewy": ["Chewy", "Shopping"],
+    "con edison": ["Con Edison", "Utilities"],
+    "at&t": ["AT&T", "Utilities"],
+    "verizon": ["Verizon", "Utilities"],
+    "t-mobile": ["T-Mobile", "Utilities"],
+    "comcast": ["Comcast", "Utilities"],
+    "xfinity": ["Xfinity", "Utilities"],
+    "walgreens": ["Walgreens", "Healthcare"],
+    "cvs": ["CVS", "Healthcare"],
+    "apotheke": ["Apotheke", "Healthcare"],
+    "deutsche bahn": ["Deutsche Bahn", "Transport"]
   },
   "category_rules": [
     ["Food & Dining", ["uber eats", "ubereats"]],
@@ -71,7 +95,7 @@
       "icici pru", "max life", "tata aia", "care insurance", "niva bupa", "ditto insurance",
       "reliance general", "gold loan", "credit card payment", "cred ",
       "loan", "emi", "mortgage", "repayment"
-    ]],
+    , "versicherung", "hausrat"]],
     ["Healthcare", [
       "boots", "superdrug", "well pharmacy", "lloyds pharmacy", "pharmacy", "pharmac", "nhs",
       "bupa", "nuffield health", "specsavers", "vision express", "dental", "dentist", "optician",
@@ -82,7 +106,7 @@
       "medanta", "max healthcare", "narayana", "aster", "care hospital", "yashoda", "kims",
       "columbia asia", "salon", "spa ", "parlour", "lakme", "vlcc", "urban company", "cult.fit",
       "curefit", "healthifyme"
-    ]],
+    , "apotheke", "pharmacie", "walgreens", "cvs", "drogerie"]],
     ["Utilities", [
       "o2", "vodafone", "ee limited", "ee mobile", "three mobile", "giffgaff", "tesco mobile",
       "sky mobile", "sky broadband", "sky digital", "virgin media", "bt group", "bt broadband",
@@ -96,7 +120,7 @@
       "council", "tv licence", "tv licensing", "tata play", "dish tv", "d2h", "sun direct", "igl ",
       "gail", "indane", "hp gas", "bharat gas", "cesc", "postpaid", "prepaid recharge", "dth",
       "bbps", "bharat billpay", "mobile recharge"
-    ]],
+    , "con edison", "at&t", "verizon", "t-mobile", "comcast", "xfinity", "duke energy", "mobile network", "mobile telecom", "mobilfunk", "energy co", "energie co", "wasserwerk", "water company", "stadtwerke", "gemeindesteuer"]],
     ["Entertainment", [
       "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
       "apple tv", "youtube premium", "youtube music", "audible", "kindle", "patreon", "twitch",
@@ -110,7 +134,7 @@
       "gaana", "wynk", "jiosaavn", "sun nxt", "hoichoi", "mx player", "cinepolis",
       "carnival cinema", "paytm insider", "dream11", "google play", "play store",
       "app store", "eros now"
-    ]],
+    , "kino", "streaming service", "fitnesscenter", "fitness center"]],
     ["Transport", [
       "shell", "esso", "texaco", "gulf ", "morrisons petrol", "tesco petrol", "asda petrol",
       "sainsburys petrol", "petrol", "fuel", "indian oil", "indianoil", "iocl", "hpcl", "hp petrol",
@@ -126,7 +150,7 @@
       "easemytrip", "ixigo", "abhibus", "confirmtkt", "railyatri", "meru", "namma metro",
       "railway", "dvla", "blablacar", "car rental", "rental", "enterprise rent", "hertz", "avis",
       "halfords", "kwik fit", "mot "
-    ]],
+    , "deutsche bahn", "bahn ticket", "sncf", "mietwagen", "taxi", "station essence", "flugbuchung", "reservation vol"]],
     ["Groceries", [
       "tesco", "sainsbury", "asda", "aldi", "lidl", "morrisons", "waitrose", "co-op food",
       "coop food", "co-op", "iceland", "ocado", "m&s food", "spar", "budgens", "nisa", "farmfoods",
@@ -136,7 +160,7 @@
       "licious", "country delight", "fresh to home", "freshtohome", "milkbasket", "otipy",
       "more retail", "easyday", "vishal mega", "heritage fresh", "nilgiris", "ratnadeep",
       "metro cash", "smart bazaar"
-    ]],
+    , "walmart", "costco", "trader joe", "kroger", "safeway", "whole foods", "rewe", "edeka", "kaufland", "supermarkt", "carrefour", "auchan", "monoprix"]],
     ["Food & Dining", [
       "deliveroo", "just eat", "justeat", "uber eats", "ubereats", "mcdonald", "greggs", "costa",
       "starbucks", "pret", "kfc", "subway", "domino", "nando", "wagamama", "burger king", "five guys",
@@ -148,7 +172,7 @@
       "bikanervala", "sagar ratna", "saravana bhavan", "mainland china", "eazydiner", "faasos",
       "restaurant", "cafe", "coffee", "bakery", "kitchen", "dhaba", "biryani", "pizzeria",
       "bistro", "diner", "grill", "eatery", "food court", "canteen", "tuck shop", "sweets"
-    ]],
+    , "boulangerie", "kaffee"]],
     ["Shopping", [
       "amazon", "argos", "ebay", "ikea", "primark", "next retail", "asos", "zara", "h&m", "h and m",
       "currys", "john lewis", "marks & spencer", "m&s", "apple store", "apple.com", "nike", "adidas",
@@ -166,20 +190,20 @@
       "sugar cosmetics", "purplle", "health and glow", "hamleys", "woodland", "red tape",
       "campus shoes", "relaxo", "crocs", "metro shoes",
       "retail ltd", "retail", "fashion", "electronics"
-    ]],
+    , "target ", "target.com", "home depot", "lowes ", "lowe's", "best buy", "chewy", "hardware store", "baumarkt", "bricolage", "online shop", "bookshop", "magasin"]],
     ["Rent", [
       "landlord", "rent", "letting", "property management", "estate agent", "housing assoc",
       "tenancy", "foxtons", "savills", "purplebricks", "hamptons", "openrent", "knight frank",
       "homeground"
-    ]],
+    , "miete", "loyer"]],
     ["Cash", [
       "cash withdrawal", "atm", "link atm", "cash machine", "cash deposit", "cardless cash",
       "withdrawal link", "cdm", "cash dep"
-    ]],
+    , "bankomat", "geldautomat", "retrait dab"]],
     ["Income", [
       "salary", "payroll", "wages", "dividend", "interest earned", "interest paid", "credit interest",
       "cashback", "reimburs", "bonus", "pension credit", "tax refund", "refund", "reversal"
-    ]],
+    , "gehalt"]],
     ["Transfers", [
       "faster payment", "standing order", "p2p payment", "p2p", "bank transfer", "transfer to",
       "transfer from", "to transfer", "by transfer", "giro", "sent to", "savings space",

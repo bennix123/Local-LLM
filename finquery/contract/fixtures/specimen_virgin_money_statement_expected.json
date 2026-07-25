@@ -14,7 +14,7 @@
     "debit": 244.07,
     "credit": 0.0,
     "balance": 197.12,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Virgin Money"
   },
   {
@@ -41,7 +41,7 @@
     "debit": 227.13,
     "credit": 0.0,
     "balance": 824.68,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Virgin Money"
   },
   {
@@ -140,7 +140,7 @@
     "debit": 445.52,
     "credit": 0.0,
     "balance": 4079.75,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Virgin Money"
   },
   {
@@ -203,7 +203,7 @@
     "debit": 179.16,
     "credit": 0.0,
     "balance": 5387.96,
-    "category": "Other",
+    "category": "Transport",
     "bank": "Specimen Virgin Money"
   },
   {
@@ -275,7 +275,7 @@
     "debit": 443.75,
     "credit": 0.0,
     "balance": 5215.73,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Virgin Money"
   },
   {

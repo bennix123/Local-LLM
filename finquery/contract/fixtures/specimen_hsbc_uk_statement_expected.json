@@ -14,7 +14,7 @@
     "debit": 128.81,
     "credit": 0.0,
     "balance": 953.2,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -59,7 +59,7 @@
     "debit": 28.8,
     "credit": 0.0,
     "balance": 2480.33,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -68,7 +68,7 @@
     "debit": 45.75,
     "credit": 0.0,
     "balance": 2434.58,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -95,7 +95,7 @@
     "debit": 349.98,
     "credit": 0.0,
     "balance": 4171.22,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -113,7 +113,7 @@
     "debit": 146.94,
     "credit": 0.0,
     "balance": 3769.78,
-    "category": "Other",
+    "category": "Transport",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -131,7 +131,7 @@
     "debit": 126.12,
     "credit": 0.0,
     "balance": 5828.62,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -149,7 +149,7 @@
     "debit": 207.5,
     "credit": 0.0,
     "balance": 6388.07,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -176,7 +176,7 @@
     "debit": 279.09,
     "credit": 0.0,
     "balance": 5659.26,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -212,7 +212,7 @@
     "debit": 322.82,
     "credit": 0.0,
     "balance": 4503.68,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -239,7 +239,7 @@
     "debit": 105.15,
     "credit": 0.0,
     "balance": 3921.1,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -284,7 +284,7 @@
     "debit": 336.49,
     "credit": 0.0,
     "balance": 2896.52,
-    "category": "Other",
+    "category": "Transport",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -311,7 +311,7 @@
     "debit": 192.26,
     "credit": 0.0,
     "balance": 2665.39,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -338,7 +338,7 @@
     "debit": 290.47,
     "credit": 0.0,
     "balance": 2933.47,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -401,7 +401,7 @@
     "debit": 394.65,
     "credit": 0.0,
     "balance": 4169.66,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -410,7 +410,7 @@
     "debit": 13.14,
     "credit": 0.0,
     "balance": 4156.52,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -482,7 +482,7 @@
     "debit": 244.2,
     "credit": 0.0,
     "balance": 2803.42,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -572,7 +572,7 @@
     "debit": 204.09,
     "credit": 0.0,
     "balance": 2741.23,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -599,7 +599,7 @@
     "debit": 336.32,
     "credit": 0.0,
     "balance": 1684.78,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -689,7 +689,7 @@
     "debit": 79.91,
     "credit": 0.0,
     "balance": 5137.11,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -725,7 +725,7 @@
     "debit": 46.91,
     "credit": 0.0,
     "balance": 4548.28,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -752,7 +752,7 @@
     "debit": 109.64,
     "credit": 0.0,
     "balance": 4662.7,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -788,7 +788,7 @@
     "debit": 113.07,
     "credit": 0.0,
     "balance": 6029.06,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -797,7 +797,7 @@
     "debit": 171.28,
     "credit": 0.0,
     "balance": 5857.78,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -815,7 +815,7 @@
     "debit": 244.05,
     "credit": 0.0,
     "balance": 7016.81,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -878,7 +878,7 @@
     "debit": 117.4,
     "credit": 0.0,
     "balance": 6785.37,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -887,7 +887,7 @@
     "debit": 109.67,
     "credit": 0.0,
     "balance": 6675.7,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -914,7 +914,7 @@
     "debit": 99.78,
     "credit": 0.0,
     "balance": 7780.5,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -923,7 +923,7 @@
     "debit": 263.29,
     "credit": 0.0,
     "balance": 7517.21,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -941,7 +941,7 @@
     "debit": 393.01,
     "credit": 0.0,
     "balance": 6736.02,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -977,7 +977,7 @@
     "debit": 24.05,
     "credit": 0.0,
     "balance": 7848.92,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -1040,7 +1040,7 @@
     "debit": 143.92,
     "credit": 0.0,
     "balance": 6554.45,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -1058,7 +1058,7 @@
     "debit": 100.78,
     "credit": 0.0,
     "balance": 6656.55,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Specimen Hsbc Uk"
   },
   {
@@ -1067,7 +1067,7 @@
     "debit": 107.14,
     "credit": 0.0,
     "balance": 6549.41,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Specimen Hsbc Uk"
   },
   {

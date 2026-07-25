@@ -68,7 +68,7 @@
     "debit": 169.66,
     "credit": 0.0,
     "balance": 1020.28,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -86,7 +86,7 @@
     "debit": 33.19,
     "credit": 0.0,
     "balance": 858.07,
-    "category": "Other",
+    "category": "Entertainment",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -257,7 +257,7 @@
     "debit": 182.9,
     "credit": 0.0,
     "balance": 4881.88,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -302,7 +302,7 @@
     "debit": 132.58,
     "credit": 0.0,
     "balance": 6214.31,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   },
   {
@@ -320,7 +320,7 @@
     "debit": 227.04,
     "credit": 0.0,
     "balance": 7615.57,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "Monzo Bank  (SPECIMEN / FICTIONAL SAMPLE)"
   }
 ]

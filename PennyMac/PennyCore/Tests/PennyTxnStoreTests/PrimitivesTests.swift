@@ -260,8 +260,11 @@ final class CategorizationTests: XCTestCase {
     // ---- rule loading -----------------------------------------------------
 
     func testRuleCountsMatchContractFile() {
-        XCTAssertEqual(cats.merchantRules.count, 51,
-                       "merchant_map in contract/categories.json has 51 keys")
+        // 51 → 75 on 2026-07-25: US/EU merchant vocabulary added (Walmart,
+        // Target, Costco, AT&T, REWE, Apotheke, Deutsche Bahn, …) to fix the
+        // "everything falls into Other" complaint on US/EU statements.
+        XCTAssertEqual(cats.merchantRules.count, 75,
+                       "merchant_map in contract/categories.json has 75 keys")
         XCTAssertEqual(cats.categoryRules.count, 16,
                        "category_rules in contract/categories.json has 16 entries")
     }

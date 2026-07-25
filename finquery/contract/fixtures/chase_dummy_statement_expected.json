@@ -50,7 +50,7 @@
     "debit": 169.25,
     "credit": 0.0,
     "balance": 3846.34,
-    "category": "Other",
+    "category": "Groceries",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -59,7 +59,7 @@
     "debit": 164.39,
     "credit": 0.0,
     "balance": 3681.95,
-    "category": "Other",
+    "category": "Groceries",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -68,7 +68,7 @@
     "debit": 84.9,
     "credit": 0.0,
     "balance": 3597.05,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -113,7 +113,7 @@
     "debit": 219.46,
     "credit": 0.0,
     "balance": 3964.43,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -131,7 +131,7 @@
     "debit": 186.32,
     "credit": 0.0,
     "balance": 3752.63,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -140,7 +140,7 @@
     "debit": 59.3,
     "credit": 0.0,
     "balance": 3693.33,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -176,7 +176,7 @@
     "debit": 50.47,
     "credit": 0.0,
     "balance": 3909.49,
-    "category": "Other",
+    "category": "Groceries",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -185,7 +185,7 @@
     "debit": 81.56,
     "credit": 0.0,
     "balance": 3827.93,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -194,7 +194,7 @@
     "debit": 23.28,
     "credit": 0.0,
     "balance": 3804.65,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -203,7 +203,7 @@
     "debit": 219.28,
     "credit": 0.0,
     "balance": 3585.37,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -221,7 +221,7 @@
     "debit": 167.97,
     "credit": 0.0,
     "balance": 3334.96,
-    "category": "Other",
+    "category": "Groceries",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -230,7 +230,7 @@
     "debit": 70.26,
     "credit": 0.0,
     "balance": 3264.7,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -257,7 +257,7 @@
     "debit": 150.77,
     "credit": 0.0,
     "balance": 6343.88,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -266,7 +266,7 @@
     "debit": 138.74,
     "credit": 0.0,
     "balance": 6205.14,
-    "category": "Other",
+    "category": "Shopping",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -284,7 +284,7 @@
     "debit": 129.67,
     "credit": 0.0,
     "balance": 5851.46,
-    "category": "Other",
+    "category": "Utilities",
     "bank": "NOT A REAL BANK DOCUMENT"
   }
 ]

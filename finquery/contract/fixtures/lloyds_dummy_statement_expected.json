@@ -104,7 +104,7 @@
     "debit": 174.05,
     "credit": 0.0,
     "balance": 5374.01,
-    "category": "Other",
+    "category": "Healthcare",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
@@ -131,7 +131,7 @@
     "debit": 50.47,
     "credit": 0.0,
     "balance": 4864.27,
-    "category": "Other",
+    "category": "Healthcare",
     "bank": "NOT A REAL BANK DOCUMENT"
   },
   {
