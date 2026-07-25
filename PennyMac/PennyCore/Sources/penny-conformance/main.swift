@@ -202,6 +202,24 @@ case "rows-json":
     let data = try JSONSerialization.data(withJSONObject: arr)
     print(String(data: data, encoding: .utf8)!)
 
+case "ingest-meta":
+    // usage: penny-conformance ingest-meta <pdf> -> {bank, currency, confidence, isCard, closingBalance, rows}
+    guard args.count >= 3 else { fail("usage: penny-conformance ingest-meta <pdf>") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let meta: [String: Any] = [
+        "bank": out.bankName as Any? ?? NSNull(),
+        "currency": out.detectedCurrency,
+        "confidence": out.confidence,
+        "isCard": out.isCard,
+        "closingBalance": out.closingBalance as Any? ?? NSNull(),
+        "rows": out.rows.count,
+    ]
+    print(String(data: try JSONSerialization.data(withJSONObject: meta), encoding: .utf8)!)
+
 case "retrieve":
     // usage: penny-conformance retrieve <pdf> "<query>" [k]
     // Ingests the PDF, then shows the top-k most relevant rows (hybrid RAG).

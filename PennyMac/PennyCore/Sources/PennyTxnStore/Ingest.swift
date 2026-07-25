@@ -144,6 +144,19 @@ public final class TxnIngester {
         }
         if isRev { txns.reverse() }
 
+        // Generic credit-card statements (issuers without a dedicated card
+        // parser): conservative header detection, then card semantics — the
+        // owed-balance polarity flip and repayment→"Payments" recategorization.
+        // Runs AFTER order normalization: the balance-delta signs only mean
+        // "charge vs payment" on chronologically ordered rows.
+        if cardSummary == nil, route == .generic, CardStatement.detect(early) {
+            txns = CardStatement.applyCardSemantics(txns)
+            cardSummary = CardStatementSummary(
+                closingBalance: CardStatement.statedClosingBalance(early)
+                    ?? txns.last(where: { $0.balance != nil })?.balance,
+                isCard: true)
+        }
+
         for i in 0..<txns.count {
             txns[i].seq = i + 1
             // currency override: default INR rows follow the detected currency
