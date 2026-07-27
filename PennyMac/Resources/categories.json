@@ -81,7 +81,7 @@
     ["Groceries", ["jiomart", "jio mart", "reliance fresh", "reliance smart", "big bazaar"]],
     ["Subscriptions", [
       "netflix", "spotify", "disney", "now tv", "prime video", "amazon prime", "apple music",
-      "apple tv", "youtube premium", "audible", "patreon", "hotstar", "jiohotstar", "jiocinema",
+      "apple tv", "primevideo", "youtube premium", "audible", "patreon", "hotstar", "jiohotstar", "jiocinema",
       "jio cinema", "sonyliv", "zee5", "jiosaavn", "gaana", "wynk",
       "puregym", "the gym", "anytime fitness", "cult.fit", "cultfit", "cult fit", "gym"
     ]],
@@ -103,7 +103,7 @@
       "loan", "emi", "mortgage", "repayment"
     , "versicherung", "hausrat"]],
     ["Healthcare", [
-      "boots", "superdrug", "well pharmacy", "lloyds pharmacy", "pharmacy", "pharmac", "nhs",
+      "boots", "superdrug", "well pharmacy", "lloyds pharmacy", "pharmacy", "pharmac", "nhs", "caredental",
       "bupa", "nuffield health", "specsavers", "vision express", "dental", "dentist", "optician",
       "optical", "clinic", "hospital", "physio", "chemist", "doctor", "gp surgery", "gp practice",
       "apollo pharmacy", "pharmeasy", "1mg", "netmeds", "medplus", "practo", "diagnostic",
@@ -152,7 +152,8 @@
       "easemytrip", "ixigo", "abhibus", "confirmtkt", "railyatri", "meru", "namma metro",
       "railway", "dvla", "blablacar", "car rental", "rental", "enterprise rent", "hertz", "avis",
       "halfords", "kwik fit", "mot "
-    , "deutsche bahn", "bahn ticket", "sncf", "mietwagen", "taxi", "station essence", "flugbuchung", "reservation vol"]],
+    , "deutsche bahn", "bahn ticket", "sncf", "mietwagen", "taxi", "station essence", "flugbuchung", "reservation vol"
+    , "lime*", "voi ", "tier ", "dott ", "santander cycle", "forest", "humanforest", "free now", "freenow", "citymapper"]],
     ["Groceries", [
       "tesco", "sainsbury", "asda", "aldi", "lidl", "morrisons", "waitrose", "co-op food",
       "coop food", "co-op", "iceland", "ocado", "m&s food", "spar", "budgens", "nisa", "farmfoods",
@@ -162,7 +163,7 @@
       "licious", "country delight", "fresh to home", "freshtohome", "milkbasket", "otipy",
       "more retail", "easyday", "vishal mega", "heritage fresh", "nilgiris", "ratnadeep",
       "metro cash", "smart bazaar"
-    , "walmart", "costco", "trader joe", "kroger", "safeway", "whole foods", "rewe", "edeka", "kaufland", "supermarkt", "carrefour", "auchan", "monoprix"]],
+    , "walmart", "costco", "trader joe", "kroger", "safeway", "whole foods", "rewe", "edeka", "kaufland", "supermarkt", "carrefour", "auchan", "monoprix", "londis", "nisa local", "premier stores"]],
     ["Food & Dining", [
       "deliveroo", "just eat", "justeat", "uber eats", "ubereats", "mcdonald", "greggs", "costa",
       "starbucks", "pret", "kfc", "subway", "domino", "nando", "wagamama", "burger king", "five guys",
@@ -174,7 +175,8 @@
       "bikanervala", "sagar ratna", "saravana bhavan", "mainland china", "eazydiner", "faasos",
       "restaurant", "cafe", "coffee", "bakery", "kitchen", "dhaba", "biryani", "pizzeria",
       "bistro", "diner", "grill", "eatery", "food court", "canteen", "tuck shop", "sweets"
-    , "boulangerie", "kaffee"]],
+    , "boulangerie", "kaffee"
+    , "craft beer", "beehive", "kings arms", "tamesis dock", "kati roll", "tavern", "brewhouse", "brasserie", "gastropub", "taproom", "lokal", "the craft beer", "tst-", "tst*"]],
     ["Shopping", [
       "amazon", "argos", "ebay", "ikea", "primark", "next retail", "asos", "zara", "h&m", "h and m",
       "currys", "john lewis", "marks & spencer", "m&s", "apple store", "apple.com", "nike", "adidas",
