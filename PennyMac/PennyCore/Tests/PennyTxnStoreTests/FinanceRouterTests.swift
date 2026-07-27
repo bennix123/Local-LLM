@@ -197,6 +197,126 @@ final class FinanceRouterBalanceTests: XCTestCase {
                        "**Your latest balance is £1000.00** (HSBC Current, statement closing balance).")
     }
 
+    // MARK: - Card identity ("which statement is a credit card?")
+
+    private static let mixedAccounts = [
+        FinanceRouter.AccountBalance(name: "HSBC Current", balance: 1000.00, isCard: false),
+        FinanceRouter.AccountBalance(name: "American Express", balance: 200.00, isCard: true),
+    ]
+
+    func testWhichStatementIsCreditCardNamesTheCard() {
+        // The exact question that used to fall through to the income handler and
+        // wrongly answer "You received £… across N credits."
+        XCTAssertEqual(answerOrFail("Which statement belongs to a credit card?",
+                                    RouterFix.june, accounts: Self.mixedAccounts),
+                       "**American Express is your credit-card statement.**")
+    }
+
+    func testIsThisACreditCardNamesTheCard() {
+        XCTAssertEqual(answerOrFail("is any of these a credit card?",
+                                    RouterFix.june, accounts: Self.mixedAccounts),
+                       "**American Express is your credit-card statement.**")
+    }
+
+    func testWhichCreditCardListsMultipleCards() {
+        let accounts = [
+            FinanceRouter.AccountBalance(name: "HSBC Current", balance: 1000.00, isCard: false),
+            FinanceRouter.AccountBalance(name: "American Express", balance: 200.00, isCard: true),
+            FinanceRouter.AccountBalance(name: "Barclaycard", balance: 90.00, isCard: true),
+        ]
+        XCTAssertEqual(answerOrFail("which of my statements are credit cards?",
+                                    RouterFix.june, accounts: accounts),
+                       """
+                       **These are your credit-card statements:**
+                       - American Express
+                       - Barclaycard
+                       """)
+    }
+
+    func testWhichCreditCardHonestWhenNoneAreCards() {
+        let accounts = [
+            FinanceRouter.AccountBalance(name: "HSBC Current", balance: 1000.00, isCard: false),
+            FinanceRouter.AccountBalance(name: "Monzo", balance: 500.00, isCard: false),
+        ]
+        XCTAssertEqual(answerOrFail("which statement is a credit card?",
+                                    RouterFix.june, accounts: accounts),
+                       "**None of your imported statements is a credit card** — they all read as bank / current accounts.")
+    }
+
+    func testCreditCardSpendQuestionStillDefersOrSums() {
+        // "spent on my credit card" is NOT an identity question — it must not be
+        // hijacked by the card-identity handler (no which/belongs/identify cue).
+        let ans = answerOrFail("how much did I spend on my credit card?",
+                               RouterFix.june, accounts: Self.mixedAccounts)
+        XCTAssertFalse(ans.contains("credit-card statement"),
+                       "a spend question must not be answered as a card-identity lookup")
+    }
+
+    func testCardIdentityDefersWithoutAccountContext() {
+        // No account list (e.g. a row-only call) → defer to the model, don't guess.
+        XCTAssertNil(ask("which statement is a credit card?", RouterFix.june),
+                     "card identity needs the per-account isCard flags; with none, defer")
+    }
+
+    func testWhichStatementsAreCurrentAccountsListsNonCards() {
+        let accounts = [
+            FinanceRouter.AccountBalance(name: "Monzo", balance: 500.00, isCard: false),
+            FinanceRouter.AccountBalance(name: "Barclays", balance: 1000.00, isCard: false),
+            FinanceRouter.AccountBalance(name: "American Express", balance: 200.00, isCard: true),
+        ]
+        XCTAssertEqual(answerOrFail("Which statements are current accounts?",
+                                    RouterFix.june, accounts: accounts),
+                       """
+                       **These are your current (bank) accounts:**
+                       - Barclays
+                       - Monzo
+                       """)
+    }
+
+    func testWhichIsCurrentAccountSingleNonCard() {
+        XCTAssertEqual(answerOrFail("which of these is a current account?",
+                                    RouterFix.june, accounts: Self.mixedAccounts),
+                       "**HSBC Current is your current account.**")
+    }
+
+    func testCreditLimitPhrasesDoNotReadAsIncome() {
+        // "credit limit" / "available credit" contain "credit" but are card headroom,
+        // not money-in — the income handler must not hijack them (they're answered
+        // upstream from the statement header).
+        for q in ["what is the available credit limit on the Amex account?",
+                  "what's my credit limit?",
+                  "how much available credit do I have?"] {
+            let a = ask(q, RouterFix.june)
+            XCTAssertNil(a.map { $0.contains("You received") ? $0 : nil } ?? nil,
+                         "‘\(q)’ must not be answered as income; got: \(a ?? "nil")")
+        }
+        // A genuine income question still works.
+        XCTAssertTrue(answerOrFail("how much did I receive in credits?", RouterFix.june)
+                        .contains("You received"))
+    }
+
+    func testOpeningBalanceQuestionDefersToUpstream() {
+        // "starting/opening balance" is a statement-header figure — the router must
+        // NOT answer it with the latest all-account total; it defers to the model /
+        // the app's document-metadata handler.
+        let accounts = [FinanceRouter.AccountBalance(name: "Barclays", balance: 1133.40, isCard: false)]
+        XCTAssertNil(ask("what was the Barclays starting balance?", RouterFix.june, accounts: accounts),
+                     "opening/starting balance must not be answered as the latest balance")
+        XCTAssertNil(ask("opening balance?", RouterFix.june, accounts: accounts))
+        // A plain "what is my balance" still answers as before.
+        XCTAssertNotNil(ask("what is my balance?", RouterFix.june, accounts: accounts))
+    }
+
+    func testCurrentAccountHonestWhenAllCards() {
+        let accounts = [
+            FinanceRouter.AccountBalance(name: "American Express", balance: 200.00, isCard: true),
+            FinanceRouter.AccountBalance(name: "Barclaycard", balance: 90.00, isCard: true),
+        ]
+        XCTAssertEqual(answerOrFail("which statement is a bank account?",
+                                    RouterFix.june, accounts: accounts),
+                       "**None of your imported statements is a current account** — they all read as credit cards.")
+    }
+
     func testNoRunningBalanceIsAdmittedNotInvented() {
         XCTAssertEqual(answerOrFail("what is my balance", RouterFix.noBalance),
                        "This statement doesn't show a running balance, so I can't give you a current figure.")

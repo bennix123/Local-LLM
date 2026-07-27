@@ -1,5 +1,6 @@
 import Foundation
 import PennyCore
+import PennyModel
 import PennyTxnStore
 
 /// Deterministic statement ingestion for the app — the P0 replacement for the
@@ -12,13 +13,11 @@ import PennyTxnStore
 /// is always allowed under the App Sandbox.
 enum DeterministicIngest {
 
+    /// This file translated into the canonical model — the single source of truth.
+    /// (Phase 0.8 cleanup: the legacy transactions/rows/currency/bank/closingBalance/
+    /// isCard fields were removed once the runtime switched to the graph in Task 0.7.)
     struct Result: Sendable {
-        var transactions: [PennyCore.Transaction]
-        var rows: [TxnRow]          // richer canonical rows (merchant/category/period) for the query router
-        var currency: String        // ISO-ish code the parser detected ("INR", "GBP", …)
-        var bank: String?
-        var closingBalance: Double? = nil   // the statement's own closing-balance figure, when stated
-        var isCard: Bool = false            // credit-card semantics: balance = owed
+        var graph: FinancialGraph = .empty
     }
 
     enum IngestError: Error, LocalizedError {
@@ -30,26 +29,29 @@ enum DeterministicIngest {
 
     /// Parse a statement PDF at `url` into canonical transactions. Caller is
     /// responsible for holding the file's security scope (see `AppModel.extract`).
-    static func ingest(pdfAt url: URL) throws -> Result {
+    /// `statementText` is the already-extracted PDFKit text (Task 0.5, Option B):
+    /// the header metadata parser reads it, so extraction behaves exactly as the
+    /// former in-`AppModel` code. Defaults to "" (no metadata) for callers without it.
+    static func ingest(pdfAt url: URL, statementText: String = "") throws -> Result {
         let ingester = try makeIngester()
-        return toResult(try ingester.ingestPDF(path: url.path))
+        return toResult(try ingester.ingestPDF(path: url.path),
+                        sourceName: url.lastPathComponent, statementText: statementText)
     }
 
     /// Parse a statement CSV at `url` — the same canonical pipeline
     /// (categorization, currency detection) through the ingester's CSV entry
     /// point, so CSV exports land as first-class statements.
-    static func ingest(csvAt url: URL) throws -> Result {
+    static func ingest(csvAt url: URL, statementText: String = "") throws -> Result {
         let ingester = try makeIngester()
-        return toResult(try ingester.ingestCSV(path: url.path))
+        return toResult(try ingester.ingestCSV(path: url.path),
+                        sourceName: url.lastPathComponent, statementText: statementText)
     }
 
-    private static func toResult(_ out: IngestOutput) -> Result {
-        let txns = out.rows.map(Self.toTransaction)
-        // The parser returns "" when it can't sniff a currency; normalize to INR
-        // (the app's default) so the Today panel never shows an empty symbol.
-        let currency = out.detectedCurrency.isEmpty ? "INR" : out.detectedCurrency
-        return Result(transactions: txns, rows: out.rows, currency: currency, bank: out.bankName,
-                      closingBalance: out.closingBalance, isCard: out.isCard)
+    private static func toResult(_ out: IngestOutput, sourceName: String, statementText: String) -> Result {
+        // Translate the parser output into the canonical model, filling header
+        // metadata parsed from the statement text.
+        let metadata = StatementMetadataParser.parse(text: statementText)
+        return Result(graph: ModelAssembler.assemble(out, sourceName: sourceName, metadata: metadata).graph)
     }
 
     // MARK: - Bundled resources

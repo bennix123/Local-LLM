@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit   // NSPasteboard for the per-message Copy action
 
 /// The center column — header + scrollback + input. Folds together
 /// `ChatArea.jsx`, `Message.jsx` and `InputBar.jsx` from the React frontend.
@@ -81,7 +82,8 @@ struct ChatView: View {
                                 // Skip the not-yet-streamed assistant placeholder — the typing
                                 // indicator represents it (otherwise its lone avatar duplicates).
                                 if !(msg.role == .assistant && msg.content.isEmpty) {
-                                    MessageBubble(message: msg).id(msg.id)
+                                    MessageBubble(message: msg, isLast: msg.id == app.messages.last?.id)
+                                        .id(msg.id)
                                 }
                             }
                             if app.isThinking, app.messages.last?.content.isEmpty == true {
@@ -176,17 +178,33 @@ struct ChatView: View {
                     .disabled(app.isThinking)
                     .accessibilityIdentifier("chat.input")
 
-                Button(action: sendDraft) {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.ink)
-                        .frame(width: 38, height: 38)
-                        .background(Circle().fill(canSend ? Theme.lime : Theme.line))
-                        .background(Circle().fill(Theme.ink).offset(y: 3))
-                        .overlay(Circle().stroke(Theme.ink, lineWidth: 2))
+                if app.isThinking {
+                    // While the model streams, the send button becomes a Stop button so
+                    // the user can cut off a runaway or hallucinating answer mid-stream.
+                    Button(action: app.cancelGeneration) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.ink)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(Theme.lime))
+                            .background(Circle().fill(Theme.ink).offset(y: 3))
+                            .overlay(Circle().stroke(Theme.ink, lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop generating")
+                    .accessibilityIdentifier("chat.stop")
+                } else {
+                    Button(action: sendDraft) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.ink)
+                            .frame(width: 38, height: 38)
+                            .background(Circle().fill(canSend ? Theme.lime : Theme.line))
+                            .background(Circle().fill(Theme.ink).offset(y: 3))
+                            .overlay(Circle().stroke(Theme.ink, lineWidth: 2))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .accessibilityIdentifier("chat.send")
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityIdentifier("chat.send")
             }
             .padding(.bottom, 3)
         }
@@ -209,7 +227,13 @@ struct ChatView: View {
 // MARK: - Message bubble (Message.jsx)
 
 struct MessageBubble: View {
+    @EnvironmentObject var app: AppModel
     let message: ChatMessage
+    /// The most recent message in the transcript — only its reply offers Regenerate.
+    var isLast: Bool = false
+
+    /// Brief "Copied ✓" affirmation after the Copy button is tapped.
+    @State private var copied = false
 
     // Tables need room for many columns; prose stays narrow for readability.
     private var maxBubbleWidth: CGFloat {
@@ -272,6 +296,10 @@ struct MessageBubble: View {
                     .accessibilityLabel(message.content)
                     .accessibilityIdentifier(message.role == .user ? "chat.msg.user" : "chat.msg.assistant")
                 }
+                // Copy + thumbs-up/down, shown under a finished assistant reply.
+                if message.role == .assistant, !message.content.isEmpty {
+                    messageActions
+                }
             }
             if message.role == .user {
                 // trailing bubble; no avatar
@@ -279,6 +307,48 @@ struct MessageBubble: View {
                 Spacer(minLength: 40)
             }
         }
+    }
+
+    // MARK: message actions (copy · like · dislike)
+
+    private var messageActions: some View {
+        HStack(spacing: 2) {
+            actionButton(icon: copied ? "checkmark" : "doc.on.doc",
+                         active: copied, help: copied ? "Copied" : "Copy",
+                         id: "chat.msg.copy") {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(message.content, forType: .string)
+                copied = true
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_400_000_000)
+                    copied = false
+                }
+            }
+            // Regenerate only the latest reply (and never mid-stream).
+            if isLast, !app.isThinking {
+                actionButton(icon: "arrow.clockwise", active: false, help: "Regenerate",
+                             id: "chat.msg.regenerate") {
+                    app.regenerate()
+                }
+            }
+        }
+        .padding(.leading, 2).padding(.top, 1)
+    }
+
+    private func actionButton(icon: String, active: Bool, help: String, id: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(active ? Theme.limeD : Theme.dim)
+                .frame(width: 26, height: 22)
+                .background(active ? Theme.limeS : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityIdentifier(id)
     }
 }
 

@@ -16,7 +16,10 @@ enum AccountProfile {
         (PyRegex("yes bank", ignoreCase: true), "Yes Bank"),
         (PyRegex("bank of baroda", ignoreCase: true), "Bank of Baroda"),
         (PyRegex("canara bank", ignoreCase: true), "Canara Bank"),
-        (PyRegex("union bank", ignoreCase: true), "Union Bank of India"),
+        // Full name only: a bare "union bank" also matches "City Union Bank",
+        // "Union Bank (UK)", etc. — those must fall through to header/metadata
+        // detection and keep their own names.
+        (PyRegex("union bank of india", ignoreCase: true), "Union Bank of India"),
     ]
 
     /// bank_name from the document (first 4 pages of text + metadata + filename).

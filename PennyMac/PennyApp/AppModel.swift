@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 import PennyCore
+import PennyModel
+import PennyFinance
 import PennyTxnStore
 
 // MARK: - App-level types
@@ -37,7 +39,12 @@ enum CenterView { case chat, history }
 /// plus the transactions the deterministic `PennyTxnStore` parser pulled out of it
 /// (source of every Today-panel figure).
 struct LoadedDoc: Identifiable, Equatable {
-    let id = UUID()
+    /// Stable identity — the statement id when derived from the canonical model
+    /// (Task 0.7), so the derived `docs` cache keeps SwiftUI list identity across
+    /// re-derivations; falls back to the filename.
+    var id: String { statementID?.raw ?? name }
+    /// The canonical statement this doc projects (nil for hand-built test docs).
+    var statementID: StatementID? = nil
     let name: String
     let text: String
     var transactions: [PennyCore.Transaction] = []   // PennyCore-qualified: SwiftUI also has a `Transaction`
@@ -194,12 +201,18 @@ final class AppModel: ObservableObject {
 
     /// Remove an onboarding upload everywhere it's tracked (incl. on disk).
     func removeDoc(named name: String) {
-        docs.removeAll { $0.name == name }
-        selectedDocNames.remove(name)
+        let ids = graph.statements.filter { $0.sourceName == name }.map(\.id)
+        let removed = Set(ids)
+        graph = FinancialGraph(accounts: graph.accounts,
+                               statements: graph.statements.filter { !removed.contains($0.id) },
+                               transactions: graph.transactions.filter { !removed.contains($0.statementID) },
+                               merchants: graph.merchants, categories: graph.categories)
+        ids.forEach { statementText[$0] = nil; issuerOverrides[$0] = nil; selectedStatementIDs.remove($0) }
         for (kind, names) in uploadsByKind {
             uploadsByKind[kind] = names.filter { $0 != name }
         }
-        StatementStore.remove(named: name)
+        StatementStore.remove(sourceName: name)
+        deriveDocs()
         recomputeSummary()
     }
 
@@ -209,12 +222,15 @@ final class AppModel: ObservableObject {
     func wipeAllData() {
         StatementStore.wipeAll()
         try? FileManager.default.removeItem(at: Self.historyURL)
-        docs.removeAll()
-        selectedDocNames.removeAll()
+        graph = .empty
+        statementText = [:]
+        issuerOverrides = [:]
+        selectedStatementIDs = []
         uploadsByKind = [:]
         messages.removeAll()
         history.removeAll()
         errorMessage = nil
+        deriveDocs()
         recomputeSummary()
     }
 
@@ -229,8 +245,41 @@ final class AppModel: ObservableObject {
     @Published var loadElapsed: Int = 0
 
     // documents / scope
-    @Published var docs: [LoadedDoc] = []
-    @Published var selectedDocNames: Set<String> = []
+    //
+    // Task 0.7 — the canonical `graph` is the ONLY mutable financial source of
+    // truth. `docs` is a derived, read-only cache (never mutated directly), rebuilt
+    // by `deriveDocs()` after any graph change. `statementText` (grounding) and
+    // `issuerOverrides` (presentation) are thin non-financial side-stores that the
+    // derivation reads. Selection is canonical (`selectedStatementIDs`);
+    // `selectedDocNames` is a compatibility view for the UI/tests.
+    @Published private(set) var graph: FinancialGraph = .empty
+    @Published private(set) var docs: [LoadedDoc] = []
+    @Published var selectedStatementIDs: Set<StatementID> = []
+
+    /// Phase 1.1 routing telemetry: how often the Query Engine answered (parity with
+    /// the router), fell back to the router, or the question was unsupported by both.
+    struct EngineRoutingStats: Equatable { var routed = 0; var fellBack = 0; var unsupported = 0 }
+    private(set) var engineRoutingStats = EngineRoutingStats()
+    /// Per-statement grounding text + import time — provenance, not financial data.
+    private var statementText: [StatementID: (text: String, importedAt: Date)] = [:]
+    /// On-device issuer labels (async, best-effort) — presentation, re-derived each launch.
+    private var issuerOverrides: [StatementID: String] = [:]
+
+    /// Compatibility view of the selection as statement filenames (empty ⇒ all),
+    /// so existing UI (`toggleDoc`, sidebar) and tests keep working while the
+    /// canonical selection is `selectedStatementIDs`.
+    var selectedDocNames: Set<String> {
+        get {
+            guard !selectedStatementIDs.isEmpty else { return [] }   // empty ⇒ all selected
+            return Set(graph.statements.filter { selectedStatementIDs.contains($0.id) }.map(\.sourceName))
+        }
+        set {
+            if newValue.isEmpty { selectedStatementIDs = [] }
+            else { selectedStatementIDs = Set(graph.statements.filter { newValue.contains($0.sourceName) }.map(\.id)) }
+            recomputeSummary()
+        }
+    }
+
     @Published var isImporting = false
     @Published var importingName: String?
     @Published var isAnalyzing = false
@@ -240,6 +289,10 @@ final class AppModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isThinking = false
     @Published var errorMessage: String?
+
+    /// Handle on the in-flight streaming generation so the Stop button can cancel
+    /// a hallucinating / runaway answer mid-stream. Nil when nothing is generating.
+    private var generateTask: Task<Void, Never>?
 
     // chat history
     @Published var centerView: CenterView = .chat
@@ -284,14 +337,18 @@ final class AppModel: ObservableObject {
         // mode `StatementStore` points at an empty per-process temp dir, so
         // this is a no-op there unless the test itself persisted docs.
         restoreTask = Task { [weak self] in
-            let restored = await Task.detached(priority: .userInitiated) {
-                StatementStore.loadAll()
+            let records = await Task.detached(priority: .userInitiated) { () -> [StatementStore.StatementRecord] in
+                StatementStore.migrateV1IfNeeded()   // one-time v1 → v2
+                return StatementStore.loadRecords()
             }.value
-            guard let self, !Task.isCancelled, !restored.isEmpty else { return }
-            for doc in restored where !self.docs.contains(where: { $0.name == doc.name }) {
-                self.docs.append(doc)
-                self.selectedDocNames.insert(doc.name)
+            guard let self, !Task.isCancelled, !records.isEmpty else { return }
+            for r in records where self.statementText[r.statement.id] == nil {
+                let slice = FinancialGraph(accounts: [r.account], statements: [r.statement],
+                                           transactions: r.transactions,
+                                           merchants: r.merchants, categories: r.categories)
+                self.addSlice(slice, text: r.text, importedAt: r.importedAt)
             }
+            self.deriveDocs()
             self.recomputeSummary()
         }
         // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
@@ -491,12 +548,10 @@ final class AppModel: ObservableObject {
     private struct ExtractResult: Sendable {
         let name: String
         let text: String
-        let txns: [PennyCore.Transaction]
-        let rows: [TxnRow]
-        let currency: String
-        let bank: String?
-        let closingBalance: Double?
-        let isCard: Bool
+        /// The canonical-model slice for this file — the single source of truth.
+        /// (Phase 0.8 cleanup: the legacy txns/rows/currency/bank/closingBalance/
+        /// isCard fields were removed — the runtime uses only the graph + text.)
+        let graph: FinancialGraph
     }
     private struct ImportFailure: Error, Sendable { let message: String }
 
@@ -529,31 +584,28 @@ final class AppModel: ObservableObject {
                         : "No selectable text in \(r.name) (is it a scanned image?)"
                     return
                 }
-                if let i = docs.firstIndex(where: { $0.name == r.name }) {
-                    // Re-import of a same-named file: refresh its parsed contents.
-                    docs[i].transactions = r.txns
-                    docs[i].rows = r.rows
-                    docs[i].currency = r.currency
-                    docs[i].bank = r.bank
-                    docs[i].closingBalance = r.closingBalance
-                    docs[i].isCard = r.isCard
-                    docs[i].analyzed = true
-                } else {
-                    docs.append(LoadedDoc(name: r.name, text: r.text,
-                                          transactions: r.txns, rows: r.rows,
-                                          currency: r.currency, bank: r.bank,
-                                          closingBalance: r.closingBalance, isCard: r.isCard,
-                                          analyzed: true))
+                // Text came through but the parser recognized no transactions — the
+                // statement's layout (dates / amounts / running balance) wasn't
+                // readable. Surface a real error instead of silently saving an empty
+                // statement (which shows up as a "0 transactions" account and misleads).
+                if r.graph.transactions.isEmpty {
+                    isAnalyzing = false
+                    errorMessage = r.name.lowercased().hasSuffix(".csv")
+                        ? "Couldn't read any transactions from \(r.name) — check it has date, amount and balance columns."
+                        : "Couldn't read any transactions from \(r.name). Penny needs a table of dates, amounts and a running balance — this statement's layout isn't recognized yet."
+                    return
                 }
-                selectedDocNames.insert(r.name)
+                // Persist the canonical model slice (the only source of truth) and
+                // merge it into the runtime graph; `docs` re-derives from there.
+                let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
+                StatementStore.save(record)
+                addSlice(r.graph, text: r.text)
                 if let kind, uploadsByKind[kind]?.contains(r.name) != true {
                     uploadsByKind[kind, default: []].append(r.name)
                 }
                 isAnalyzing = false
+                deriveDocs()
                 recomputeSummary()   // deterministic figures → fills the Today panel
-                if let doc = docs.first(where: { $0.name == r.name }) {
-                    StatementStore.save(doc)   // survives relaunch
-                }
                 detectIssuerViaLLM(for: r.name, text: r.text)   // refine the account label
             case .failure(let failure):
                 isAnalyzing = false
@@ -583,9 +635,12 @@ final class AppModel: ObservableObject {
             do {
                 let issuer = try await self.llm.detectIssuer(from: text)
                 print("🏦[issuer] \(docName) → \(issuer ?? "nil")  (model loaded=\(loaded))")
-                if let issuer, let i = self.docs.firstIndex(where: { $0.name == docName }) {
-                    self.docs[i].detectedIssuer = issuer
-                    StatementStore.save(self.docs[i])   // label survives relaunch
+                if let issuer, let stmt = self.graph.statements.first(where: { $0.sourceName == docName }) {
+                    // Issuer refinement is a presentation layer, not canonical data:
+                    // record it as an override and re-derive the label. It's re-derived
+                    // each launch, so it is deliberately NOT persisted (the model stays truth).
+                    self.issuerOverrides[stmt.id] = issuer
+                    self.deriveDocs()
                 }
             } catch {
                 print("🏦[issuer] \(docName) ERROR: \(error)")
@@ -621,18 +676,15 @@ final class AppModel: ObservableObject {
                     let data = try Data(contentsOf: url)
                     text = String(data: data, encoding: .utf8)
                         ?? String(data: data, encoding: .isoLatin1) ?? ""
-                    parsed = (try? DeterministicIngest.ingest(csvAt: url))
-                        ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                    parsed = (try? DeterministicIngest.ingest(csvAt: url, statementText: text))
+                        ?? DeterministicIngest.Result()
                 } else {
                     text = try StatementText.extract(from: url)
-                    parsed = (try? DeterministicIngest.ingest(pdfAt: url))
-                        ?? DeterministicIngest.Result(transactions: [], rows: [], currency: "INR", bank: nil)
+                    parsed = (try? DeterministicIngest.ingest(pdfAt: url, statementText: text))
+                        ?? DeterministicIngest.Result()
                 }
                 return .success(ExtractResult(name: url.lastPathComponent, text: text,
-                                              txns: parsed.transactions, rows: parsed.rows,
-                                              currency: parsed.currency, bank: parsed.bank,
-                                              closingBalance: parsed.closingBalance,
-                                              isCard: parsed.isCard))
+                                              graph: parsed.graph))
             } catch {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
@@ -640,8 +692,10 @@ final class AppModel: ObservableObject {
     }
 
     func toggleDoc(_ name: String) {
-        if selectedDocNames.contains(name) { selectedDocNames.remove(name) }
-        else { selectedDocNames.insert(name) }
+        for id in graph.statements.filter({ $0.sourceName == name }).map(\.id) {
+            if selectedStatementIDs.contains(id) { selectedStatementIDs.remove(id) }
+            else { selectedStatementIDs.insert(id) }
+        }
         recomputeSummary()
     }
 
@@ -650,6 +704,97 @@ final class AppModel: ObservableObject {
     /// The selected documents (all docs when nothing is explicitly selected).
     private func selectedDocs() -> [LoadedDoc] {
         docs.filter { selectedDocNames.isEmpty || selectedDocNames.contains($0.name) }
+    }
+
+    // MARK: - canonical graph runtime (Task 0.7)
+
+    /// Merge one statement's model slice into the authoritative `graph` (dedup
+    /// accounts/merchants/categories by id; replace a same-id statement + its
+    /// transactions on re-import). The graph is the ONLY mutable financial state.
+    private func mergeIntoGraph(_ slice: FinancialGraph) {
+        var accounts = Dictionary(graph.accounts.map { ($0.id, $0) }, uniquingKeysWith: { _, n in n })
+        slice.accounts.forEach { accounts[$0.id] = $0 }
+        var merchants = Dictionary(graph.merchants.map { ($0.id, $0) }, uniquingKeysWith: { _, n in n })
+        slice.merchants.forEach { merchants[$0.id] = $0 }
+        var categories = Dictionary(graph.categories.map { ($0.id, $0) }, uniquingKeysWith: { _, n in n })
+        slice.categories.forEach { categories[$0.id] = $0 }
+        let replaced = Set(slice.statements.map(\.id))
+        var statements = graph.statements.filter { !replaced.contains($0.id) }
+        statements.append(contentsOf: slice.statements)
+        var transactions = graph.transactions.filter { !replaced.contains($0.statementID) }
+        transactions.append(contentsOf: slice.transactions)
+        graph = FinancialGraph(accounts: Array(accounts.values), statements: statements,
+                               transactions: transactions,
+                               merchants: Array(merchants.values), categories: Array(categories.values))
+    }
+
+    /// Add a slice + its provenance (text/import time) and select it. No derivation
+    /// (callers batch, then call `deriveDocs()` once).
+    private func addSlice(_ slice: FinancialGraph, text: String, importedAt: Date? = nil) {
+        guard let stmt = slice.statements.first else { return }
+        mergeIntoGraph(slice)
+        statementText[stmt.id] = (text, importedAt ?? statementText[stmt.id]?.importedAt ?? Date())
+        selectedStatementIDs.insert(stmt.id)
+    }
+
+    /// Rebuild the read-only `docs` cache from the graph + provenance + issuer
+    /// overrides, in import order. `docs` is never mutated any other way.
+    private func deriveDocs() {
+        let txnsByStatement = Dictionary(grouping: graph.transactions, by: \.statementID)
+        let accountsByID = Dictionary(graph.accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        docs = graph.statements
+            .sorted { l, r in
+                let lt = statementText[l.id]?.importedAt ?? .distantPast
+                let rt = statementText[r.id]?.importedAt ?? .distantPast
+                return lt == rt ? l.sourceName < r.sourceName : lt < rt
+            }
+            .compactMap { stmt -> LoadedDoc? in
+                guard let account = accountsByID[stmt.accountID] else { return nil }
+                let record = StatementStore.StatementRecord(
+                    account: account, statement: stmt,
+                    transactions: txnsByStatement[stmt.id] ?? [],
+                    merchants: graph.merchants, categories: graph.categories,
+                    text: statementText[stmt.id]?.text ?? "",
+                    importedAt: statementText[stmt.id]?.importedAt ?? Date())
+                var doc = StatementStore.reconstruct(record)   // graph → LoadedDoc (incl. TxnRow projection)
+                doc.statementID = stmt.id
+                doc.detectedIssuer = issuerOverrides[stmt.id]
+                return doc
+            }
+    }
+
+    /// Test seam: build the graph from hand-made `LoadedDoc`s (never sets `docs`
+    /// directly, honouring "graph is the only mutable state"). Rows come from the
+    /// doc's `rows`, or are derived from its `transactions` when absent.
+    func loadForTesting(_ inputDocs: [LoadedDoc]) {
+        graph = .empty; statementText = [:]; issuerOverrides = [:]; selectedStatementIDs = []
+        let base = Date(timeIntervalSince1970: 0)
+        for (i, doc) in inputDocs.enumerated() {
+            let rows = doc.rows.isEmpty
+                ? doc.transactions.enumerated().map { Self.txnRow(from: $1, seq: $0, currency: doc.currency) }
+                : doc.rows
+            // Fall back to the doc name as institution so distinctly-named test
+            // docs get distinct account/statement identities (no accidental merge).
+            let out = IngestOutput(rows: rows, bankName: doc.bank ?? doc.name, confidence: "test",
+                                   detectedCurrency: doc.currency, closingBalance: doc.closingBalance, isCard: doc.isCard)
+            let slice = ModelAssembler.assemble(out, sourceName: doc.name).graph
+            addSlice(slice, text: doc.text, importedAt: base.addingTimeInterval(Double(i)))
+            if let issuer = doc.detectedIssuer, let stmt = slice.statements.first {
+                issuerOverrides[stmt.id] = issuer
+            }
+        }
+        deriveDocs()
+        recomputeSummary()
+    }
+
+    /// Legacy `PennyCore.Transaction` → `TxnRow` (for test docs built with `txns` only).
+    static func txnRow(from t: PennyCore.Transaction, seq: Int, currency: String) -> TxnRow {
+        let p = t.date.split(separator: "-").compactMap { Int($0) }
+        let (y, mo, d) = p.count == 3 ? (p[0], p[1], p[2]) : (2024, 1, 1)
+        return TxnRow(txnDate: t.date, month: String(t.date.prefix(7)), year: y, monthNo: mo, day: d,
+                      descr: t.description, merchant: "", category: t.category ?? "",
+                      debit: t.debit ?? 0, credit: t.credit ?? 0, balance: t.balance,
+                      currency: currency, seq: seq)
     }
 
     /// Sum the selected documents' transactions in Swift — deterministic, no model.
@@ -766,6 +911,19 @@ final class AppModel: ObservableObject {
             .flatMap(\.rows)
     }
 
+    /// The canonical graph narrowed to the selected statements — the input to the
+    /// Query Engine, scoped exactly like `selectedRows()` (empty selection ⇒ all).
+    private func selectedGraph() -> FinancialGraph {
+        let ids: Set<StatementID> = selectedStatementIDs.isEmpty
+            ? Set(graph.statements.map(\.id)) : selectedStatementIDs
+        return FinancialGraph(
+            accounts: graph.accounts,
+            statements: graph.statements.filter { ids.contains($0.id) },
+            transactions: graph.transactions.filter { ids.contains($0.statementID) },
+            merchants: graph.merchants,
+            categories: graph.categories)
+    }
+
     /// Does the question ask for the transaction list/table (vs. a count or a nuanced Q)?
     private func wantsTransactionTable(_ q: String) -> Bool {
         let l = q.lowercased()
@@ -782,8 +940,8 @@ final class AppModel: ObservableObject {
         let cap = 200
         let shown = Array(txns.prefix(cap))
         var lines = [
-            "| # | Date | Description | Debit | Credit | Balance |",
-            "|---|------|-------------|-------|--------|---------|",
+            "| # | Date | Description | Category | Debit | Credit | Balance |",
+            "|---|------|-------------|----------|-------|--------|---------|",
         ]
         for (i, t) in shown.enumerated() {
             let debit = t.debit.map { Money.format($0, currency: currency) } ?? ""
@@ -791,11 +949,378 @@ final class AppModel: ObservableObject {
             let balance = t.balance.map { Money.format($0, currency: currency) } ?? ""
             var desc = t.description.replacingOccurrences(of: "|", with: "/")
             if desc.count > 40 { desc = String(desc.prefix(39)) + "…" }
-            lines.append("| \(i + 1) | \(t.date) | \(desc) | \(debit) | \(credit) | \(balance) |")
+            let category = (t.category ?? "").replacingOccurrences(of: "|", with: "/")
+            lines.append("| \(i + 1) | \(t.date) | \(desc) | \(category) | \(debit) | \(credit) | \(balance) |")
         }
         var out = lines.joined(separator: "\n")
         if txns.count > cap { out += "\n\n_Showing first \(cap) of \(txns.count)._" }
         return out
+    }
+
+    /// The specific imported statement a question names — by its issuer
+    /// (displayName), parsed bank name, or filename — or nil when no single
+    /// statement is clearly named (a general question). Generic words like
+    /// "bank"/"current"/"statement" never select a document.
+    func namedDoc(for question: String) -> LoadedDoc? {
+        let low = question.lowercased()
+        let stop: Set<String> = ["bank", "banking", "statement", "statements", "account",
+                                 "accounts", "current", "credit", "debit", "card", "cards",
+                                 "the", "for", "this", "that", "sample"]
+        var best: (len: Int, doc: LoadedDoc)?
+        for doc in selectedDocs() {
+            // Candidate identifiers: issuer/bank/filename (extension dropped).
+            let ids = [doc.displayName, doc.bank ?? "",
+                       (doc.name as NSString).deletingPathExtension]
+            let tokens = ids.flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter }) }
+                .map(String.init)
+                .filter { $0.count >= 4 && !stop.contains($0) }
+            // Letter-boundary match (not `\b`, which counts "_" as a word char, so
+            // a filename token like "revolut" in "revolut_dummy" would be missed).
+            for t in tokens where low.range(
+                of: "(?<![a-z])\(NSRegularExpression.escapedPattern(for: t))(?![a-z])",
+                options: .regularExpression) != nil {
+                if best == nil || t.count > best!.len { best = (t.count, doc) }
+            }
+        }
+        return best?.doc
+    }
+
+    /// When the question names a specific imported statement, return that
+    /// statement's header text as labelled grounding, so header-only metadata
+    /// questions (the statement period, sort code, account number, payment-due
+    /// date, address) are answerable even though the RAG index only holds
+    /// transaction rows. Nil when no single statement is clearly named.
+    func namedDocHeader(for question: String) -> String? {
+        guard let doc = namedDoc(for: question) else { return nil }
+        let header = String(doc.text.prefix(3_500))
+        return "HEADER OF THE \"\(doc.displayName)\" STATEMENT (use this for statement-level "
+             + "details like the statement period, account/sort-code, or due date):\n\(header)"
+    }
+
+    /// Deterministic per-document metadata answered straight from the named (or,
+    /// when only one is imported, the sole) statement's text — currently the
+    /// opening / starting balance, which Barclays-style statements declare in a
+    /// header summary and never as a per-row running balance. Returns nil when
+    /// the question isn't a metadata lookup, no single statement is identified,
+    /// or the figure isn't in the text (so the caller can fall through to the
+    /// header-grounded model instead of a wrong deterministic guess).
+    func documentMetadataAnswer(_ question: String) -> String? {
+        let low = question.lowercased()
+
+        // Statement period — read the header date range deterministically instead of
+        // letting the LLM guess (it answers "not stated" when the period line isn't in
+        // its RAG window). Answered only when the statement actually declares one.
+        if low.range(of: #"statement\s+period|billing\s+period|reporting\s+period|(?:what|which)\s+period|period\s+covered|period\s+does\s+(?:this|it)\s+cover|date\s+range|what\s+dates?\b"#,
+                     options: .regularExpression) != nil,
+           let doc = namedDoc(for: question) ?? (selectedDocs().count == 1 ? selectedDocs().first : nil),
+           let period = StatementMetadataParser.statementPeriod(in: doc.text) {
+            return "**\(doc.displayName) statement period: \(Self.formatCalendarDate(period.start)) – \(Self.formatCalendarDate(period.end)).**"
+        }
+
+        // Each field: an intent regex (does the question ask for it?) paired with the
+        // statement-text labels that precede its figure, and how to phrase the answer.
+        // Order matters — "available credit" is checked before the plainer "credit
+        // limit" so "available credit limit" resolves to the remaining figure.
+        let fields: [(intent: String, labels: [String], noun: String)] = [
+            (#"\b(opening|starting|start|initial|beginning)\s+balance\b|balance\s+(?:brought|carried)\s+forward"#,
+             [#"opening\s+balance"#, #"start(?:ing)?\s+balance"#, #"initial\s+balance"#,
+              #"beginning\s+balance"#, #"balance\s+brought\s+forward"#, #"brought\s+forward"#,
+              #"balance\s+b/?f(?:wd)?"#, #"previous\s+balance"#, #"balance\s+from\s+previous\s+statement"#],
+             "opening balance"),
+            (#"available\s+credit|credit\s+available|available\s+to\s+spend"#,
+             [#"available\s+credit(?:\s+limit)?"#, #"credit\s+available"#, #"available\s+to\s+spend"#],
+             "available credit"),
+            (#"credit\s+limit|credit\s+line|\blimit\b"#,
+             [#"total\s+credit\s+limit"#, #"credit\s+limit"#, #"credit\s+line"#, #"\blimit\b"#],
+             "credit limit"),
+        ]
+
+        guard let field = fields.first(where: {
+            low.range(of: $0.intent, options: .regularExpression) != nil
+        }) else { return nil }
+        guard let doc = namedDoc(for: question)
+                ?? (selectedDocs().count == 1 ? selectedDocs().first : nil) else { return nil }
+
+        // Credit-card "Credit Summary" blocks lay the limit and available credit out
+        // as two aligned columns (labels on one line, the two amounts on the next),
+        // so a plain label→next-amount read grabs the wrong column. Resolve those
+        // from the columnar parse first; fall back to the generic label reader.
+        let cur = Self.effectiveCurrency(of: doc)
+        func reply(_ amount: Double) -> String {
+            "**\(doc.displayName) \(field.noun): \(Money.format(amount, currency: cur)).**"
+        }
+        let summary = Self.creditSummary(in: doc.text)
+        if field.noun == "available credit", let a = summary.available { return reply(a) }
+        if field.noun == "credit limit", let l = summary.limit { return reply(l) }
+
+        guard let amount = Self.moneyAfterLabel(in: doc.text, labels: field.labels) else { return nil }
+        return reply(amount)
+    }
+
+    /// Parse a credit-card "Credit Summary" two-column block —
+    ///   `Credit Limit £ Available Credit Limit £`
+    ///   `16,100.00 15,470.46`
+    /// — into (limit, available). Column order is fixed by the header (limit first,
+    /// available second). Returns nils when the block isn't present.
+    // Task 0.5: the extraction logic now lives in `StatementMetadataParser`
+    // (PennyTxnStore). These remain as thin, behaviour-preserving delegations so
+    // the chat metadata answers are unchanged; they're removed in Phase 1.
+    static func creditSummary(in text: String) -> (limit: Double?, available: Double?) {
+        let s = StatementMetadataParser.creditSummary(in: text)
+        return (limit: s.limit.map(Self.double), available: s.available.map(Self.double))
+    }
+
+    /// "16 February 2026" — the human form used in statement-period answers.
+    static func formatCalendarDate(_ d: CalendarDate) -> String {
+        let months = ["January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November", "December"]
+        let name = (1...12).contains(d.month) ? months[d.month - 1] : String(d.month)
+        return "\(d.day) \(name) \(d.year)"
+    }
+
+    /// Decimal → Double for the legacy Double-based metadata shims. Goes through
+    /// the decimal string (exactly as the former inline code did: `Double(digits)`),
+    /// so the produced `Double` — and thus every formatted figure — is byte-identical
+    /// to the pre-delegation behaviour.
+    private static func double(_ d: Decimal) -> Double {
+        Double(d.description) ?? NSDecimalNumber(decimal: d).doubleValue
+    }
+
+    /// Cross-document content questions: "which statements contain salary
+    /// transactions?", "which accounts have groceries?". Answered per-document
+    /// from each statement's parsed rows (which only the app holds — the finance
+    /// router sees a merged, doc-blind row set), so it must run before that router
+    /// (whose income/category handlers would otherwise collapse it to one figure).
+    /// Nil when the question isn't a "which statements contain X" lookup.
+    func documentContentAnswer(_ question: String) -> String? {
+        let low = question.lowercased()
+        guard low.range(of: #"\b(which|what|list|name)\b"#, options: .regularExpression) != nil,
+              low.range(of: #"\b(statements?|accounts?)\b"#, options: .regularExpression) != nil,
+              low.range(of: #"\b(contain\w*|have|has|having|include\w*|with|show\w*)\b"#,
+                        options: .regularExpression) != nil else { return nil }
+
+        let all = selectedDocs()
+        guard !all.isEmpty else { return nil }
+
+        // Salary / payroll / income — a payroll credit, identified semantically
+        // (not by the literal word "salary", which most statements don't use).
+        if low.range(of: #"\b(salary|salaries|payroll|wages?|income|paycheck\w*|paycheque\w*|earnings?)\b"#,
+                     options: .regularExpression) != nil {
+            let hits = all.filter { Self.hasSalary($0.rows) }
+            return Self.docListAnswer(hits, subject: "a salary (payroll) transaction",
+                                      plural: "salary transactions")
+        }
+
+        // Otherwise a category / merchant / keyword term ("groceries", "Tesco").
+        guard let term = Self.contentTerm(low) else { return nil }
+        let hits = all.filter { doc in
+            doc.rows.contains { r in
+                "\(r.descr) \(r.merchant) \(r.category)".lowercased().contains(term)
+            }
+        }
+        return Self.docListAnswer(hits, subject: "\(term) transactions", plural: "\(term) transactions")
+    }
+
+    /// Cross-document analytics that the doc-blind finance router can't answer:
+    /// per-statement counts, which statement has the highest/lowest balance or
+    /// most money in/out or most transactions, the largest credit/debit across
+    /// ALL statements (with its statement named), the top spending category, which
+    /// statement received the highest salary, salary count/total, and high-value
+    /// filters. Every figure is summed from the parsed rows. Runs before the
+    /// finance router (which would otherwise answer per-merged-ledger). Nil when
+    /// the question isn't one of these cross-document lookups.
+    func crossDocumentAnswer(_ question: String) -> String? {
+        let low = question.lowercased()
+        let docs = selectedDocs()
+        guard !docs.isEmpty else { return nil }
+        let cur = summary.currency
+        func money(_ v: Double) -> String { Money.format(v, currency: cur) }
+        func closing(_ d: LoadedDoc) -> Double? { d.closingBalance ?? d.latestBalance }
+        func moneyIn(_ d: LoadedDoc) -> Double { d.rows.filter { $0.credit > 0 }.reduce(0) { $0 + $1.credit } }
+        func moneyOut(_ d: LoadedDoc) -> Double { d.rows.filter { $0.debit > 0 }.reduce(0) { $0 + $1.debit } }
+        func has(_ pat: String) -> Bool { low.range(of: pat, options: .regularExpression) != nil }
+
+        // ---- how many statements / accounts / files ------------------------
+        if has(#"\bhow many\b|\bnumber of\b|\bhow much\b"#), has(#"\b(statements?|accounts?|files?|uploads?|banks?)\b"#),
+           !has(#"transactions?|txns?"#) {
+            return "**You uploaded \(docs.count) statement\(docs.count == 1 ? "" : "s").**"
+        }
+
+        // ---- per-statement transaction count ("how many Monzo transactions")
+        if has(#"\bhow many\b|\bnumber of\b|\bcount\b"#), has(#"transactions?|txns?|purchases?|payments?"#),
+           let d = namedDoc(for: question) {
+            return "**\(d.displayName) has \(d.rows.count) transaction\(d.rows.count == 1 ? "" : "s").**"
+        }
+
+        // ---- most / fewest transactions across statements ------------------
+        if has(#"transactions?"#), has(#"\b(most|highest|largest|greatest|fewest|least|lowest|which statement|which account)\b"#),
+           has(#"which|most|fewest|least|highest|lowest"#), namedDoc(for: question) == nil {
+            let ranked = docs.sorted { $0.rows.count > $1.rows.count }
+            let fewest = has(#"\b(fewest|least|lowest)\b"#)
+            if let d = (fewest ? ranked.last : ranked.first) {
+                return "**\(d.displayName) has the \(fewest ? "fewest" : "most") transactions: \(d.rows.count).**"
+            }
+        }
+
+        // ---- highest / lowest closing balance ------------------------------
+        if has(#"closing balance|closing bal|highest balance|lowest balance"#) || (has(#"balance"#) && has(#"which (statement|account)"#)) {
+            let withBal = docs.compactMap { d -> (LoadedDoc, Double)? in closing(d).map { (d, $0) } }
+            if !withBal.isEmpty {
+                let low_ = has(#"\b(lowest|smallest|least)\b"#)
+                let ranked = withBal.sorted { $0.1 > $1.1 }
+                if let pick = (low_ ? ranked.last : ranked.first) {
+                    return "**\(pick.0.displayName) has the \(low_ ? "lowest" : "highest") closing balance: \(money(pick.1)).**"
+                }
+            }
+        }
+
+        // ---- highest money in / out (never a category or single-txn question)
+        if !has(#"categor|largest (credit|debit|expense|transaction|payment)"#),
+           has(#"\b(most|highest|largest|greatest)\b"#) || has(#"which (account|statement|bank)"#) {
+            if has(#"money in|received|credited|income|inflow|paid in|total in\b"#), !has(#"salary"#) {
+                if let d = docs.max(by: { moneyIn($0) < moneyIn($1) }) {
+                    return "**\(d.displayName) has the most money in: \(money(moneyIn(d))).**"
+                }
+            }
+            if has(#"money out|spent|debited|outflow|total out\b|spending"#) {
+                if let d = docs.max(by: { moneyOut($0) < moneyOut($1) }) {
+                    return "**\(d.displayName) has the most money out: \(money(moneyOut(d))).**"
+                }
+            }
+        }
+
+        // ---- largest credit / debit across all statements (single txn, not a
+        // category rollup — "highest SPENDING category" is handled below) --------
+        if !has(#"categor"#), has(#"\b(largest|biggest|highest|greatest)\b"#),
+           has(#"credit|deposit|money (in|received)|income|inflow"#), !has(#"limit|card"#) {
+            let all = docs.flatMap { d in d.rows.filter { $0.credit > 0 }.map { ($0, d) } }
+            if let (r, d) = all.max(by: { $0.0.credit < $1.0.credit }) {
+                return "**Largest credit: \(money(r.credit))** — \(r.descr) (\(d.displayName), \(r.txnDate))."
+            }
+        }
+        if !has(#"categor"#), has(#"\b(largest|biggest|highest|greatest)\b"#),
+           has(#"debit|expense|spend|payment|withdrawal|money out|outflow|charge"#) {
+            let all = docs.flatMap { d in d.rows.filter { $0.debit > 0 }.map { ($0, d) } }
+            if let (r, d) = all.max(by: { $0.0.debit < $1.0.debit }) {
+                return "**Largest debit: \(money(r.debit))** — \(r.descr) (\(d.displayName), \(r.txnDate))."
+            }
+        }
+
+        // ---- top spending category -----------------------------------------
+        if has(#"which category|what category|category.*(highest|most|biggest|top)|highest.*category|top category|most spending"#) {
+            var totals: [String: Double] = [:]
+            for d in docs { for r in d.rows where r.debit > 0 {
+                totals[r.category.isEmpty ? "Other" : r.category, default: 0] += r.debit
+            } }
+            if let (cat, amt) = totals.max(by: { $0.value < $1.value }) {
+                return "**\(cat) is your highest-spending category: \(money(amt)).**"
+            }
+        }
+
+        // ---- which statement received the highest salary -------------------
+        if has(#"salary|payroll|wages?"#), has(#"which (bank|account|statement)|highest|most"#), !has(#"how many|total|count|list|contain"#) {
+            let withSal = docs.compactMap { d -> (LoadedDoc, Double)? in Self.salaryAmount(d.rows).map { (d, $0) } }
+            if let pick = withSal.max(by: { $0.1 < $1.1 }) {
+                return "**\(pick.0.displayName) received the highest salary: \(money(pick.1)).**"
+            }
+        }
+
+        // ---- salary count / total ------------------------------------------
+        if has(#"salary|payroll"#), has(#"how many|number of|count|total|how much|sum"#) {
+            let sals = docs.compactMap { Self.salaryAmount($0.rows) }
+            if has(#"how many|number of|count"#) {
+                return "**\(sals.count) salary transaction\(sals.count == 1 ? "" : "s")** — one per statement that's paid a salary."
+            }
+            let total = sals.reduce(0, +)
+            return "**Total salary received: \(money(total))** across \(sals.count) statement\(sals.count == 1 ? "" : "s")."
+        }
+
+        // ---- high-value transactions over a threshold ----------------------
+        if has(#"above|over|more than|greater than|bigger than|exceed|higher than|at least"#),
+           let thr = Self.firstMoney(in: low) {
+            let hits = docs.flatMap { d in
+                d.rows.filter { max($0.debit, $0.credit) > thr }.map { ($0, d) }
+            }.sorted { max($0.0.debit, $0.0.credit) > max($1.0.debit, $1.0.credit) }
+            guard !hits.isEmpty else { return "**No transactions above \(money(thr)).**" }
+            var lines = ["**\(hits.count) transaction\(hits.count == 1 ? "" : "s") above \(money(thr)):**"]
+            for (r, d) in hits.prefix(50) {
+                let amt = r.debit > 0 ? r.debit : r.credit
+                let dir = r.debit > 0 ? "out" : "in"
+                lines.append("- \(money(amt)) \(dir) — \(r.descr) (\(d.displayName), \(r.txnDate))")
+            }
+            return lines.joined(separator: "\n")
+        }
+
+        return nil
+    }
+
+    /// First plain money amount in text (thousands + optional decimals), ignoring
+    /// 4-digit years — for threshold questions like "above £500".
+    static func firstMoney(in low: String) -> Double? {
+        guard let re = try? NSRegularExpression(pattern: #"[£$€₹]?\s*(\d[\d,]*(?:\.\d+)?)"#),
+              let m = re.firstMatch(in: low, range: NSRange(low.startIndex..., in: low)),
+              let r = Range(m.range(at: 1), in: low) else { return nil }
+        let digits = low[r].filter { $0.isNumber || $0 == "." }
+        guard let v = Double(digits) else { return nil }
+        return (v >= 1900 && v <= 2100 && !digits.contains(".")) ? nil : v   // skip a bare year
+    }
+
+    /// A statement's primary monthly salary: the largest payroll-qualifying credit
+    /// in it, or nil when there's none. "Salary" is one payroll inflow per account
+    /// (so a current account with several employer-ish credits still counts once),
+    /// which is why totals/counts use the max qualifying credit, not every match.
+    /// Recognised by an explicit payroll marker (salary / payroll / wages), or a
+    /// substantial (≥ the statement currency's rough monthly-pay floor) credit
+    /// tagged BGC / "giro received" / from a company (Ltd / Limited / PLC /
+    /// Technologies) — how employers appear when there's no "salary" label.
+    static func salaryAmount(_ rows: [TxnRow]) -> Double? {
+        rows.compactMap { r -> Double? in
+            guard r.credit > 0 else { return nil }
+            let d = r.descr.lowercased()
+            if d.range(of: #"\b(salary|salaries|payroll|wages?|stipend)\b"#,
+                       options: .regularExpression) != nil { return r.credit }
+            let payrollish = d.range(of: #"\bbgc\b|giro\s+received|\b(ltd|limited|plc|inc|technologies)\b"#,
+                                     options: .regularExpression) != nil
+            return (payrollish && r.credit >= 500) ? r.credit : nil
+        }.max()
+    }
+
+    /// Whether a statement contains a salary (payroll) credit.
+    static func hasSalary(_ rows: [TxnRow]) -> Bool { salaryAmount(rows) != nil }
+
+    /// The subject noun of a "which statements contain <X> transactions" question
+    /// (the words before "transactions/payments/…"), lowercased; nil when absent.
+    static func contentTerm(_ low: String) -> String? {
+        let pattern = #"(?:contain\w*|have|has|having|include\w*|with|show\w*)\s+(?:any\s+|a\s+|the\s+|some\s+)?([a-z0-9&'\-. ]+?)\s+(?:transactions?|payments?|credits?|debits?|charges?|entries|deposits?|purchases?)"#
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let m = re.firstMatch(in: low, range: NSRange(low.startIndex..., in: low)),
+              m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: low) else { return nil }
+        let term = low[r].trimmingCharacters(in: .whitespaces)
+        return term.isEmpty ? nil : term
+    }
+
+    /// Render a "which statements contain X" answer: honest "none", a single-line
+    /// statement, or a bulleted (sorted) list.
+    static func docListAnswer(_ hits: [LoadedDoc], subject: String, plural: String) -> String {
+        guard !hits.isEmpty else { return "**No statements contain \(plural).**" }
+        let names = hits.map(\.displayName).sorted()
+        if names.count == 1 { return "**\(names[0])** contains \(subject)." }
+        return (["**These statements contain \(plural):**"] + names.map { "- \($0)" })
+            .joined(separator: "\n")
+    }
+
+    /// Every plain money amount (thousands + 2 decimals) in `text`, in order.
+    // Task 0.5 delegations (see note on `creditSummary`).
+    static func moneyValues(in text: String) -> [Double] {
+        StatementMetadataParser.moneyValues(in: text).map(Self.double)
+    }
+
+    static func openingBalance(in text: String) -> Double? {
+        StatementMetadataParser.openingBalance(in: text).map(Self.double)
+    }
+
+    static func moneyAfterLabel(in text: String, labels: [String]) -> Double? {
+        StatementMetadataParser.moneyAfterLabel(in: text, labels: labels).map(Self.double)
     }
 
     /// Text handed to the model as grounding: the selected statements (or all of
@@ -808,6 +1333,17 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: chat history
+
+    /// Regenerate the reply to the most recent question: drop the last user turn and
+    /// its answer, then re-`send` the same question so it re-runs the identical
+    /// routing (deterministic LEDGER/ANALYTICS, or a fresh MLX generation).
+    func regenerate() {
+        guard !isThinking else { return }
+        guard let userIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let q = messages[userIdx].content
+        messages.removeSubrange(userIdx...)   // remove the question + its old reply
+        send(q)                               // re-appends the question, produces a new reply
+    }
 
     /// "✨ New chat" — archive whatever was said, then start fresh.
     func newChat() {
@@ -890,6 +1426,30 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // Deterministic per-document metadata (opening/starting balance) — read
+        // straight from the named statement's text, before the finance router's
+        // greedy `balance` handler can answer with the wrong (latest, all-account)
+        // figure. Falls through when the figure isn't in the text.
+        if let answer = documentMetadataAnswer(q) {
+            messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            return
+        }
+
+        // Cross-document content lookup ("which statements contain salary?") — must
+        // also precede the finance router, whose income/category handlers would
+        // otherwise answer with one merged, doc-blind figure.
+        if let answer = documentContentAnswer(q) {
+            messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            return
+        }
+
+        // Cross-document analytics (per-statement counts/balances, largest credit/
+        // debit with attribution, top category, salary totals, high-value filters).
+        if let answer = crossDocumentAnswer(q) {
+            messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            return
+        }
+
         // Deterministic finance router: answer factual numeric questions (totals,
         // counts, balance — incl. multi-account and as-of-a-date, category/
         // merchant/period spend, largest/top, income, net/profit/loss, average)
@@ -900,12 +1460,26 @@ final class AppModel: ObservableObject {
             FinanceRouter.AccountBalance(name: $0.displayName, balance: $0.latestBalance,
                                          isCard: $0.isCard)
         }
-        if let answer = FinanceRouter.answer(q, rows: selectedRows(), currency: cur,
-                                             accounts: accounts,
-                                             money: { Money.format($0, currency: cur) }) {
-            messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+        let money: (Double) -> String = { Money.format($0, currency: cur) }
+        let routerAnswer = FinanceRouter.answer(q, rows: selectedRows(), currency: cur,
+                                                accounts: accounts, money: money)
+
+        // Phase 1.1 — route through the Query Engine (LegacyQueryBridge → QueryEngine).
+        // We adopt the engine's answer ONLY when it exactly reconciles with the router
+        // (runtime parity guard): the engine can prove parity or fall back, never change
+        // a reply. Unsupported intents (bridge returns nil) fall back automatically.
+        if let engineAnswer = EngineRouter.answer(for: q, graph: selectedGraph(), money: money),
+           engineAnswer == routerAnswer {
+            engineRoutingStats.routed += 1
+            messages.append(ChatMessage(role: .assistant, content: engineAnswer, engine: "ANALYTICS"))
             return
         }
+        if let routerAnswer {
+            engineRoutingStats.fellBack += 1
+            messages.append(ChatMessage(role: .assistant, content: routerAnswer, engine: "ANALYTICS"))
+            return
+        }
+        engineRoutingStats.unsupported += 1
 
         messages.append(ChatMessage(role: .assistant, content: "", engine: "MLX"))
         let idx = messages.count - 1
@@ -915,6 +1489,11 @@ final class AppModel: ObservableObject {
         let fullText = scopedText()
         let key = retrieverSignature()
         let facts = computedFacts()
+        // Per-document header context: when the question names a specific imported
+        // statement, the RAG rows alone can't answer header-level metadata (the
+        // statement period, sort code, account number, payment-due date, address).
+        // Supply that statement's header text so the model can read it off directly.
+        let namedHeader = namedDocHeader(for: q)
         // UI-test stub: deterministic reply on the MLX fallback path — no model
         // load, no NLEmbedding, so tests are fast and repeatable.
         if TestMode.modelReady {
@@ -922,7 +1501,7 @@ final class AppModel: ObservableObject {
             isThinking = false
             return
         }
-        Task {
+        generateTask = Task {
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which
             // blows the context window and dilutes relevance on big statements).
@@ -940,6 +1519,11 @@ final class AppModel: ObservableObject {
                 if !hits.isEmpty {
                     grounding = Self.retrievalContext(hits, currency: summary.currency)
                 }
+            }
+            // A named statement's header goes right next to the retrieved rows, so
+            // header-level questions ("statement period for Barclays") are answerable.
+            if let namedHeader {
+                grounding = namedHeader + "\n\n" + grounding
             }
             // Exact, deterministically-computed figures always ride along, so
             // free-form model answers quote the same numbers the Today panel shows.
@@ -960,8 +1544,23 @@ final class AppModel: ObservableObject {
                     messages[idx].content = "Sorry — I couldn't answer that. \(error.localizedDescription)"
                 }
             }
+            // Note any text the user chose to stop mid-stream so a partial answer
+            // doesn't read as if the model finished on its own.
+            if Task.isCancelled, messages.indices.contains(idx) {
+                let partial = messages[idx].content.trimmingCharacters(in: .whitespacesAndNewlines)
+                messages[idx].content = partial.isEmpty ? "_(stopped)_" : partial + "\n\n_(stopped)_"
+            }
             isThinking = false
+            generateTask = nil
         }
+    }
+
+    /// Stop an in-flight answer — used by the composer's Stop button when the
+    /// model is running away or hallucinating. Cancels the streaming task (the
+    /// MLX loop checks `Task.isCancelled`), which appends a "(stopped)" note and
+    /// clears `isThinking` on its own.
+    func cancelGeneration() {
+        generateTask?.cancel()
     }
 
     /// Exact figures computed in Swift, prepended to the model's grounding so a

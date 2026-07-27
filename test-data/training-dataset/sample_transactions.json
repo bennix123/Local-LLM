@@ -1,0 +1,1602 @@
+[
+  {
+    "date": "2026-10-02",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 5224,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 5545,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 137,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 9887,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 4436,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 12714,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 609,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 11306,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 7997,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 13961,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 12513,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 5105,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 13827,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 14759,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 1800,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 4959,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 1173,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 5702,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 757,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 2285,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 7037,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 9855,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 10701,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 801,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 12356,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 515,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 11110,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 4358,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 1289,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 132,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 9503,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 10727,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 8467,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 6733,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 270,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 6726,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 6648,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 4185,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 14670,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 3098,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 5127,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 6194,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 3853,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 9092,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 2208,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 4417,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 2574,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 12864,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 3904,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 5357,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 8861,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 12197,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 3055,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 5623,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 912,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 1584,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 3311,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 10754,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 12026,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 8326,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 2487,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 11450,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 1552,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 9962,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 4243,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 14032,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 3137,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 12109,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 9270,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 7260,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 1163,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 1444,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 12737,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 6922,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 2415,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 12313,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 2561,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 5671,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 1177,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 9414,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 218,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 4839,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 6685,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 11540,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 474,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 8289,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 7907,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 2321,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 3136,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 7842,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 13467,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 9763,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 1082,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 4600,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 10833,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 1372,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 4623,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 11179,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 11411,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 269,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 7534,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 10466,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 6648,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 2205,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 11352,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 13774,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 987,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 14997,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 11016,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 710,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 13483,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 8706,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 11643,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 5212,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 11605,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 6572,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 4176,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 2441,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 14024,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 11560,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 2459,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 4323,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 1325,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 6650,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 8689,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 11155,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 9077,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 14829,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 10091,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 6299,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 1031,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 1527,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 12263,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 14702,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 9786,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 3900,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 8452,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 10646,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 7234,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 2475,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 7202,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 12598,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 6147,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 6434,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 12833,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 9147,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 7682,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 5856,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Flipkart",
+    "merchant": "Flipkart",
+    "category": "Shopping",
+    "amount": 5631,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 14461,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 7599,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 11150,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 743,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 8461,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 243,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 4881,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 7840,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 14054,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 10775,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 12147,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 3316,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 13075,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 9857,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 5973,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 7039,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 12056,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 10840,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 11160,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 13198,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 9174,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-22",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 14529,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-23",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 8357,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-24",
+    "description": "Spotify",
+    "merchant": "Spotify",
+    "category": "Entertainment",
+    "amount": 10336,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-25",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 8167,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-26",
+    "description": "Indian Oil",
+    "merchant": "Indian Oil",
+    "category": "Fuel",
+    "amount": 625,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-27",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 4718,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-28",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 6243,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-29",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 14902,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-30",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 11735,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-01",
+    "description": "Zomato",
+    "merchant": "Zomato",
+    "category": "Food",
+    "amount": 4143,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-02",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 7291,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-03",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 9563,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-04",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 3981,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-05",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 1866,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-06",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 7721,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-07",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 12236,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-08",
+    "description": "Uber",
+    "merchant": "Uber",
+    "category": "Transport",
+    "amount": 13078,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-09",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 14443,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-10",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 11143,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-11",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 5915,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-12",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 3016,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-13",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 14764,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-14",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 10820,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-15",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 8311,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-16",
+    "description": "Apollo Pharmacy",
+    "merchant": "Apollo Pharmacy",
+    "category": "Healthcare",
+    "amount": 13105,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-17",
+    "description": "Netflix",
+    "merchant": "Netflix",
+    "category": "Entertainment",
+    "amount": 8131,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-18",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 5601,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-19",
+    "description": "Amazon",
+    "merchant": "Amazon",
+    "category": "Shopping",
+    "amount": 14526,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-20",
+    "description": "Swiggy",
+    "merchant": "Swiggy",
+    "category": "Food",
+    "amount": 12396,
+    "type": "debit"
+  },
+  {
+    "date": "2026-10-21",
+    "description": "DMart",
+    "merchant": "DMart",
+    "category": "Groceries",
+    "amount": 4820,
+    "type": "debit"
+  }
+]

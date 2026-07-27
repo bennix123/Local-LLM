@@ -31,6 +31,14 @@ targets:
       # Direct product dep so PennyApp can `import PennyTxnStore`.
       - package: PennyCore
         product: PennyTxnStore
+      # L1 canonical model (Phase 0 · Task 0.1 scaffold; real types land in 0.2).
+      # Wired now so PennyApp can `import PennyModel` from Task 0.7 onward.
+      - package: PennyCore
+        product: PennyModel
+      # L2–L4 deterministic Query Engine (Phase 1.1 runtime integration): the app
+      # routes questions through PennyFinance's engine before the legacy router.
+      - package: PennyCore
+        product: PennyFinance
     info:
       path: PennyApp/Info.plist
       properties:

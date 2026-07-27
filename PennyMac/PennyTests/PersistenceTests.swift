@@ -11,6 +11,7 @@
 
 import XCTest
 import PennyCore
+import PennyModel
 import PennyTxnStore
 @testable import Penny
 
@@ -97,20 +98,132 @@ final class PersistenceTests: XCTestCase {
         }
 
         guard let restored = m2.docs.first else { return XCTFail("restore produced no doc") }
+        // v2 persists only the canonical model and rebuilds LoadedDoc from it
+        // (Task 0.6). We therefore verify BEHAVIOURAL equivalence — every
+        // user-visible figure and label — not v1 internal shape (`rows` carry no
+        // persisted `seq`/`rawCategory`; the single `institution` replaces the
+        // `bank`/`detectedIssuer` split).
         XCTAssertEqual(restored.name, original.name)
         XCTAssertEqual(restored.text, original.text, "chat grounding text must round-trip")
-        XCTAssertEqual(restored.rows, original.rows, "TxnRows must round-trip exactly")
         XCTAssertEqual(restored.transactions, original.transactions,
-                       "transactions rebuilt from rows must match the live import's")
+                       "rebuilt transactions must match the live import's figures")
         XCTAssertEqual(restored.currency, original.currency)
-        XCTAssertEqual(restored.bank, original.bank)
-        XCTAssertEqual(restored.detectedIssuer, original.detectedIssuer)
         XCTAssertEqual(restored.closingBalance, original.closingBalance)
         XCTAssertEqual(restored.isCard, original.isCard)
+        XCTAssertEqual(restored.displayName, original.displayName,
+                       "the displayed issuer label must be preserved")
         XCTAssertTrue(restored.analyzed, "restored docs are already analyzed")
         XCTAssertEqual(m2.selectedDocNames, [original.name],
                        "restored docs come back selected, like a fresh import")
+
+        // Per-row behavioural equivalence: dates, signed amounts, balances,
+        // currencies, merchants, categories — everything the app reads.
+        XCTAssertEqual(restored.rows.count, original.rows.count)
+        for (r, o) in zip(restored.rows, original.rows) {
+            XCTAssertEqual(r.txnDate, o.txnDate, "date")
+            XCTAssertEqual(r.debit, o.debit, "signed amount (debit)")
+            XCTAssertEqual(r.credit, o.credit, "signed amount (credit)")
+            XCTAssertEqual(r.balance, o.balance, "balance")
+            XCTAssertEqual(r.currency, o.currency, "currency")
+            XCTAssertEqual(r.merchant, o.merchant, "merchant")
+            XCTAssertEqual(r.category, o.category, "category")
+            XCTAssertEqual(r.descr, o.descr, "description")
+        }
+
+        // Reconciliation: the merged canonical graph equals the live import.
+        let graph = StatementStore.loadGraph()
+        XCTAssertEqual(graph.transactions.count, original.rows.count, "transaction count reconciles")
+        XCTAssertEqual(graph.accounts.count, 1, "one account restored")
+        XCTAssertEqual(graph.statements.first?.sourceName, original.name, "statement identity preserved")
+
         assertSummariesEqual(m2.summary, m1.summary)
+    }
+
+    // MARK: - v2 record / envelope / migration / corruption / performance
+
+    /// Build a persistable record via the real translation layer (no PDF needed).
+    private func makeRecord(sourceName: String, bank: String = "Monzo",
+                            rows: [(date: String, descr: String, debit: Double)]) -> StatementStore.StatementRecord {
+        let txnRows = rows.enumerated().map { i, r -> TxnRow in
+            let p = r.date.split(separator: "-").compactMap { Int($0) }
+            return TxnRow(txnDate: r.date, month: String(r.date.prefix(7)), year: p[0], monthNo: p[1], day: p[2],
+                          descr: r.descr, merchant: "", category: "Groceries",
+                          debit: r.debit, credit: 0, balance: nil, currency: "GBP", seq: i + 1)
+        }
+        let out = IngestOutput(rows: txnRows, bankName: bank, confidence: "test", detectedCurrency: "GBP")
+        let graph = ModelAssembler.assemble(out, sourceName: sourceName).graph
+        return StatementStore.StatementRecord(from: graph, text: "\(bank) statement text")
+    }
+
+    func testRecordAndEnvelopeRoundTrip() throws {
+        let record = makeRecord(sourceName: "monzo.pdf",
+                                rows: [(date: "2026-06-15", descr: "TESCO", debit: 45.50)])
+        StatementStore.save(record)
+        let loaded = StatementStore.loadRecords()
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.statement.sourceName, "monzo.pdf")
+        XCTAssertEqual(loaded.first?.transactions.count, 1)
+        XCTAssertEqual(loaded.first?.transactions.first?.amount.amount, Decimal(string: "-45.50"))
+        // Same content re-saved ⇒ same StatementID ⇒ one file (idempotent).
+        StatementStore.save(record)
+        XCTAssertEqual(StatementStore.loadRecords().count, 1, "same content must not duplicate")
+    }
+
+    func testMigrationFromV1WithoutDataLoss() throws {
+        // Hand-write a v1 StoredDoc file (default-encoded importedAt as a Double)
+        // into the legacy directory, then let the v2 restore migrate it.
+        let root = StatementStore.directory.deletingLastPathComponent()   // …/statements
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let v1 = """
+        {"name":"legacy.pdf","text":"Monzo\\nsome text",
+         "rows":[{"txnDate":"2026-06-15","month":"2026-06","year":2026,"monthNo":6,"day":15,
+                  "descr":"TESCO","merchant":"Tesco","category":"Groceries","debit":45.5,"credit":0,
+                  "balance":100.0,"currency":"GBP","seq":1,"rawCategory":null}],
+         "currency":"GBP","bank":"Monzo","detectedIssuer":null,"closingBalance":100.0,
+         "isCard":false,"importedAt":700000000}
+        """
+        let v1URL = root.appendingPathComponent("legacy%2Epdf.json")
+        try v1.data(using: .utf8)!.write(to: v1URL)
+
+        let docs = StatementStore.loadDocs()   // triggers migrateV1IfNeeded
+        XCTAssertEqual(docs.count, 1, "v1 file must migrate to a restorable doc")
+        let d = docs.first
+        XCTAssertEqual(d?.name, "legacy.pdf")
+        XCTAssertEqual(d?.rows.first?.debit, 45.5, "figures survive migration")
+        XCTAssertEqual(d?.rows.first?.category, "Groceries")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: v1URL.path), "v1 file removed after migration")
+        XCTAssertEqual(StatementStore.loadRecords().count, 1, "a v2 record now exists")
+        // Idempotent: a second restore doesn't duplicate.
+        _ = StatementStore.loadDocs()
+        XCTAssertEqual(StatementStore.loadRecords().count, 1)
+    }
+
+    func testCorruptFileIsQuarantinedAndOthersLoad() throws {
+        StatementStore.save(makeRecord(sourceName: "good.pdf",
+                                       rows: [(date: "2026-06-15", descr: "TESCO", debit: 10)]))
+        // Drop a garbage file into the v2 directory.
+        let bad = StatementStore.directory.appendingPathComponent("stmt-garbage.json")
+        try "{ not valid json ".data(using: .utf8)!.write(to: bad)
+
+        let records = StatementStore.loadRecords()
+        XCTAssertEqual(records.count, 1, "the good record still loads; the corrupt one is skipped")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bad.path), "corrupt file is quarantined (moved)")
+        let quarantined = StatementStore.directory.appendingPathComponent("corrupt/stmt-garbage.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: quarantined.path))
+    }
+
+    func testPerformanceAtScale() throws {
+        let n = 150
+        for i in 0..<n {
+            StatementStore.save(makeRecord(sourceName: "stmt-\(i).pdf", bank: "Bank\(i)",
+                                           rows: [(date: "2026-06-15", descr: "TX\(i)", debit: Double(i) + 0.5)]))
+        }
+        let start = Date()
+        let graph = StatementStore.loadGraph()
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertEqual(graph.statements.count, n, "all \(n) records load")
+        XCTAssertEqual(graph.transactions.count, n)
+        XCTAssertLessThan(elapsed, 5.0, "loading \(n) records should be well under 5s (was \(elapsed)s)")
     }
 
     func testRemoveDocDeletesItsPersistedFile() throws {

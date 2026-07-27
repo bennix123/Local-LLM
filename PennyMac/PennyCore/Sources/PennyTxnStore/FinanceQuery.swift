@@ -37,6 +37,12 @@ public enum FinanceRouter {
         let low = question.lowercased()
         guard !rows.isEmpty else { return nil }
 
+        // ---- document identity: "which statement is a credit card / current
+        // account?" — answered from each account's `isCard` flag, not the merged
+        // rows. Must run before the income handler, whose `\bcredits?\b` would
+        // otherwise read "credit card" as a request for credit transactions.
+        if let ans = accountTypeAnswer(low, accounts: accounts) { return ans }
+
         let scope = parseScope(low, rows: rows)
         let sr = scope.rows
         let debits = sr.filter { $0.debit > 0 }
@@ -67,7 +73,11 @@ public enum FinanceRouter {
         }
 
         // ---- balance -------------------------------------------------------
-        if matches(low, #"\bbalance\b|how much do i have|money in my account|in my account"#) {
+        // Defers on "opening / starting balance" — that's a statement-header figure
+        // (often with no running balance on the rows at all), handled upstream from
+        // the document text, never the latest all-account total.
+        if matches(low, #"\bbalance\b|how much do i have|money in my account|in my account"#),
+           !matches(low, #"\b(opening|starting|start|initial|beginning)\s+balance\b|balance\s+(?:brought|carried)\s+forward"#) {
             // balance as of a specific date: last running balance up to that day
             if let iso = scope.dayISO {
                 if let bal = rows.filter({ $0.txnDate <= iso })
@@ -134,7 +144,10 @@ public enum FinanceRouter {
         }
 
         // ---- income / credits ----------------------------------------------
-        if matches(low, #"\bincome\b|earn|receiv(?:e|ed|ing)|credited|\bsalary\b|deposits?\b|money (?:in|received)|\bcredits?\b|paid in"#) {
+        // `\bcredits?\b` deliberately excludes the compound-noun senses of "credit"
+        // that aren't money-in: "credit card" (the physical card), "credit
+        // limit/line/score/rating", and "available credit" (a card's headroom).
+        if matches(low, #"\bincome\b|earn|receiv(?:e|ed|ing)|credited|\bsalary\b|deposits?\b|money (?:in|received)|(?<!available\s)\bcredits?\b(?!\s+(?:cards?|limits?|lines?|scores?|ratings?)\b)|paid in"#) {
             let noun = credits.count == 1 ? "credit" : "credits"
             var out = "**You received \(money(income))\(scope.label)** across \(grp(credits.count)) \(noun)."
             if cardRepayments > 0 {
@@ -341,6 +354,49 @@ public enum FinanceRouter {
     }
 
     // MARK: - Helpers
+
+    /// "Which of my statements is a credit card / current account?" — a
+    /// document-identity question, answered from each account's `isCard` flag
+    /// rather than the merged rows. Fires only when an account-TYPE phrase
+    /// ("credit card", "current account", …) is paired with an identity cue
+    /// (which / belongs / "is X a …" / identify), so ordinary "spent on my
+    /// credit card" spend questions fall through. Returns nil (defer) when no
+    /// account context was supplied, so the router still works in row-only tests.
+    private static func accountTypeAnswer(_ low: String,
+                                          accounts: [AccountBalance]) -> String? {
+        guard !accounts.isEmpty else { return nil }
+
+        // Credit-card side.
+        if matches(low, #"credit[\s-]?cards?"#),
+           matches(low, #"\bwhich\b|\bbelongs?\b|\b(?:is|are)\b.*credit[\s-]?card|\bidentif\w*"#) {
+            return namedList(accounts.filter(\.isCard),
+                             singular: "is your credit-card statement",
+                             plural: "These are your credit-card statements:",
+                             none: "**None of your imported statements is a credit card** — they all read as bank / current accounts.")
+        }
+
+        // Current / bank-account side (everything that isn't a card).
+        if matches(low, #"\b(?:current|checking|chequing)\s+accounts?\b|\bbank\s+accounts?\b"#),
+           matches(low, #"\bwhich\b|\bbelongs?\b|\b(?:is|are)\b.*account|\bidentif\w*"#) {
+            return namedList(accounts.filter { !$0.isCard },
+                             singular: "is your current account",
+                             plural: "These are your current (bank) accounts:",
+                             none: "**None of your imported statements is a current account** — they all read as credit cards.")
+        }
+
+        return nil
+    }
+
+    /// Render the matched accounts as an identity answer: an honest "none" line
+    /// when empty, a single-line statement for one, else a bulleted list. Names
+    /// are sorted so the order is stable and readable.
+    private static func namedList(_ accounts: [AccountBalance],
+                                  singular: String, plural: String, none: String) -> String {
+        guard !accounts.isEmpty else { return none }
+        let names = accounts.map(\.name).sorted()
+        if names.count == 1 { return "**\(names[0]) \(singular).**" }
+        return (["**\(plural)**"] + names.map { "- \($0)" }).joined(separator: "\n")
+    }
 
     private static func isAdvisory(_ low: String) -> Bool {
         matches(low, #"\broast\b|\badvice\b|\badvise\b|recommend|worth it|\bopinion\b|feel about|forecast|predict\b|\bwhy\b|worried|\bworry\b|\bhealthy\b|can i afford|help me|are my finances"#)

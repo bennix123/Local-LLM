@@ -46,6 +46,32 @@ private struct SweepPin {
 // current pipeline. If a parser change legitimately improves a file, re-derive
 // its pin the same way rather than loosening the asserts.
 private let sweepPins: [SweepPin] = [
+    // Bank-agnostic Date | Narration | Debit | Credit | Balance column layout. The
+    // amounts carry a mis-decoded ₹ glyph ("n85,000.00"); direction is positional
+    // (Credit column = income), so the salary + refund are the only two credits.
+    // One parser serves every issuer in this family — Kotak and Axis share a body.
+    SweepPin(file: "Kotak_Dummy_Statement.pdf", inTestData: true, rows: 12,
+             currency: "INR", bank: "Kotak Mahindra Bank",
+             fullBalanceChain: true, datesMonotonic: true,
+             totalDebit: 40855.0, totalCredit: 86250.0,
+             first: RowPin(date: "2026-10-01", descr: "Salary Credit - TechNova Pvt Ltd", debit: 0, credit: 85000, balance: 290327.5),
+             last: RowPin(date: "2026-10-29", descr: "Mutual Fund SIP", debit: 10000, credit: 0, balance: 250722.5)),
+    SweepPin(file: "Axis_Dummy_Statement.pdf", inTestData: true, rows: 12,
+             currency: "INR", bank: "Axis Bank",
+             fullBalanceChain: true, datesMonotonic: true,
+             totalDebit: 40855.0, totalCredit: 86250.0,
+             first: RowPin(date: "2026-10-01", descr: "Salary Credit - TechNova Pvt Ltd", debit: 0, credit: 85000, balance: 290327.5),
+             last: RowPin(date: "2026-10-29", descr: "Mutual Fund SIP", debit: 10000, credit: 0, balance: 250722.5)),
+    // The hard case: FIVE monthly sections in one document, year-less "DD-MMM"
+    // date cells (the year lives only in each section header), no-decimal amounts
+    // ("85,000"), and continuation pages that don't repeat the column header. 62
+    // rows, and the balance chain reconciles across every one of them.
+    SweepPin(file: "Dummy_Bank_Statements.pdf", inTestData: true, rows: 62,
+             currency: "INR", bank: "Dummy Bank",
+             fullBalanceChain: true, datesMonotonic: true,
+             totalDebit: 222451.0, totalCredit: 427353.0,
+             first: RowPin(date: "2026-06-01", descr: "Salary - TechNova Pvt Ltd", debit: 0, credit: 85000, balance: 130820.5),
+             last: RowPin(date: "2026-10-29", descr: "SIP", debit: 10000, credit: 0, balance: 250722.5)),
     SweepPin(file: "Coop_Demo_Statement.pdf", inTestData: true, rows: 37,
              currency: "GBP", bank: "Coop Demo",
              fullBalanceChain: true, datesMonotonic: true,

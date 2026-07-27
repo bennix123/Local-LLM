@@ -1186,6 +1186,15 @@ class ConversationState:
     prev_entities: list = field(default_factory=list)
     prev_answer: str = ""
 
+    @staticmethod
+    def _to_int(v):
+        # ctx["n"] may hold the sentinel "all" (unlimited list) — treat any
+        # non-numeric value as "no explicit limit".
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return 0
+
     @classmethod
     def from_ctx(cls, ctx):
         c = ctx or {}
@@ -1196,7 +1205,7 @@ class ConversationState:
             start=c.get("start", "") or "", end=c.get("end", "") or "",
             metric=c.get("metric", "") or "", filters=dict(c.get("filters") or {}),
             comparison=list(c.get("comparison") or []), sort=c.get("sort", "") or "",
-            limit=int(c.get("n") or c.get("limit") or 0),
+            limit=cls._to_int(c.get("n") or c.get("limit") or 0),
             prev_route=c.get("prev_route", "") or "", prev_query=c.get("prev_query", "") or "",
             prev_entities=list(c.get("prev_entities") or []), prev_answer=c.get("prev_answer", "") or "")
 

@@ -71,107 +71,127 @@ enum UKParsers {
         return t
     }
 
-    // MARK: - Amex-style card statement (line-based)
+    // MARK: - Amex-style card statement (positional)
 
-    /// Row: `May 17` / `May 17` (txn + process date) / description line(s) /
-    /// optional foreign-spend line (`EUR 45.00`) / amount / optional `CR`.
+    /// American Express prints its transaction table in fixed columns:
+    ///   [txn-date] [process-date]  DESCRIPTION …  [foreign spend]  AMOUNT  [CR]
+    /// where the two dates are `Mon DD` cells on the far left (x < 95), the amount
+    /// is right-aligned in its own column (x ≳ 450) and a "CR" tag marks a credit.
+    /// This MUST be read positionally, not from the linearized page text: the text
+    /// linearizer detaches the right-hand amount column from its row (and can splice
+    /// the account-summary Credit Limit into the first transaction), which is why the
+    /// old line-based reader saw a handful of rows with the credit limit as an amount.
+    /// The x-gate on the amount column also keeps summary figures (credit limit,
+    /// available credit) and the foreign-spend column out of the transaction amounts.
     static func parseAmexCard(_ doc: PDFTextExtractor,
                               categories: Categories) -> ([TxnRow], CardStatementSummary) {
         let full = fullText(doc)
 
-        // "Statement Period: from 16 May to 15 June 2026" → year anchor.
+        // Statement-period year anchor: "…From 16 February to 15 March 2026" (with or
+        // without a "Statement Period:" label), else the header "Date 15/03/26".
         var em = 0, ey = 0
-        if let m = PyRegex("statement period:?\\s*from\\s+\\d{1,2}\\s+([A-Za-z]+)\\s+to\\s+\\d{1,2}\\s+([A-Za-z]+)\\s+(\\d{4})",
+        if let m = PyRegex("from\\s+\\d{1,2}\\s+([A-Za-z]+)\\s+to\\s+\\d{1,2}\\s+([A-Za-z]+)\\s+(\\d{4})",
                            ignoreCase: true).search(full) {
             em = monthNo(m.group(2)!) ?? 0
             ey = Int(m.group(3)!) ?? 0
         } else if let m = PyRegex("(\\d{2})/(\\d{2})/(\\d{2})\\b").search(full) {
-            // header "Date 15/06/26" fallback
             em = Int(m.group(2)!) ?? 0
             ey = 2000 + (Int(m.group(3)!) ?? 0)
         }
 
-        // Account summary: labels then 4 amounts (prev / credits / debits / closing).
-        var closing: Double? = nil
-        if let m = PyRegex("previous closing balance[\\s\\S]*?£([\\d,]+\\.\\d{2})\\s*£([\\d,]+\\.\\d{2})\\s*£([\\d,]+\\.\\d{2})\\s*£([\\d,]+\\.\\d{2})",
-                           ignoreCase: true).search(full) {
-            closing = money(m.group(4)!)
-        }
+        let monthTok = PyRegex("^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
+        let dayTok = PyRegex("^\\d{1,2}$")
+        let AMOUNT_X = 450.0   // left edge of the amount column
+        let DESC_MIN = 95.0    // description band starts after the date cells
 
-        let datePairRe = PyRegex("^([A-Za-z]{3,9})\\s+(\\d{1,2})$")
-        let foreignRe = PyRegex("^[A-Z]{3}\\s+-?[\\d,]+\\.\\d{2}.*$")
+        struct Amex { var mon: Int; var day: Int; var desc: String; var amount: Double?; var credit: Bool }
+        var txns: [Amex] = []
+        var cur: Amex? = nil
 
-        var lines: [String] = []
-        for i in 0..<doc.pageCount {
-            lines.append(contentsOf: (doc.page(i)?.text ?? "").pySplitLines().map { $0.pyStrip() })
+        for pageIdx in 0..<doc.pageCount {
+            guard let page = doc.page(pageIdx) else { continue }
+            // Cluster words into visual rows by top-y (merge within 5pt): the amount
+            // and its date row sometimes differ by ~1pt, a trailing "CR" by ~12pt.
+            let sorted = page.words.sorted { $0.y0 != $1.y0 ? $0.y0 < $1.y0 : $0.x0 < $1.x0 }
+            var rows: [[PDFWord]] = []
+            var runY = -Double.infinity
+            for w in sorted {
+                if w.y0 - runY <= 5, !rows.isEmpty { rows[rows.count - 1].append(w) }
+                else { rows.append([w]) }
+                runY = w.y0
+            }
+
+            for row in rows {
+                let ws = row.sorted { $0.x0 < $1.x0 }
+                let left = ws.filter { $0.x0 < DESC_MIN }
+                let datePair = left.count >= 4
+                    && monthTok.match(left[0].text) != nil && dayTok.match(left[1].text) != nil
+                    && monthTok.match(left[2].text) != nil
+                // rightmost money token IN the amount column (keeps summary/foreign out)
+                var amount: Double? = nil
+                for w in ws where w.x0 >= AMOUNT_X && amountRe.match(w.text) != nil { amount = money(w.text) }
+                let hasCR = ws.contains { $0.text.pyUpper() == "CR" }
+                let desc = ws.filter { $0.x0 >= DESC_MIN && $0.x0 < AMOUNT_X && amountRe.match($0.text) == nil }
+                             .map(\.text).joined(separator: " ")
+
+                if datePair, let mon = monthNo(left[0].text), let day = Int(left[1].text) {
+                    if let c = cur { txns.append(c) }
+                    cur = Amex(mon: mon, day: day, desc: desc, amount: amount, credit: hasCR)
+                } else if cur != nil {
+                    // continuation row: fill the amount/CR, and append detail text only
+                    // BEFORE the amount is locked in (so page footers can't stitch on).
+                    if let a = amount, cur!.amount == nil { cur!.amount = a }
+                    if hasCR { cur!.credit = true }
+                    if !desc.isEmpty, cur!.amount == nil { cur!.desc = (cur!.desc + " " + desc).pyStrip() }
+                }
+            }
         }
+        if let c = cur { txns.append(c) }
 
         var out: [TxnRow] = []
         var seq = 0
-        var i = 0
-        while i < lines.count {
-            // a transaction begins at TWO consecutive month-day lines
-            guard i + 1 < lines.count,
-                  let d1 = datePairRe.match(lines[i]), monthNo(d1.group(1)!) != nil,
-                  let d2 = datePairRe.match(lines[i + 1]), monthNo(d2.group(1)!) != nil else {
-                i += 1
-                continue
-            }
-            let mon = monthNo(d1.group(1)!)!
-            let day = Int(d1.group(2)!)!
-
-            var descParts: [String] = []
-            var amount: Double? = nil
-            var isCredit = false
-            var j = i + 2
-            while j < lines.count {
-                let ln = lines[j]
-                if amountRe.match(ln) != nil {
-                    amount = money(ln)
-                    if j + 1 < lines.count, lines[j + 1].pyUpper() == "CR" {
-                        isCredit = true
-                        j += 1
-                    }
-                    j += 1
-                    break
-                }
-                // a new date pair before any amount → malformed block; bail out
-                if let e1 = datePairRe.match(ln), monthNo(e1.group(1)!) != nil,
-                   j + 1 < lines.count,
-                   let e2 = datePairRe.match(lines[j + 1]), monthNo(e2.group(1)!) != nil {
-                    break
-                }
-                // skip the foreign-spend cell ("EUR 45.00"); keep detail lines
-                if foreignRe.match(ln) == nil, !ln.isEmpty {
-                    descParts.append(ln)
-                }
-                j += 1
-            }
-
-            guard let amt = amount, !descParts.isEmpty else { i += 1; continue }
-
-            let yr = yearFor(month: mon, endMonth: em, endYear: ey)
-            let iso = String(format: "%04d-%02d-%02d", yr, mon, day)
-            let desc = PyRegex("\\s+").sub(" ", descParts.joined(separator: " ")).pyStrip()
-
-            var merchant: String
-            var category: String
+        for t in txns {
+            guard let amt = t.amount, !t.desc.isEmpty else { continue }
+            let yr = yearFor(month: t.mon, endMonth: em, endYear: ey)
+            let iso = String(format: "%04d-%02d-%02d", yr, t.mon, t.day)
+            let desc = PyRegex("\\s+").sub(" ", t.desc).pyStrip()
+            let merchant: String, category: String
             if PyRegex("payment received", ignoreCase: true).search(desc) != nil {
                 // repaying your own card is a transfer, not income
                 (merchant, category) = ("Payment Received", "Payments")
             } else {
-                (merchant, category) = Classify.barclaysMerchant(desc, isCredit: isCredit,
-                                                                 categories: categories)
+                (merchant, category) = Classify.barclaysMerchant(desc, isCredit: t.credit, categories: categories)
             }
             seq += 1
-            out.append(TxnRow(txnDate: iso, month: iso.pyPrefix(7), year: yr, monthNo: mon, day: day,
+            out.append(TxnRow(txnDate: iso, month: iso.pyPrefix(7), year: yr, monthNo: t.mon, day: t.day,
                               descr: desc.pyPrefix(200), merchant: merchant, category: category,
-                              debit: isCredit ? 0.0 : amt, credit: isCredit ? amt : 0.0,
+                              debit: t.credit ? 0.0 : amt, credit: t.credit ? amt : 0.0,
                               balance: nil, currency: "GBP", seq: seq))
-            i = j
         }
 
-        return (out, CardStatementSummary(closingBalance: closing, isCard: true))
+        return (out, CardStatementSummary(closingBalance: amexClosingBalance(doc), isCard: true))
+    }
+
+    /// The account-summary "Closing Balance" (amount owed): find that column header
+    /// on the first page (it sits in the right half, x > 350) and take the money
+    /// figure directly beneath it. Best-effort — nil if the summary isn't found.
+    private static func amexClosingBalance(_ doc: PDFTextExtractor) -> Double? {
+        guard let page = doc.page(0) else { return nil }
+        let ws = page.words
+        var colX: Double? = nil, labelY: Double? = nil
+        for i in 0..<ws.count where ws[i].text == "Closing" && ws[i].x0 > 350 {
+            if i + 1 < ws.count, ws[i + 1].text == "Balance" { colX = ws[i].x0; labelY = ws[i].y0 }
+        }
+        guard let cx = colX, let ly = labelY else { return nil }
+        let moneyTok = PyRegex("^£?\\s*([\\d,]+\\.\\d{2})$")
+        var best: (y: Double, v: Double)? = nil
+        for w in ws where w.y0 > ly && abs(w.x0 - cx) < 60 {
+            if let m = moneyTok.match(w.text.pyStrip()) {
+                let v = money(m.group(1)!)
+                if best == nil || w.y0 < best!.y { best = (w.y0, v) }
+            }
+        }
+        return best?.v
     }
 
     // MARK: - Column-table engine (NatWest / Nationwide / Revolut / Monzo)

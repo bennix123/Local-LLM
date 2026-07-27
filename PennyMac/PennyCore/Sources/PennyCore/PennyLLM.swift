@@ -163,6 +163,9 @@ public actor PennyLLM {
             var output = ""
             let stream = try MLXLMCommon.generate(input: input, parameters: parameters, context: context)
             for await generation in stream {
+                // Cooperative cancellation: the MLX stream won't stop on its own, so
+                // bail out when the caller cancels the task (e.g. the Stop button).
+                if Task.isCancelled { break }
                 if case .chunk(let piece) = generation {
                     output += piece
                     onToken(piece)

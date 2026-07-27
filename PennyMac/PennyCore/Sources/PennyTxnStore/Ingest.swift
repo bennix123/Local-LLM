@@ -15,6 +15,15 @@ public struct IngestOutput {
     /// Credit-card semantics: the balance is money OWED, charges are debits and
     /// "payment received" credits are transfers, not income.
     public var isCard: Bool = false
+
+    /// Public initializer (matches the memberwise shape) so out-of-module callers —
+    /// e.g. the v1→v2 persistence migration rebuilding `IngestOutput` from stored
+    /// rows — can construct one. Behaviour-neutral for the parser itself.
+    public init(rows: [TxnRow], bankName: String?, confidence: String,
+                detectedCurrency: String, closingBalance: Double? = nil, isCard: Bool = false) {
+        self.rows = rows; self.bankName = bankName; self.confidence = confidence
+        self.detectedCurrency = detectedCurrency; self.closingBalance = closingBalance; self.isCard = isCard
+    }
 }
 
 public final class TxnIngester {
@@ -43,7 +52,7 @@ public final class TxnIngester {
 
         // parser selection
         let profileBank = (matchedProfile?.bankName ?? "").pyLower()
-        enum Route { case barclays, pnb, wrenfield, rowRE, ukLayout, generic }
+        enum Route { case barclays, pnb, wrenfield, columnar, rowRE, ukLayout, generic }
         // UK-layout detectors read the first pages directly (their brand headers
         // can sit before the table start that `head` is anchored to).
         var early = ""
@@ -63,6 +72,12 @@ public final class TxnIngester {
             route = .rowRE
         } else if isUKLayout {
             route = .ukLayout
+        } else if BankParsers.isColumnarDebitCredit(head) || BankParsers.isColumnarDebitCredit(early) {
+            // Bank-agnostic Date|Narration|Debit|Credit|Balance layout (Indian banks
+            // and lookalikes). Placed after the specific detectors so it only claims
+            // what would otherwise fall to the generic cascade; an empty result still
+            // falls back to generic below.
+            route = .columnar
         } else {
             route = .generic
         }
@@ -79,6 +94,9 @@ public final class TxnIngester {
             txns = BankParsers.parsePNB(doc, categories: categories)
         case .wrenfield:
             txns = BankParsers.parseWrenfield(doc, categories: categories)
+        case .columnar:
+            if detectedCur.isEmpty { detectedCur = "INR" }
+            txns = BankParsers.parseColumnarDebitCredit(doc, categories: categories, currency: detectedCur)
         case .rowRE:
             txns = BankParsers.parsePDF(doc, categories: categories)
         case .ukLayout:
@@ -94,13 +112,26 @@ public final class TxnIngester {
             confidence = res.confidence
         }
 
-        // dedicated parser produced nothing -> generic cascade fallback.
+        // dedicated parser produced nothing -> fallback cascade.
         // (Not for UK layouts: the generic cascade is known to misread them —
         // fake balances, wrong dates — so empty is more honest than garbage.)
         if txns.isEmpty, route != .generic, route != .ukLayout {
+            // Generic first — it correctly handles the statements a dedicated (or the
+            // columnar) parser abstains on today, so its output must not change. This
+            // includes columnar-routed statements whose GBP/EUR body the columnar
+            // parser can't read: they must still recover via generic.
             let res = GenericParsers.parseGenericStatement(doc, categories: categories)
             txns = res.rows
             confidence = res.confidence
+            // Only when generic ALSO yields nothing and the layout is the columnar
+            // Debit/Credit/Balance format do we recover via the universal columnar
+            // parser — e.g. a bank profile forced .pnb for an issuer whose statement
+            // uses the modern layout that neither the PNB parser nor generic reads.
+            if txns.isEmpty, route != .columnar,
+               BankParsers.isColumnarDebitCredit(head) || BankParsers.isColumnarDebitCredit(early) {
+                if detectedCur.isEmpty { detectedCur = "INR" }
+                txns = BankParsers.parseColumnarDebitCredit(doc, categories: categories, currency: detectedCur)
+            }
         }
 
         // category hints folded into the description tail

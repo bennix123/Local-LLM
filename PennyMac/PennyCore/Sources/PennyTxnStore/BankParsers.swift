@@ -32,6 +32,24 @@ enum BankParsers {
         return low.pyContains("wrenfield") && low.pyContains("outgoings") && low.pyContains("incomings")
     }
 
+    /// The "Date | Narration | Debit | Credit | Balance" column layout used by
+    /// most Indian banks (Kotak, Axis, HDFC, ICICI, SBI, …) and lookalikes.
+    /// Detected by the column *structure* — a description column plus SEPARATE
+    /// Debit and Credit columns and a Balance column — not by any bank name, so it
+    /// works for every issuer that ships this format. The separate debit/credit
+    /// columns are the discriminator (UK/EU statements use "Money in/out",
+    /// "Paid in/out", "Payments/Receipts" — never a distinct Debit *and* Credit
+    /// header). Because direction is positional (an amount in the Credit column is
+    /// income), we never guess it from a running-balance delta. Also tolerant of
+    /// the rupee glyph (₹) that some PDF subsets mis-decode as a stray leading
+    /// letter on every amount.
+    static let columnarDescHeaders = ["narration", "particulars", "description", "details", "transaction"]
+    static func isColumnarDebitCredit(_ text: String) -> Bool {
+        let low = text.pyLower()
+        return columnarDescHeaders.contains { low.pyContains($0) }
+            && low.pyContains("debit") && low.pyContains("credit") && low.pyContains("balance")
+    }
+
     // ---- parse_pdf: DD-MM-YYYY + DR/CR + balance rows
 
     static func parsePDF(_ doc: PDFTextExtractor, categories: Categories) -> [TxnRow] {
@@ -335,6 +353,163 @@ enum BankParsers {
                 }
             } else {
                 i += 1
+            }
+        }
+        return out
+    }
+
+    // ---- Universal positional Debit/Credit/Balance columnar parser (bank-agnostic)
+    //
+    // One parser for every statement built on the Date | Narration/Description |
+    // Debit | Credit | Balance layout — Kotak, Axis, HDFC, ICICI, SBI and the many
+    // lookalikes. It reads the words by shared y, learns the Debit/Credit/Balance
+    // column x-centres from the header row, and assigns each amount to a column by
+    // nearest x. Direction is therefore positional (an amount in the Credit column
+    // is income) — never a running-balance guess, which the generic parser gets
+    // wrong on the first row (a salary credit) when no opening balance seeds the
+    // walk. Deliberately tolerant of every variation these statements throw:
+    //   • amounts with OR without decimals ("85,000" and "45,820.50")
+    //   • a mis-decoded ₹ glyph prefixing amounts ("n85,000.00")
+    //   • the year in the date cell ("01-Oct-2026"), or only in a section header
+    //     with a bare "DD-MMM" / "DD/MM" date cell — the document year fills in
+    //   • multiple monthly sections in one document (repeated headers)
+    // An x-proximity gate keeps stray numbers (account numbers, years, phone
+    // numbers) from being read as amounts: a token only counts as money if it sits
+    // within half a column-gap of the Debit/Credit/Balance columns.
+    static let columnarMonthDateRe = PyRegex("^(\\d{1,2})-([A-Za-z]{3})(?:-(\\d{2,4}))?$")
+    static let columnarNumDateRe = PyRegex("^(\\d{1,2})[/.-](\\d{1,2})(?:[/.-](\\d{2,4}))?$")
+    static let columnarYearRe = PyRegex("^(19|20)\\d{2}$")
+    // Money: comma-grouped (with optional decimals), or any-length decimal. Rejects
+    // ungrouped 4+ digit blobs (account/reference numbers). A leading currency glyph
+    // (₹, or its "n" mis-decode, or $/£/€) is stripped first.
+    static let columnarMoneyRe = PyRegex("^(\\d{1,3}(,\\d{3})*(\\.\\d{1,2})?|\\d+\\.\\d{1,2})$")
+
+    /// (year?, month, day) for a date-column token — year is nil when the cell
+    /// carries no year (filled from the document later). Returns nil if not a date.
+    private static func columnarDate(_ token: String) -> (year: Int?, month: Int, day: Int)? {
+        if let m = columnarMonthDateRe.match(token) {
+            guard let mon = DateParse.monTitle[m.group(2)!.pyPrefix(3).pyTitle()] else { return nil }
+            let day = Int(m.group(1)!)!
+            guard (1...31).contains(day) else { return nil }
+            return (normYear(m.group(3)), mon, day)
+        }
+        if let m = columnarNumDateRe.match(token) {
+            let day = Int(m.group(1)!)!, mon = Int(m.group(2)!)!
+            guard (1...31).contains(day), (1...12).contains(mon) else { return nil }
+            return (normYear(m.group(3)), mon, day)
+        }
+        return nil
+    }
+    private static func normYear(_ s: String?) -> Int? {
+        guard let s, var y = Int(s) else { return nil }
+        if y < 100 { y += 2000 }
+        return y
+    }
+
+    /// A money value if `token` is an amount cell, else nil. Strips a leading
+    /// currency glyph (real or the "n" mis-decode of ₹) before matching.
+    private static func columnarMoney(_ token: String) -> Double? {
+        let stripped = PyRegex("^[₹$£€n]").sub("", token)
+        guard columnarMoneyRe.match(stripped) != nil else { return nil }
+        return abs(money(token))
+    }
+
+    static func parseColumnarDebitCredit(_ doc: PDFTextExtractor, categories: Categories,
+                                         currency: String) -> [TxnRow] {
+        // Document year: statements often print the year only in a section header,
+        // leaving date cells as bare "DD-MMM". Use the most common year token.
+        var yearCounts: [Int: Int] = [:]
+        for i in 0..<doc.pageCount {
+            for w in doc.page(i)?.words ?? [] where columnarYearRe.match(w.text) != nil {
+                yearCounts[Int(w.text)!, default: 0] += 1
+            }
+        }
+        let docYear = yearCounts.max { $0.value < $1.value }?.key
+
+        var out: [TxnRow] = []
+        var seq = 0
+        // Column x-centres carry ACROSS pages: a statement's later pages often
+        // continue the table without repeating the header, so a page with no header
+        // reuses the last-known columns (the layout is fixed document-wide).
+        var dX: Double?, cX: Double?, bX: Double?
+
+        for pageIdx in 0..<doc.pageCount {
+            guard let page = doc.page(pageIdx) else { continue }
+
+            // Cluster words into visual rows by y (within ~3pt).
+            var rows: [(y: Double, words: [(x: Double, t: String)])] = []
+            for w in page.words.sorted(by: { $0.y0 != $1.y0 ? $0.y0 < $1.y0 : $0.x0 < $1.x0 }) {
+                if let last = rows.last, abs(w.y0 - last.y) <= 3 {
+                    rows[rows.count - 1].words.append((w.x0, w.text))
+                    rows[rows.count - 1].y = w.y0
+                } else {
+                    rows.append((w.y0, [(w.x0, w.text)]))
+                }
+            }
+
+            // Learn column x-centres from this page's header row (first row carrying
+            // all three), updating the carried-over columns when present.
+            for row in rows {
+                var d: Double?, c: Double?, b: Double?
+                for (x, t) in row.words {
+                    switch t.pyLower() {
+                    case "debit":   d = x
+                    case "credit":  c = x
+                    case "balance": b = x
+                    default: break
+                    }
+                }
+                if let d, let c, let b { dX = d; cX = c; bX = b; break }
+            }
+            guard let dX, let cX, let bX else { continue }
+
+            // Proximity gate: half the smallest inter-column gap. A money token must
+            // land inside one column's band to be assigned; description numbers
+            // (further left) are left as text.
+            let sortedX = [dX, cX, bX].sorted()
+            let gate = max(1.0, min(sortedX[1] - sortedX[0], sortedX[2] - sortedX[1]) / 2)
+            func column(_ x: Double) -> Int? {   // 0 = debit, 1 = credit, 2 = balance
+                let d = [abs(x - dX), abs(x - cX), abs(x - bX)]
+                let i = d.firstIndex(of: d.min()!)!
+                return d[i] <= gate ? i : nil
+            }
+
+            for row in rows {
+                let words = row.words.sorted { $0.x < $1.x }
+                guard let dateWord = words.first(where: { columnarDate($0.t) != nil }),
+                      let parsed = columnarDate(dateWord.t) else { continue }
+                guard let year = parsed.year ?? docYear else { continue }
+
+                var debit = 0.0, credit = 0.0, balance = 0.0
+                var sawAmount = false, sawBalance = false
+                var descParts: [String] = []
+                for (x, t) in words {
+                    if t == dateWord.t { continue }
+                    if let v = columnarMoney(t), let col = column(x) {
+                        switch col {
+                        case 0: debit = v;  sawAmount = true
+                        case 1: credit = v; sawAmount = true
+                        default: balance = v; sawBalance = true
+                        }
+                    } else {
+                        descParts.append(t)
+                    }
+                }
+                // A real transaction row has a debit-or-credit amount and a balance.
+                guard sawAmount, sawBalance else { continue }
+
+                let iso = String(format: "%04d-%02d-%02d", year, parsed.month, parsed.day)
+                var desc = descParts.joined(separator: " ")
+                desc = PyRegex("\\s+").sub(" ", desc).pyStrip()
+
+                let isCredit = credit > 0
+                let (merchant, category) = Classify.classify(desc, isCredit: isCredit, categories: categories)
+                seq += 1
+                out.append(TxnRow(txnDate: iso, month: iso.pyPrefix(7), year: year,
+                                  monthNo: parsed.month, day: parsed.day, descr: desc,
+                                  merchant: merchant, category: category,
+                                  debit: debit, credit: credit, balance: balance,
+                                  currency: currency.isEmpty ? "INR" : currency, seq: seq))
             }
         }
         return out

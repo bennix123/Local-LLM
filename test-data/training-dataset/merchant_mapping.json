@@ -1,0 +1,42 @@
+{
+  "Amazon": {
+    "canonical": "Amazon",
+    "category": "Shopping"
+  },
+  "Swiggy": {
+    "canonical": "Swiggy",
+    "category": "Food"
+  },
+  "Zomato": {
+    "canonical": "Zomato",
+    "category": "Food"
+  },
+  "Uber": {
+    "canonical": "Uber",
+    "category": "Transport"
+  },
+  "DMart": {
+    "canonical": "DMart",
+    "category": "Groceries"
+  },
+  "Netflix": {
+    "canonical": "Netflix",
+    "category": "Entertainment"
+  },
+  "Indian Oil": {
+    "canonical": "Indian Oil",
+    "category": "Fuel"
+  },
+  "Spotify": {
+    "canonical": "Spotify",
+    "category": "Entertainment"
+  },
+  "Apollo Pharmacy": {
+    "canonical": "Apollo Pharmacy",
+    "category": "Healthcare"
+  },
+  "Flipkart": {
+    "canonical": "Flipkart",
+    "category": "Shopping"
+  }
+}

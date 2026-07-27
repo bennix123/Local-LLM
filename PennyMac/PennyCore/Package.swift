@@ -7,6 +7,8 @@ let package = Package(
     name: "PennyCore",
     platforms: [.macOS(.v14)],
     products: [
+        .library(name: "PennyModel", targets: ["PennyModel"]),
+        .library(name: "PennyFinance", targets: ["PennyFinance"]),
         .library(name: "PennyCore", targets: ["PennyCore"]),
         .library(name: "PennyTxnStore", targets: ["PennyTxnStore"]),
         .executable(name: "penny-cli", targets: ["penny-cli"]),
@@ -22,6 +24,18 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.3"),
     ],
     targets: [
+        // L1 — the canonical financial model. Pure value types, zero dependencies;
+        // the keystone every higher layer points down to. Currently a placeholder
+        // (Phase 0 · Task 0.1); real types land in Task 0.2/0.3. See docs/migration/.
+        .target(
+            name: "PennyModel"
+        ),
+        // L2–L4 — the deterministic financial brain (Phase 1: Query Engine).
+        // Pure value logic over the canonical model; no SwiftUI, no MLX, no AI.
+        .target(
+            name: "PennyFinance",
+            dependencies: ["PennyModel"]
+        ),
         .target(
             name: "PennyCore",
             dependencies: [
@@ -39,6 +53,7 @@ let package = Package(
         // with plain `swift build` and is testable against contract/fixtures.
         .target(
             name: "PennyTxnStore",
+            dependencies: ["PennyModel"],   // Task 0.4 — the parser→model adapter lives here
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         // CLI proof of the vertical slice: load model → read PDF → one question → streamed answer.
@@ -57,6 +72,16 @@ let package = Package(
         // XCTest layer over the same deterministic pipeline: the 22-fixture
         // conformance contract plus component tests (router, retriever, DB,
         // dates/money/categorisation). No MLX dependency — runs with `swift test`.
+        // Value-type contract for the canonical model: lossless Codable round-trips,
+        // signed-money semantics, range containment. No MLX — runs with `swift test`.
+        .testTarget(
+            name: "PennyModelTests",
+            dependencies: ["PennyModel"]
+        ),
+        .testTarget(
+            name: "PennyFinanceTests",
+            dependencies: ["PennyFinance", "PennyTxnStore"]   // TxnStore for the FinanceRouter parity test
+        ),
         .testTarget(
             name: "PennyTxnStoreTests",
             dependencies: ["PennyTxnStore"]
