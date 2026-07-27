@@ -238,6 +238,35 @@ case "retrieve":
         print("  \(i + 1). \(r.txnDate) | \(r.descr) | \(r.category) | \(amt) \(r.currency)")
     }
 
+case "battery":
+    // usage: penny-conformance battery <pdf> <questionsFile>
+    // Ingests ONCE, then answers every question (one per line in the file) via the
+    // deterministic FinanceRouter. Emits JSONL: {"q":…, "a":…|null}. `a` null means
+    // the router deferred (would fall back to the LLM).
+    guard args.count >= 4 else { fail("usage: penny-conformance battery <pdf> <questionsFile>") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let cur = out.detectedCurrency.isEmpty ? "INR" : out.detectedCurrency
+    let sym: String = ["INR": "₹", "GBP": "£", "USD": "$", "EUR": "€", "OMR": "﷼"][cur] ?? ""
+    let money: (Double) -> String = { String(format: "\(sym)%.2f", $0) }
+    // Single-account context so card-balance ("you owe") semantics fire, mirroring the app.
+    let accounts = [FinanceRouter.AccountBalance(
+        name: out.bankName ?? "Card",
+        balance: out.closingBalance ?? out.rows.last(where: { $0.balance != nil })?.balance,
+        isCard: out.isCard)]
+    let qs = (try String(contentsOfFile: args[3], encoding: .utf8))
+        .split(separator: "\n", omittingEmptySubsequences: true)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+    for q in qs {
+        let a = FinanceRouter.answer(q, rows: out.rows, currency: cur, accounts: accounts, money: money)
+        let obj: [String: Any] = ["q": q, "a": a as Any? ?? NSNull()]
+        print(String(data: try JSONSerialization.data(withJSONObject: obj), encoding: .utf8)!)
+    }
+
 default:
     fail("unknown subcommand: \(cmd)")
 }
