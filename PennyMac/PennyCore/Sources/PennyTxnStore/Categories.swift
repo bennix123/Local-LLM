@@ -57,6 +57,17 @@ public final class Categories {
         }
     }
 
+    /// Full deterministic categorisation for a merchant/description string —
+    /// merchant-map rules first (first-match-wins, file order), then the
+    /// keyword rules. Mirrors the core of `Classify.classify` for clean merchant
+    /// names (without the UPI/slug person-detection used for messy narrations).
+    public func categorize(_ text: String, isCredit: Bool = false) -> String {
+        for rule in merchantRules where rule.pattern.search(text) != nil {
+            return rule.category
+        }
+        return keywordCategory(text, isCredit: isCredit)
+    }
+
     /// keyword_category(): deterministic category from a description string.
     public func keywordCategory(_ text: String, isCredit: Bool = false) -> String {
         let low = text.replacingOccurrences(of: "_", with: " ")

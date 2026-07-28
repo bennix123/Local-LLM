@@ -267,6 +267,68 @@ case "battery":
         print(String(data: try JSONSerialization.data(withJSONObject: obj), encoding: .utf8)!)
     }
 
+case "classify":
+    // usage: penny-conformance classify <merchantsFile> [categoriesJSON]
+    // Runs each line through the deterministic categorizer. Emits JSONL:
+    // {"merchant":…, "category":…}. Used to measure merchant→category coverage.
+    guard args.count >= 3 else { fail("usage: penny-conformance classify <file> [categoriesJSON]") }
+    let catPath = args.count > 3 ? args[3]
+        : "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery/contract/categories.json"
+    let cats = try Categories(categoriesJSONPath: catPath)
+    let lines = (try String(contentsOfFile: args[2], encoding: .utf8))
+        .split(separator: "\n", omittingEmptySubsequences: true)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+    for m in lines {
+        let obj: [String: Any] = ["merchant": m, "category": cats.categorize(m)]
+        print(String(data: try JSONSerialization.data(withJSONObject: obj), encoding: .utf8)!)
+    }
+
+case "ai-mopup":
+    // usage: penny-conformance ai-mopup <pdf> [model]
+    // Ingests the PDF, finds rows the deterministic engine left as "Other", and
+    // classifies those merchants via the Claude API fallback. Needs ANTHROPIC_API_KEY.
+    guard args.count >= 3 else { fail("usage: penny-conformance ai-mopup <pdf> [model]") }
+    guard let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty else {
+        fail("set ANTHROPIC_API_KEY in the environment")
+    }
+    let aiModel = args.count > 3 ? args[3] : "claude-opus-4-8"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(
+        categoriesJSONPath: base + "/contract/categories.json",
+        bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let out = try ingester.ingestPDF(path: args[2])
+    let otherRows = out.rows.filter { $0.category == "Other" && $0.debit > 0 }
+    let descrs = Array(Set(otherRows.map { $0.descr })).sorted()
+    print("[ingest] \(out.rows.count) rows · \(otherRows.count) still 'Other' · \(descrs.count) distinct merchants")
+    if descrs.isEmpty { print("Nothing to mop up — deterministic engine covered everything."); exit(0) }
+    print("[ai] classifying \(descrs.count) merchants via \(aiModel) …\n")
+
+    let categorizer = ClaudeCategorizer(apiKey: key, model: aiModel)
+    let results = try await categorizer.categorize(descriptions: descrs)
+    var accepted = 0, logged = 0, kept = 0
+    for r in results.sorted(by: { $0.confidence > $1.confidence }) {
+        let action: String
+        switch r.confidence {
+        case 0.90...: action = "✓ ACCEPT   "; accepted += 1
+        case 0.70..<0.90: action = "~ accept+log"; logged += 1
+        default: action = "· keep Other"; kept += 1
+        }
+        print(String(format: "  %@  %-18@  %.2f   %@", action as NSString,
+                     r.category as NSString, r.confidence, String(r.merchant.prefix(44)) as NSString))
+    }
+    let moved = accepted + logged
+    // How many "Other" rows would leave the bucket (any row whose merchant scored ≥0.70).
+    var movedRows = 0
+    for row in otherRows {
+        let hit = results.first(where: { $0.merchant == row.descr })
+        if let hit, hit.confidence >= 0.70 { movedRows += 1 }
+    }
+    let remaining = max(0, otherRows.count - movedRows)
+    print("\n[result] \(moved)/\(descrs.count) merchants confidently categorized "
+          + "(\(accepted) accept, \(logged) accept+log, \(kept) keep). "
+          + "'Other' rows would drop from \(otherRows.count) to \(remaining).")
+
 default:
     fail("unknown subcommand: \(cmd)")
 }
