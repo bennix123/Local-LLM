@@ -230,6 +230,7 @@ final class AppModel: ObservableObject {
         messages.removeAll()
         history.removeAll()
         errorMessage = nil
+        bytesSentOut = 0
         deriveDocs()
         recomputeSummary()
     }
@@ -297,6 +298,15 @@ final class AppModel: ObservableObject {
     // leaving the deterministic offline path completely untouched.
     var claudeAPIKey: String? = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
 
+    /// Bytes actually sent to Anthropic this session (AI categorization + the
+    /// scanned-PDF OCR fallback). Drives the privacy panel honestly — 0 keeps the
+    /// "fully offline" badge; > 0 flips it to a "sent to Claude" state. Reset on wipe.
+    @Published private(set) var bytesSentOut = 0
+
+    /// An AI re-categorization pass is in flight — disables the manual button and
+    /// guards against concurrent runs.
+    @Published private(set) var isRecategorizing = false
+
     // chat
     @Published var messages: [ChatMessage] = []
     @Published var isThinking = false
@@ -362,6 +372,10 @@ final class AppModel: ObservableObject {
             }
             self.deriveDocs()
             self.recomputeSummary()
+            // Restored statements may still carry "Other" rows. Run the on-device
+            // mop-up now (skips itself when the model isn't loaded yet — the
+            // post-load hook in `loadAndContinue` catches that case).
+            self.refineCategoriesForLoadedStatements()
         }
         // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
         // optionally skip to the dashboard, and import a fixture statement
@@ -428,6 +442,27 @@ final class AppModel: ObservableObject {
     var contextReady: Bool { summary.count > 0 }
     var transactionCount: Int { summary.count }
 
+    /// Distinct "Other" debit merchants the AI mop-up could still place. Drives
+    /// the sidebar button's count.
+    var uncategorizedMerchantCount: Int { CategoryMopup.unresolvedDescriptors(in: graph).count }
+
+    /// Distinct merchants a manual AI pass could still re-verify — unplaced ones
+    /// plus rows an earlier AI pass labeled. Keeps the sidebar button available
+    /// as a "recheck" even after everything is placed (hidden only when there is
+    /// truly nothing an AI pass could change).
+    var recheckableMerchantCount: Int {
+        CategoryMopup.unresolvedDescriptors(in: graph, scope: .unresolvedOrAIRelabeled).count
+    }
+
+    /// Human-readable "data sent out" figure for the brain panel.
+    var dataSentLabel: String {
+        let b = bytesSentOut
+        if b == 0 { return "0 bytes" }
+        if b < 1024 { return "\(b) bytes" }
+        let kb = Double(b) / 1024
+        return kb < 1024 ? String(format: "%.1f KB", kb) : String(format: "%.2f MB", kb / 1024)
+    }
+
     /// Real count of auto-detected recurring charges / subscriptions ("ghosts")
     /// across all imported statements — drives the sidebar's Ghosts badge, so it
     /// reflects the actual data instead of a hardcoded placeholder. Needs ≥3
@@ -483,6 +518,7 @@ final class AppModel: ObservableObject {
                 loadStatus = "ready ✓"
                 stage = .dashboard
                 refineIssuersViaLLM()   // label statements imported before load
+                refineCategoriesForLoadedStatements()   // ...and categorize their "Other" rows
             } catch {
                 modelPhase = .idle
                 errorMessage = "Model load failed: \(error.localizedDescription)"
@@ -564,6 +600,9 @@ final class AppModel: ObservableObject {
         /// (Phase 0.8 cleanup: the legacy txns/rows/currency/bank/closingBalance/
         /// isCard fields were removed — the runtime uses only the graph + text.)
         let graph: FinancialGraph
+        /// Bytes sent to Anthropic while producing this result (OCR extraction +
+        /// category mop-up). 0 on the pure-offline path.
+        var bytesSent = 0
     }
     private struct ImportFailure: Error, Sendable { let message: String }
 
@@ -612,6 +651,7 @@ final class AppModel: ObservableObject {
                 let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
                 StatementStore.save(record)
                 addSlice(r.graph, text: r.text)
+                bytesSentOut += r.bytesSent
                 if let kind, uploadsByKind[kind]?.contains(r.name) != true {
                     uploadsByKind[kind, default: []].append(r.name)
                 }
@@ -619,6 +659,7 @@ final class AppModel: ObservableObject {
                 deriveDocs()
                 recomputeSummary()   // deterministic figures → fills the Today panel
                 detectIssuerViaLLM(for: r.name, text: r.text)   // refine the account label
+                refineCategoriesForLoadedStatements()   // on-device "Other"-row mop-up
             case .failure(let failure):
                 isAnalyzing = false
                 errorMessage = failure.message
@@ -656,11 +697,11 @@ final class AppModel: ObservableObject {
                 setStage(.analyzing(monthRange: batch.monthRange), batches, done)
                 importingName = "Months \(batch.monthRange)"
 
-                var toRun = batch.fileIndices
+                var toRun = batch.fileIndices.map { urls[$0] }
                 var current = batch
                 var succeededHere = 0
                 while true {
-                    let failed = await runBatchFiles(toRun.map { urls[$0] }, kind: kind)
+                    let failed = await runBatchFiles(toRun, kind: kind)
                     succeededHere += (toRun.count - failed.count)
                     if failed.isEmpty { break }
                     // Retry ONLY the files that failed, on this batch alone.
@@ -703,6 +744,7 @@ final class AppModel: ObservableObject {
                     : "Analysis completed with \(failedBatches) batch(es) skipped.",
                     kind: failedBatches == 0 ? .success : .warning)
                 refineIssuersViaLLM()
+                refineCategoriesForLoadedStatements()   // on-device "Other"-row mop-up
             } else {
                 errorMessage = "Couldn't read any transactions from the selected statements."
             }
@@ -733,6 +775,7 @@ final class AppModel: ObservableObject {
                     let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
                     StatementStore.save(record)
                     addSlice(r.graph, text: r.text)
+                    bytesSentOut += r.bytesSent
                     if let kind, uploadsByKind[kind]?.contains(r.name) != true {
                         uploadsByKind[kind, default: []].append(r.name)
                     }
@@ -804,7 +847,7 @@ final class AppModel: ObservableObject {
     }
 
     nonisolated private static func extract(url: URL, aiKey: String? = nil) async -> Result<ExtractResult, ImportFailure> {
-        await Task.detached(priority: .userInitiated) {
+        let raw = await Task.detached(priority: .userInitiated) { () -> Result<ExtractResult, ImportFailure> in
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
@@ -845,6 +888,159 @@ final class AppModel: ObservableObject {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
         }.value
+
+        // The category mop-up runs ON-DEVICE after the import lands (see
+        // `refineCategoriesForLoadedStatements`) — nothing leaves the Mac here.
+        return raw
+    }
+
+    /// One batched on-device categorization pass over the unresolved descriptors.
+    /// The local model may reuse a seed category or coin a brand-new one (dynamic
+    /// taxonomy); verdicts are bridged into the shape `CategoryMopup` consumes.
+    /// Errors surface as an empty result — the deterministic graph always stands.
+    nonisolated private static func localCategorize(_ descriptors: [String], llm: PennyLLM,
+                                                    seeds: [String]) async -> [ClaudeCategorization] {
+        let verdicts = (try? await llm.categorizeMerchants(descriptors, seedCategories: seeds)) ?? []
+        return verdicts.map {
+            ClaudeCategorization(merchant: $0.merchant, category: $0.category, confidence: $0.confidence)
+        }
+    }
+
+    /// One batched Claude API categorization pass — dynamic taxonomy (the model
+    /// may coin new category names beyond the seeds); coined names are tamed by
+    /// the same normalizer the local path uses so the taxonomy can't fragment.
+    /// Haiku 4.5 is far cheaper than Opus and plenty capable for merchant
+    /// classification. Errors/refusals surface as an empty result. Returns the
+    /// request-body size for "data sent out" accounting.
+    nonisolated private static func aiCategorize(_ descriptors: [String], aiKey: String,
+                                                 seeds: [String])
+    async -> (results: [ClaudeCategorization], bytesSent: Int) {
+        let categorizer = ClaudeCategorizer(apiKey: aiKey, model: "claude-haiku-4-5")
+        let raw = (try? await categorizer.dynamicCategorize(descriptions: descriptors,
+                                                            seedCategories: seeds)) ?? []
+        let results = raw.map {
+            ClaudeCategorization(merchant: $0.merchant,
+                                 category: PennyLLM.normalizeCategory($0.category, seeds: seeds),
+                                 confidence: $0.confidence)
+        }
+        return (results, categorizer.lastRequestByteCount)
+    }
+
+    /// Category names offered to the model as known choices: Penny's canonical
+    /// taxonomy plus whatever already exists in the graph — including categories
+    /// the AI coined on earlier runs — so repeat passes reuse the same labels
+    /// instead of fragmenting into near-duplicates.
+    private func seedCategories() -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for name in ClaudeCategorizer.canonicalCategories + graph.categories.map(\.name)
+        where seen.insert(name.lowercased()).inserted {
+            out.append(name)
+        }
+        return out
+    }
+
+    // MARK: - AI re-categorization of already-loaded statements
+
+    /// Run the AI categorization pass over the CURRENT graph, apply the accepted
+    /// categories — which may include brand-new, model-coined names — re-persist
+    /// the affected statements, and refresh the UI.
+    ///
+    /// With an API key set, Claude is the PRIMARY categorizer: automatic runs
+    /// (launch restore, post-import) send every debit merchant Claude hasn't
+    /// placed yet — the deterministic labels are only instant placeholders —
+    /// and the manual button re-checks every debit row. Idempotent across
+    /// launches: AI-placed rows carry a `.category` signal and are skipped.
+    ///
+    /// Key-less, the on-device model is the fallback with the conservative
+    /// scopes: automatic runs sweep only "Other" rows; manual also re-evaluates
+    /// earlier AI verdicts. Best-effort — the existing labels always stand.
+    func refineCategoriesForLoadedStatements(manual: Bool = false) {
+        guard !isRecategorizing else { return }
+        let keyed = !(claudeAPIKey ?? "").isEmpty
+        let scope: CategoryMopup.Scope = keyed ? (manual ? .allDebits : .withoutAIVerdict)
+                                               : (manual ? .unresolvedOrAIRelabeled : .unresolved)
+        let descriptors = CategoryMopup.unresolvedDescriptors(in: graph, scope: scope)
+        guard !descriptors.isEmpty else {
+            if manual { postToast("Nothing to categorize — every merchant is already placed.", kind: .success) }
+            return
+        }
+        isRecategorizing = true
+        let seeds = seedCategories()
+        let llm = self.llm
+        let key = claudeAPIKey
+        Task { [weak self] in
+            let usingClaude = keyed
+            let results: [ClaudeCategorization]
+            var bytes = 0
+            if let key, usingClaude {
+                if manual {
+                    self?.postToast("Asking Claude to categorize \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s")…",
+                                    kind: .progress)
+                }
+                (results, bytes) = await Self.aiCategorize(descriptors, aiKey: key, seeds: seeds)
+            } else {
+                // No key → on-device fallback. Automatic runs (launch restore,
+                // post-import) only piggyback on an already-loaded model — they
+                // must never trigger a multi-GB weights download. The manual
+                // button may load on demand: by dashboard time the chosen
+                // model's weights are on disk.
+                if !manual, await !llm.isLoaded {
+                    self?.isRecategorizing = false
+                    return
+                }
+                if manual {
+                    self?.postToast("Categorizing \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s") on-device…",
+                                    kind: .progress)
+                }
+                results = await Self.localCategorize(descriptors, llm: llm, seeds: seeds)
+            }
+            guard let self else { return }
+            self.isRecategorizing = false
+            self.bytesSentOut += bytes
+            guard !results.isEmpty else {
+                if manual {
+                    self.postToast(usingClaude ? "Couldn't reach Claude — categories unchanged."
+                                               : "The model couldn't read these merchants — categories unchanged.",
+                                   kind: .warning)
+                }
+                return
+            }
+            let before = self.graph
+            let refined = CategoryMopup.apply(results, to: before, scope: scope)
+            guard refined != before else {
+                if manual {
+                    self.postToast("\(usingClaude ? "Claude" : self.modelDisplayName) wasn't confident enough to change any category.", kind: .progress)
+                }
+                return
+            }
+            let prev = Dictionary(before.transactions.map { ($0.id, $0.enrichment.categoryID?.raw) },
+                                  uniquingKeysWith: { a, _ in a })
+            let moved = refined.transactions.filter { prev[$0.id] != $0.enrichment.categoryID?.raw }.count
+            self.applyRefinedGraph(refined)
+            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") \(usingClaude ? "with Claude" : "on-device").", kind: .success)
+        }
+    }
+
+    /// Swap in an AI-refined graph and re-persist every statement so the change
+    /// survives relaunch, then rebuild the read caches. Mirrors `deriveDocs`'
+    /// per-statement record construction.
+    private func applyRefinedGraph(_ refined: FinancialGraph) {
+        graph = refined
+        let txnsByStatement = Dictionary(grouping: refined.transactions, by: \.statementID)
+        let accountsByID = Dictionary(refined.accounts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for stmt in refined.statements {
+            guard let account = accountsByID[stmt.accountID] else { continue }
+            let record = StatementStore.StatementRecord(
+                account: account, statement: stmt,
+                transactions: txnsByStatement[stmt.id] ?? [],
+                merchants: refined.merchants, categories: refined.categories,
+                text: statementText[stmt.id]?.text ?? "",
+                importedAt: statementText[stmt.id]?.importedAt ?? Date())
+            StatementStore.save(record)
+        }
+        deriveDocs()
+        recomputeSummary()
     }
 
     /// Scanned-PDF fallback: OCR the pages, LLM-extract transactions, and assemble
@@ -861,7 +1057,8 @@ final class AppModel: ObservableObject {
                                detectedCurrency: ai.currency, isCard: false)
         let meta = StatementMetadataParser.parse(text: ocrText)
         let graph = ModelAssembler.assemble(out, sourceName: url.lastPathComponent, metadata: meta).graph
-        return ExtractResult(name: url.lastPathComponent, text: ocrText, graph: graph)
+        return ExtractResult(name: url.lastPathComponent, text: ocrText, graph: graph,
+                             bytesSent: extractor.lastRequestByteCount)
     }
 
     func toggleDoc(_ name: String) {

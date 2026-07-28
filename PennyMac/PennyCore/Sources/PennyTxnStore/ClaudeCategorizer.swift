@@ -54,6 +54,10 @@ public final class ClaudeCategorizer {
     let model: String
     let session: URLSession
 
+    /// Byte size of the last request body sent to the API. The app reads this to
+    /// honestly report "data sent out" (its privacy panel). 0 until a call runs.
+    public private(set) var lastRequestByteCount = 0
+
     /// `model` defaults to Opus 4.8. For this classification task Haiku 4.5
     /// (`claude-haiku-4-5`) is far cheaper and plenty capable — pass it explicitly
     /// to switch.
@@ -68,21 +72,38 @@ public final class ClaudeCategorizer {
     public func categorize(descriptions: [String],
                            allowedCategories: [String] = canonicalCategories)
     async throws -> [ClaudeCategorization] {
+        try await run(descriptions: descriptions, categories: allowedCategories, enumLocked: true)
+    }
+
+    /// Like `categorize`, but with a DYNAMIC taxonomy: `seedCategories` are offered
+    /// as known choices and the model may coin a NEW concise category name (1–3
+    /// words, Title Case, e.g. "Pet Care") when none fits — the category field is a
+    /// free string, not enum-locked. Callers should normalize/snap the returned
+    /// names (the app uses `PennyLLM.normalizeCategory`) before applying them.
+    public func dynamicCategorize(descriptions: [String],
+                                  seedCategories: [String] = canonicalCategories)
+    async throws -> [ClaudeCategorization] {
+        try await run(descriptions: descriptions, categories: seedCategories, enumLocked: false)
+    }
+
+    private func run(descriptions: [String], categories: [String], enumLocked: Bool)
+    async throws -> [ClaudeCategorization] {
         guard !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
         let merchants = Array(NSOrderedSet(array: descriptions)) as? [String] ?? descriptions
         guard !merchants.isEmpty else { return [] }
 
         // "Other" must always be an allowed escape hatch.
-        var cats = allowedCategories
+        var cats = categories
         if !cats.contains("Other") { cats.append("Other") }
 
-        let body = requestBody(merchants: merchants, categories: cats)
+        let body = requestBody(merchants: merchants, categories: cats, enumLocked: enumLocked)
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        lastRequestByteCount = req.httpBody?.count ?? 0
         req.timeoutInterval = 60
 
         let (data, response) = try await session.data(for: req)
@@ -94,7 +115,8 @@ public final class ClaudeCategorizer {
             throw ClaudeCategorizerError.http(status: http.statusCode, body: text)
         }
 
-        let parsed = try parseResults(data: data, merchants: merchants, allowed: Set(cats))
+        let parsed = try parseResults(data: data, merchants: merchants,
+                                      allowed: enumLocked ? Set(cats) : nil)
         // Fill any omissions so the caller gets one row per input.
         let byName = Dictionary(parsed.map { ($0.merchant, $0) }, uniquingKeysWith: { a, _ in a })
         return merchants.map { byName[$0] ?? ClaudeCategorization(merchant: $0, category: "Other", confidence: 0) }
@@ -102,9 +124,10 @@ public final class ClaudeCategorizer {
 
     // MARK: - Request
 
-    private func requestBody(merchants: [String], categories: [String]) -> [String: Any] {
+    private func requestBody(merchants: [String], categories: [String],
+                             enumLocked: Bool) -> [String: Any] {
         let list = merchants.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        let system = """
+        let system = enumLocked ? """
         You categorize bank- and card-statement merchant descriptors into a fixed \
         set of personal-finance categories. Use the merchant's real-world business \
         type, inferring from brand names, card-acquirer prefixes (e.g. DOJO*, TST-, \
@@ -113,13 +136,27 @@ public final class ClaudeCategorizer {
         confidence from 0 to 1 (1 = certain).
 
         Allowed categories: \(categories.joined(separator: ", ")).
+        """ : """
+        You categorize bank- and card-statement merchant descriptors for a \
+        personal-finance app. Use the merchant's real-world business type, \
+        inferring from brand names, card-acquirer prefixes (e.g. DOJO*, TST-, \
+        TEYA*), and location hints. Prefer one of the KNOWN CATEGORIES when it \
+        fits; if none fits, coin a NEW concise category name — 1 to 3 words, \
+        Title Case, like "Pet Care" or "Home Improvement" — describing the \
+        business type. Use "Other" only when you genuinely cannot tell. Return a \
+        confidence from 0 to 1 (1 = certain).
+
+        Known categories: \(categories.joined(separator: ", ")).
         """
-        // Structured-outputs schema: category is enum-locked to the taxonomy.
+        // Structured-outputs schema: category is enum-locked to the taxonomy in
+        // fixed mode, a free string in dynamic mode (the model may coin names).
+        var categoryField: [String: Any] = ["type": "string"]
+        if enumLocked { categoryField["enum"] = categories }
         let itemSchema: [String: Any] = [
             "type": "object",
             "properties": [
                 "merchant": ["type": "string"],
-                "category": ["type": "string", "enum": categories],
+                "category": categoryField,
                 "confidence": ["type": "number"],
             ],
             "required": ["merchant", "category", "confidence"],
@@ -145,7 +182,8 @@ public final class ClaudeCategorizer {
 
     // MARK: - Response
 
-    private func parseResults(data: Data, merchants: [String], allowed: Set<String>)
+    /// `allowed == nil` means dynamic mode: any category string is accepted.
+    private func parseResults(data: Data, merchants: [String], allowed: Set<String>?)
     throws -> [ClaudeCategorization] {
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClaudeCategorizerError.badResponse("top-level not an object")
@@ -163,8 +201,8 @@ public final class ClaudeCategorizer {
         return results.compactMap { r in
             guard let m = r["merchant"] as? String, let c = r["category"] as? String else { return nil }
             let conf = (r["confidence"] as? NSNumber)?.doubleValue ?? 0
-            // Guard against an off-taxonomy label leaking through.
-            let cat = allowed.contains(c) ? c : "Other"
+            // In enum-locked mode, guard against an off-taxonomy label leaking through.
+            let cat = (allowed == nil || allowed!.contains(c)) ? c : "Other"
             return ClaudeCategorization(merchant: m, category: cat, confidence: max(0, min(1, conf)))
         }
     }

@@ -1102,3 +1102,93 @@ final class EndToEndSpecTests: XCTestCase {
         XCTAssertFalse(a!.contains("American Express"), "the Amex card has no salary")
     }
 }
+
+/// Guards the pure parsing/normalization half of the on-device dynamic
+/// categorizer (`PennyLLM.categorizeMerchants`): reconciling a small local
+/// model's imperfect JSON back onto the input descriptors, and taming
+/// model-coined category names so the taxonomy can grow without fragmenting.
+/// No MLX inference runs here — these are the deterministic statics only.
+final class LocalCategorizerParsingTests: XCTestCase {
+
+    private let seeds = ["Groceries", "Food & Dining", "Transport", "Other"]
+
+    func testParsesCleanVerdicts() {
+        let raw = """
+        [{"merchant": "LATYMERS - HAMMERSMITH LONDON", "category": "Food & Dining", "confidence": 0.9},
+         {"merchant": "NAYAXAU*DATATEK PAYMENT LONDON", "category": "Vending", "confidence": 0.8}]
+        """
+        let out = PennyLLM.parseMerchantCategories(
+            from: raw,
+            descriptors: ["LATYMERS - HAMMERSMITH LONDON", "NAYAXAU*DATATEK PAYMENT LONDON"],
+            seeds: seeds)
+        XCTAssertEqual(out.count, 2)
+        XCTAssertEqual(out[0], MerchantCategory(merchant: "LATYMERS - HAMMERSMITH LONDON",
+                                                category: "Food & Dining", confidence: 0.9))
+        XCTAssertEqual(out[1].category, "Vending")   // a model-coined category survives
+    }
+
+    func testIgnoresProseAndCodeFences() {
+        let raw = """
+        Here are the results:
+        ```json
+        [{"merchant": "PET SUPPLIES PLUS", "category": "pet care", "confidence": 1}]
+        ```
+        """
+        let out = PennyLLM.parseMerchantCategories(from: raw, descriptors: ["PET SUPPLIES PLUS"], seeds: seeds)
+        XCTAssertEqual(out, [MerchantCategory(merchant: "PET SUPPLIES PLUS", category: "Pet Care", confidence: 1)])
+    }
+
+    func testMangledEchoMatchesCaseAndPunctuationInsensitively() {
+        let raw = #"[{"merchant": "dojo the craft beer co london", "category": "Food & Dining", "confidence": 0.95}]"#
+        let out = PennyLLM.parseMerchantCategories(
+            from: raw, descriptors: ["DOJO*THE CRAFT BEER CO LONDON", "SOMETHING ELSE"], seeds: seeds)
+        XCTAssertEqual(out.map(\.merchant), ["DOJO*THE CRAFT BEER CO LONDON"])
+    }
+
+    func testPositionalFallbackWhenEchoUnrecognizable() {
+        // The model rewrote both echoes beyond recognition, but returned exactly
+        // one verdict per input — position pairs them back up.
+        let raw = """
+        [{"merchant": "a coffee shop", "category": "Food & Dining", "confidence": 0.9},
+         {"merchant": "a taxi firm", "category": "Transport", "confidence": 0.9}]
+        """
+        let out = PennyLLM.parseMerchantCategories(from: raw, descriptors: ["XK-291", "ZZTOP LTD"], seeds: seeds)
+        XCTAssertEqual(out.map(\.merchant), ["XK-291", "ZZTOP LTD"])
+        XCTAssertEqual(out.map(\.category), ["Food & Dining", "Transport"])
+    }
+
+    func testConfidenceMissingStringAndOutOfRange() {
+        let raw = """
+        [{"merchant": "A", "category": "Transport"},
+         {"merchant": "B", "category": "Transport", "confidence": "0.8"},
+         {"merchant": "C", "category": "Transport", "confidence": 7}]
+        """
+        let out = PennyLLM.parseMerchantCategories(from: raw, descriptors: ["A", "B", "C"], seeds: seeds)
+        XCTAssertEqual(out.map(\.confidence), [0.75, 0.8, 1.0])
+    }
+
+    func testGarbageYieldsEmpty() {
+        XCTAssertEqual(PennyLLM.parseMerchantCategories(from: "I cannot help with that.",
+                                                        descriptors: ["A"], seeds: seeds), [])
+        XCTAssertEqual(PennyLLM.parseMerchantCategories(from: "[not json at all",
+                                                        descriptors: ["A"], seeds: seeds), [])
+    }
+
+    func testNormalizeSnapsToSeedSpelling() {
+        XCTAssertEqual(PennyLLM.normalizeCategory("food & dining", seeds: seeds), "Food & Dining")
+        XCTAssertEqual(PennyLLM.normalizeCategory("  \"TRANSPORT\". ", seeds: seeds), "Transport")
+    }
+
+    func testNormalizeTitleCasesNewNamesAndKeepsConnectorsLowercase() {
+        XCTAssertEqual(PennyLLM.normalizeCategory("home improvement", seeds: seeds), "Home Improvement")
+        XCTAssertEqual(PennyLLM.normalizeCategory("arts and crafts", seeds: seeds), "Arts and Crafts")
+    }
+
+    func testNormalizeRejectsEmptyAndRambling() {
+        XCTAssertEqual(PennyLLM.normalizeCategory("", seeds: seeds), "Other")
+        XCTAssertEqual(PennyLLM.normalizeCategory("This merchant appears to be a restaurant",
+                                                  seeds: seeds), "Other")
+        XCTAssertEqual(PennyLLM.normalizeCategory("Extremely Long Category Name Indeed",
+                                                  seeds: seeds), "Other")
+    }
+}

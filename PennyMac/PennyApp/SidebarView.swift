@@ -174,26 +174,31 @@ struct SidebarView: View {
         return "🏦"
     }
 
-    /// `.net` — the privacy card. Penny has no online mode: this is a static
-    /// statement of fact, not a setting.
+    /// `.net` — the privacy card. Reflects reality: fully offline until an AI
+    /// fallback (opt-in, needs a key) actually sends data, then it says so
+    /// honestly. Statements/balances never leave regardless — only merchant
+    /// descriptors are ever sent, and only for categorization.
     private var netPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let offline = app.bytesSentOut == 0
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
-                Circle().fill(Theme.limeD).frame(width: 6, height: 6)
-                Text("FULLY OFFLINE")
+                Circle().fill(offline ? Theme.limeD : Theme.coral).frame(width: 6, height: 6)
+                Text(offline ? "FULLY OFFLINE" : "CLOUD AI USED")
                     .font(Theme.mono(8.5))
-                    .foregroundStyle(Theme.limeD)
+                    .foregroundStyle(offline ? Theme.limeD : Theme.coral)
                     .kerning(0.8)
             }
-            Text(MD.inline("Penny is **fully offline**. Your statements and questions never leave this Mac."))
+            Text(MD.inline(offline
+                ? "Penny is **fully offline**. Your statements and questions never leave this Mac."
+                : "Merchant names (and scanned-PDF text, if OCR was needed) were sent to Claude (**\(app.dataSentLabel)**). Your statements, balances and questions stay on this Mac."))
                 .font(Theme.font(10.5, .medium)).foregroundStyle(Theme.ink2)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .hardCard(fill: Color(hex: 0xeefbe0), radius: 13, border: 2,
-                  borderColor: Theme.limeD, shadow: 3)
+        .hardCard(fill: offline ? Color(hex: 0xeefbe0) : Color(hex: 0xfdeee9), radius: 13, border: 2,
+                  borderColor: offline ? Theme.limeD : Theme.coral, shadow: 3)
     }
 
     /// `.bp` — "PENNY'S BRAIN" model + stats card.
@@ -218,12 +223,41 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             stat("Statements", "\(app.docs.count)")
             stat("Transactions", "\(app.transactionCount)")
-            stat("Data sent out", "0 bytes", valueColor: Theme.limeD)
+            stat("Data sent out", app.dataSentLabel,
+                 valueColor: app.bytesSentOut == 0 ? Theme.limeD : Theme.coral)
+            if app.recheckableMerchantCount > 0 { categorizeButton }
             if app.showUpgradeNudge { upgradeNudge }
         }
         .padding(.horizontal, 11).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hardCard(radius: 13, border: 2, shadow: 3)
+    }
+
+    /// Manual trigger for the AI mop-up: asks Claude (or the on-device model
+    /// when no API key is set) to categorize the unresolved merchants AND to
+    /// re-check rows an earlier AI pass placed — the model may coin new
+    /// categories beyond the canonical list. Shown while any merchant is
+    /// still unresolved.
+    private var categorizeButton: some View {
+        Button { app.refineCategoriesForLoadedStatements(manual: true) } label: {
+            HStack(spacing: 6) {
+                Text(app.isRecategorizing
+                     ? MD.inline("categorizing…")
+                     : app.uncategorizedMerchantCount > 0
+                        ? MD.inline("✨ **categorize \(app.uncategorizedMerchantCount)** with AI")
+                        : MD.inline("✨ recheck categories with AI"))
+                    .font(Theme.font(9.5, .semibold))
+                    .foregroundStyle(Theme.limeD)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(app.isRecategorizing)
+        .accessibilityIdentifier("brain.categorize")
+        .padding(.top, 3)
     }
 
     /// One-line hint for 16 GB+ Macs still on the 3B slice: the 8B model fits —

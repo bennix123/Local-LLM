@@ -13,7 +13,6 @@ struct PennyRootView: View {
             case .dashboard:   DashboardView()
             }
         }
-        .environmentObject(app)
         .frame(minWidth: 900, minHeight: 620)
         // Progressive multi-statement analysis: a non-blocking staged card (the
         // rest of the UI stays interactive so users can review data as it lands),
@@ -36,6 +35,11 @@ struct PennyRootView: View {
         // controls (e.g. the chat TextField's text) don't render white-on-cream
         // when the user's Mac is in Dark Mode.
         .preferredColorScheme(.light)
+        // Inject the model LAST so it covers the routed content *and* both
+        // overlays. Overlay content is a sibling of the modified view, not a
+        // descendant — putting `.environmentObject` earlier leaves ToastStack /
+        // AnalysisProgressView without `app` and traps at launch.
+        .environmentObject(app)
     }
 }
 

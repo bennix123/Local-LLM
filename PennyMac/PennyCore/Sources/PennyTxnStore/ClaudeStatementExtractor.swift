@@ -29,6 +29,11 @@ public final class ClaudeStatementExtractor {
     let model: String
     let session: URLSession
 
+    /// Total request-body bytes sent across all page chunks of the last
+    /// `extract(pages:)` call — the app reads this to honestly report "data sent
+    /// out". Reset at the start of each `extract`.
+    public private(set) var lastRequestByteCount = 0
+
     /// Accuracy matters for extraction, so the default is Opus 4.8. The key is
     /// injected (Keychain in the app; ANTHROPIC_API_KEY in the CLI) — never stored.
     public init(apiKey: String, model: String = "claude-opus-4-8", session: URLSession = .shared) {
@@ -41,6 +46,7 @@ public final class ClaudeStatementExtractor {
     public func extract(pages: [String], hintCurrency: String? = nil,
                         pagesPerRequest: Int = 2) async throws -> ExtractedStatement {
         guard !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
+        lastRequestByteCount = 0
         let nonEmpty = pages.enumerated().filter { !$0.element.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !nonEmpty.isEmpty else { return ExtractedStatement(bank: nil, currency: hintCurrency ?? "", rows: [], confidence: 0) }
 
@@ -87,6 +93,7 @@ public final class ClaudeStatementExtractor {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.timeoutInterval = 120
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        lastRequestByteCount += req.httpBody?.count ?? 0
 
         guard let (data, resp) = try? await session.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
