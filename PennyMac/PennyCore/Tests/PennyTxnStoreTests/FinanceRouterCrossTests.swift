@@ -227,4 +227,206 @@ final class FinanceRouterCrossTests: XCTestCase {
         XCTAssertEqual(a?.contains("more in Jun"), true, "month diff: \(a ?? "nil")")
         XCTAssertEqual(a?.contains("Difference: £20.00"), true)
     }
+
+    // MARK: - Round 4: refunds, repayment, reverse-lookup phrasings, listing,
+    // and verb-shadowed existence (regression for the qbatch findings).
+
+    /// A categorised fixture with a refund credit and a card repayment, mirroring
+    /// the Amex layout: DENTIST £100 (Healthcare), COFFEE £8.99 (Food & Dining),
+    /// AMAZON PRIME £8.99 (Subscriptions), a £12.50 REFUND credit, and a £300
+    /// card repayment (category "Payments").
+    private static func mixed() -> [TxnRow] {
+        func r(_ date: String, _ descr: String, _ cat: String,
+               debit: Double = 0, credit: Double = 0, seq: Int) -> TxnRow {
+            let p = date.split(separator: "-").compactMap { Int($0) }
+            return TxnRow(txnDate: date, month: String(date.prefix(7)), year: p[0], monthNo: p[1],
+                          day: p[2], descr: descr, merchant: "", category: cat, debit: debit,
+                          credit: credit, balance: nil, currency: "GBP", seq: seq)
+        }
+        return [
+            r("2026-06-01", "CARE DENTAL PLATINUM", "Healthcare", debit: 100, seq: 1),
+            r("2026-06-03", "PRET A MANGER", "Food & Dining", debit: 8.99, seq: 2),
+            r("2026-06-05", "TFL TRAVEL CHARGE", "Transport", debit: 40.70, seq: 3),
+            r("2026-06-07", "AMAZON PRIME", "Subscriptions", debit: 8.99, seq: 4),
+            r("2026-06-09", "ASOS REFUND", "Shopping", credit: 12.50, seq: 5),
+            r("2026-06-10", "PAYMENT RECEIVED - THANK YOU", "Payments", credit: 300, seq: 6),
+        ]
+    }
+    private func askMixed(_ q: String) -> String? {
+        FinanceRouter.answer(q, rows: Self.mixed(), currency: "GBP", money: Self.gbp)
+    }
+
+    func testRefundPresentAndCounted() {
+        // One real refund (£12.50); the £300 card repayment must NOT count as a refund.
+        let a = askMixed("how many refunds did i receive")
+        XCTAssertEqual(a?.contains("1 refund"), true, "refund count: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("£12.50"), true)
+        XCTAssertEqual(a?.contains("£300") , false, "card repayment leaked into refunds: \(a ?? "nil")")
+    }
+
+    func testRefundAbsentIsHonestNo() {
+        // Fixture with no credits at all → "no refunds", never a transaction count.
+        let a = ask("did i get any refunds")
+        XCTAssertEqual(a?.hasPrefix("**No refunds"), true, "refund absent: \(a ?? "nil")")
+    }
+
+    func testCardRepaymentPayOff() {
+        // "how much did I pay off" → the repayment made (£300), not the balance.
+        let a = askMixed("how much did i pay off")
+        XCTAssertEqual(a?.contains("paid off £300.00"), true, "pay off: \(a ?? "nil")")
+    }
+
+    func testReverseLookupBareDecimal() {
+        // "which transaction was 40.70" — bare two-decimal amount, no £ sign.
+        let a = askMixed("which transaction was 40.70")
+        XCTAssertEqual(a?.contains("TFL TRAVEL CHARGE"), true, "bare-decimal reverse: \(a ?? "nil")")
+    }
+
+    func testReverseLookupCurrencyWord() {
+        // "what did I spend 100 pounds on" — amount named by a currency WORD.
+        let a = askMixed("what did i spend 100 pounds on")
+        XCTAssertEqual(a?.contains("CARE DENTAL PLATINUM"), true, "currency-word reverse: \(a ?? "nil")")
+    }
+
+    func testShopVerbWithAbsentMerchantIsNo() {
+        // "did I shop at Netflix?" — "shop" is a VERB here, not the Shopping
+        // category; Netflix is absent, so the honest answer is No.
+        let a = askMixed("did i shop at netflix")
+        XCTAssertEqual(a?.hasPrefix("**No"), true, "shop-verb shadow: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("Netflix"), true)
+    }
+
+    func testUseVerbWithAbsentMerchantIsNo() {
+        // "did I use Uber?" — verb "use" + absent merchant → No, not a deferral.
+        let a = askMixed("did i use uber")
+        XCTAssertEqual(a?.hasPrefix("**No"), true, "use-verb absent: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("Uber"), true)
+    }
+
+    func testListCategoryTransactions() {
+        // "list my Food & Dining transactions" → itemised, not just a total.
+        let a = askMixed("list my food transactions")
+        XCTAssertEqual(a?.contains("PRET A MANGER"), true, "category list: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("- "), true, "expected an itemised list: \(a ?? "nil")")
+    }
+
+    func testWhatDidIBuyOnMerchant() {
+        // "what did I buy on Amazon" → the Amazon row, itemised.
+        let a = askMixed("what did i buy on amazon")
+        XCTAssertEqual(a?.contains("AMAZON PRIME"), true, "merchant buy-list: \(a ?? "nil")")
+    }
+
+    func testReversalPluralRoutesToRefunds() {
+        // "reversals" (plural) must still hit the refund handler, not defer.
+        let a = askMixed("were there any reversals")
+        XCTAssertNotNil(a, "reversal plural deferred")
+        XCTAssertEqual(a?.contains("refund"), true, "reversal→refund: \(a ?? "nil")")
+    }
+
+    func testReverseLookupPayForPhrasing() {
+        // "what did I pay 100 pounds for" — verb "pay" + currency-word amount.
+        let a = askMixed("what did i pay 100 pounds for")
+        XCTAssertEqual(a?.contains("CARE DENTAL PLATINUM"), true, "pay-for reverse: \(a ?? "nil")")
+    }
+
+    func testEatOutScopesToFood() {
+        // "how many times did I eat out" must scope to Food & Dining (1 here),
+        // not count every transaction.
+        let a = askMixed("how many times did i eat out")
+        XCTAssertEqual(a?.contains("1 transaction on Food & Dining"), true, "eat-out scope: \(a ?? "nil")")
+    }
+
+    /// The shop-verb guard must NOT break the genuine Shopping-category question.
+    func testShoppingCategoryStillWorks() {
+        let a = askMixed("how much did i spend on shopping")
+        // Shopping has only the £12.50 credit here → £0 spent, but it must scope to
+        // the Shopping category (mention it), not defer or answer the whole total.
+        XCTAssertEqual(a?.contains("Shopping") == true || a?.contains("£0.00") == true, true,
+                       "shopping category regressed: \(a ?? "nil")")
+    }
+
+    // MARK: - Round 5: median, exclusion, below/range thresholds, combined-sum,
+    // count-compare, difference, typo tolerance, trip-nouns, distinct merchants.
+
+    func testMedian() {
+        // Self.rows debits sorted [5,5,5,10,15,20,30,100] → median (10+15)/2 = 12.50.
+        XCTAssertEqual(ask("what was my median transaction")?.contains("£12.50"), true,
+                       "median: \(ask("what was my median transaction") ?? "nil")")
+    }
+
+    func testTypoNormalisationTotal() {
+        // "mcuh"/"totl" must not become phantom merchants — answer the £190 total.
+        XCTAssertEqual(ask("how mcuh did i spend in total")?.contains("£190.00"), true)
+        XCTAssertEqual(ask("totl spending please")?.contains("£190.00"), true)
+    }
+
+    func testHowManyPoundsIsSumScoped() {
+        // "how many pounds on food" is a SUM scoped to Food (£8.99 here), not a count.
+        let a = askMixed("how many pounds on food")
+        XCTAssertEqual(a?.contains("£8.99"), true, "money-count scoped: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("Food & Dining"), true)
+    }
+
+    func testExclusion() {
+        // mixed debits = 100 + 8.99 + 40.70 + 8.99 = 158.68; excluding Food (8.99) = 149.69.
+        let a = askMixed("whats my spend excluding food")
+        XCTAssertEqual(a?.contains("£149.69"), true, "exclusion: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("excluding Food & Dining"), true)
+    }
+
+    func testBelowThresholdAndTenner() {
+        // Under a tenner: PRET 8.99 + AMAZON 8.99 = 2 transactions.
+        let a = askMixed("show me transactions under a tenner")
+        XCTAssertEqual(a?.contains("2 transactions under £10.00"), true, "below/tenner: \(a ?? "nil")")
+    }
+
+    func testAmountRange() {
+        // Self.rows debits in [10,20]: 10, 20, 15 → 3.
+        let a = ask("how many transactions were between 10 and 20 pounds")
+        XCTAssertEqual(a?.contains("3 transactions between £10.00 and £20.00"), true, "range: \(a ?? "nil")")
+    }
+
+    func testCombinedSum() {
+        // "TFL and Pret combined" → 40.70 + 8.99 = 49.69 (a SUM, not a comparison).
+        let a = askMixed("how much on tfl and pret combined")
+        XCTAssertEqual(a?.contains("£49.69"), true, "combined: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("combined"), true)
+    }
+
+    func testCountComparison() {
+        // Category count-compare: Food 3 txns vs Transport 2 txns → "more … in Food".
+        let rows = [
+            Self.row("2026-06-01", "PRET", debit: 5, seq: 1),
+            Self.row("2026-06-02", "GREGGS", debit: 4, seq: 2),
+            Self.row("2026-06-03", "COSTA", debit: 3, seq: 3),
+            Self.row("2026-06-04", "TFL", debit: 2, seq: 4),
+            Self.row("2026-06-05", "UBER", debit: 9, seq: 5),
+        ].enumerated().map { i, r -> TxnRow in
+            var c = r; c.category = i < 3 ? "Food & Dining" : "Transport"; return c
+        }
+        let a = FinanceRouter.answer("how many food transactions versus transport",
+                                     rows: rows, currency: "GBP", money: Self.gbp)
+        XCTAssertEqual(a?.contains("more transactions in Food & Dining"), true, "count-compare: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("Food & Dining 3"), true)
+    }
+
+    func testComparisonDifference() {
+        // "how much more … than" → compare + explicit difference.
+        let a = askMixed("how much more did i spend on healthcare than food")
+        XCTAssertEqual(a?.contains("Difference: £91.01"), true, "difference: \(a ?? "nil")")  // 100 − 8.99
+    }
+
+    func testCategoryScopedSuperlativeTripNoun() {
+        // "cheapest transport trip" — "trip" must count as an expense noun.
+        let a = askMixed("whats my cheapest transport trip")
+        XCTAssertEqual(a?.contains("Transport"), true, "trip superlative: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("£40.70"), true)
+    }
+
+    func testDistinctMerchantCountNotShoppingScoped() {
+        // "how many shops did I visit" counts distinct merchants (8), not the
+        // Shopping category (which the "shop" synonym would otherwise select).
+        let a = ask("how many shops did i visit")
+        XCTAssertEqual(a?.contains("8 different merchants"), true, "distinct merchants: \(a ?? "nil")")
+    }
 }

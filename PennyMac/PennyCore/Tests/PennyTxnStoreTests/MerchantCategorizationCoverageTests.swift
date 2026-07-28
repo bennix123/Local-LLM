@@ -64,10 +64,34 @@ final class MerchantCategorizationCoverageTests: XCTestCase {
         ("Coinbase", "Investment & Insurance"), ("Nutmeg", "Investment & Insurance"),
     ]
 
+    /// The merchants added in the vocabulary-expansion pass — realistic statement
+    /// descriptors (with card noise), each of which was "Other" before.
+    private let expandedSample: [(String, String)] = [
+        ("LYFT RIDE SF", "Transport"), ("EUROSTAR LONDON", "Transport"),
+        ("NAMMA YATRI BLR", "Transport"), ("FLIXBUS DE", "Transport"),
+        ("WAYFAIR ORDER 8821", "Shopping"), ("TEMU ORDER", "Shopping"),
+        ("LULULEMON REGENT ST", "Shopping"), ("CLARKS OXFORD ST", "Shopping"),
+        ("NORDVPN.COM", "Subscriptions"), ("CHATGPT SUBSCRIPTION", "Subscriptions"),
+        ("PEACOCK TV", "Subscriptions"), ("1PASSWORD", "Subscriptions"),
+        ("BET365 STAKE", "Entertainment"), ("SEE TICKETS", "Entertainment"),
+        ("PVR CINEMAS MUMBAI", "Entertainment"),
+        ("CVS PHARMACY 04521", "Healthcare"), ("TATA 1MG ORDER", "Healthcare"),
+        ("PANERA BREAD 22", "Food & Dining"), ("DOORDASH SF", "Food & Dining"),
+        ("TOBY CARVERY", "Food & Dining"), ("JOLLIBEE", "Food & Dining"),
+        ("MORRISONS PETROL", "Groceries"), ("MEIJER 118", "Groceries"),
+        ("ADANI ELECTRICITY", "Utilities"), ("SPECTRUM INTERNET", "Utilities"),
+        ("MINT MOBILE", "Utilities"),
+        ("ROBINHOOD GOLD", "Investment & Insurance"),
+        ("GEICO INSURANCE", "Investment & Insurance"),
+        ("HARGREAVES LANSDOWN", "Investment & Insurance"),
+        ("UDEMY COURSE", "Education"), ("PHYSICS WALLAH", "Education"),
+        ("SIMPLILEARN", "Education"),
+    ]
+
     func testRepresentativeMerchantsCategorize() throws {
         let c = try cats()
         var wrong: [String] = []
-        for (m, want) in expected {
+        for (m, want) in expected + expandedSample {
             let got = c.categorize(m)
             if got != want { wrong.append("\(m): got \(got), want \(want)") }
         }

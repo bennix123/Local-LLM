@@ -34,8 +34,19 @@ public enum FinanceRouter {
                               currency: String,
                               accounts: [AccountBalance] = [],
                               money: (Double) -> String) -> String? {
-        let low = question.lowercased()
+        var low = question.lowercased()
         guard !rows.isEmpty else { return nil }
+
+        // Normalise a few very common misspellings of intent words up-front, so a
+        // typo like "mcuh"/"totl" doesn't get mistaken for an (absent) merchant and
+        // answered as a misleading "£0 on Mcuh".
+        for (typo, fix) in [("mcuh", "much"), ("muhc", "much"), ("moch", "much"),
+                            ("totl", "total"), ("toatl", "total"), ("transprot", "transport"),
+                            ("trasnport", "transport"), ("expence", "expense"),
+                            ("expences", "expenses"), ("groceies", "groceries")] {
+            low = low.replacingOccurrences(of: #"\b"# + typo + #"\b"#, with: fix,
+                                           options: .regularExpression)
+        }
 
         // ---- statement-header metadata → defer -----------------------------
         // Rewards points, credit limit, interest rates, minimum payment, due date,
@@ -79,6 +90,17 @@ public enum FinanceRouter {
             return ans
         }
 
+        // ---- exclusion ("how much excluding food", "spend apart from rent") --
+        // A category was scoped, but the intent is the total WITHOUT it — invert.
+        if scope.hasCategory, let cat = scope.entity,
+           matches(low, #"\bexcluding\b|\bexcept(?:ing)?\b|apart from|other than|\bbesides\b|not counting|\bwithout\b|aside from|\bminus\b|\bexclude\b"#) {
+            let all = rows.filter { $0.debit > 0 }
+            let kept = all.filter { $0.category != cat }
+            let tot = kept.reduce(0) { $0 + $1.debit }
+            return "**You spent \(money(tot)) excluding \(cat)** across \(grp(kept.count)) transaction\(kept.count == 1 ? "" : "s") "
+                + "(\(cat) itself was \(money(spent)))."
+        }
+
         // ---- balance -------------------------------------------------------
         // Defers on "opening / starting balance" — that's a statement-header figure
         // (often with no running balance on the rows at all), handled upstream from
@@ -120,6 +142,37 @@ public enum FinanceRouter {
             return "This statement doesn't show a running balance, so I can't give you a current figure."
         }
 
+        // ---- refunds / cashback / reversals ---------------------------------
+        // A refund is money BACK — a credit that isn't a card repayment. "How many
+        // refunds" must count THESE, not every transaction, and "did I get a refund"
+        // is a yes/no over them; both would otherwise be mis-caught by the generic
+        // count / income handlers below.
+        if matches(low, #"\brefund\w*|\bcashback\b|\bcash\s?back\b|\breversal\w*|\breversed\b|\bchargeback\b|money back|\brebate\b"#) {
+            let refunds = credits   // `credits` already excludes card repayments
+            if refunds.isEmpty {
+                return "**No refunds\(scope.label) — \(money(0)).** I don't see any money-back credits on this statement."
+            }
+            let noun = refunds.count == 1 ? "refund" : "refunds"
+            if matches(low, #"how much|total|worth|value|\bsum\b"#),
+               !matches(low, #"how many|number of|\blist\b|show|which|what were"#) {
+                return "**You received \(money(income)) in \(noun)\(scope.label)** across \(grp(refunds.count)) credit\(refunds.count == 1 ? "" : "s")."
+            }
+            var lines = ["**\(grp(refunds.count)) \(noun)\(scope.label), totalling \(money(income)):**"]
+            for r in refunds.prefix(10) { lines.append("- \(money(r.credit)) — \(r.descr) (\(prettyDate(r.txnDate)))") }
+            return lines.joined(separator: "\n")
+        }
+
+        // ---- card repayment ("how much did I pay off / repay the card?") ----
+        // Distinct from balance ("how much do I still OWE") — this is the repayment
+        // you MADE, i.e. the card-repayment credits (category "Payments").
+        if matches(low, #"\bpaid off\b|\bpay(?:ing)?\s+off\b|\brepay\w*|payments?\s+(?:made|to the card)|how much did i (?:pay|put)\s+(?:back|towards?)"#),
+           !matches(low, #"\bowe\b|left to pay|still (?:owe|to pay)|how much (?:do|to) i (?:have|owe)"#) {
+            if cardRepayments > 0 {
+                return "**You paid off \(money(cardRepayments))\(scope.label)** in card repayments on this statement."
+            }
+            return "**No card repayments\(scope.label) on this statement.**"
+        }
+
         // ---- days-with-spending count ("how many days did I spend money") ----
         if matches(low, #"how many days|on how many days"#),
            matches(low, #"spend|spent|purchase|buy|bought|money|transaction|shop"#),
@@ -147,7 +200,9 @@ public enum FinanceRouter {
         // handler below; "how many pounds" is a SUM, not a count)
         if matches(low, #"\bhow many\b|\bnumber of\b|\bno\.? of\b|\bcount\b|\bhow often\b"#),
            !matches(low, #"busiest day|biggest spending day|most expensive day"#),
-           !matches(low, #"how many (?:pounds|quid|pence|dollars|euros|rupees)"#) {
+           !matches(low, #"how many (?:pounds|quid|pence|dollars|euros|rupees)"#),
+           !matches(low, #"\bversus\b|\bvs\.?\b|compared to"#),
+           !matches(low, #"between\s+£?\s*\d+(?:\.\d+)?\s+and\s+£?\s*\d+"#) {
             let n = sr.count
             // per-week frequency: "how many times a week do I use X"
             if matches(low, #"times (?:a|per) week|(?:a|per) week do i"#), n > 0 {
@@ -184,7 +239,7 @@ public enum FinanceRouter {
         // Also fires on "the most I've paid … in one go/transaction".
         if matches(low, #"\b(biggest|largest|highest|most expensive|priciest|dearest|top)\b"#)
             || matches(low, #"\bmost\b.{0,26}\bin one (?:go|transaction|purchase|payment)\b|most i'?ve? (?:paid|spent)"#),
-           matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|paid"#),
+           matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|paid|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
            let t = debits.max(by: { $0.debit < $1.debit }) {
             return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
@@ -192,7 +247,7 @@ public enum FinanceRouter {
 
         // ---- single smallest expense ---------------------------------------
         if matches(low, #"\b(smallest|cheapest|lowest|least expensive|tiniest)\b"#),
-           matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount"#),
+           matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
            let t = debits.min(by: { $0.debit < $1.debit }) {
             return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
@@ -202,7 +257,7 @@ public enum FinanceRouter {
         let firstCue = matches(low, #"\b(first|earliest|oldest)\b|start(?:ed)? spending|spending start|statement start|start.*spend"#)
         let lastCue = matches(low, #"\b(last|latest|most recent)\b|final transaction"#)
         if firstCue || lastCue,
-           matches(low, #"transaction|purchase|payment|charge|\bbuy\b|bought|expense|spending|start.*spend"#),
+           matches(low, #"transaction|purchase|payment|charge|\bbuy\b|bought|expense|spending|start.*spend|\btrip\b|\bride\b|journey|\bmeal\b|\bvisit\b"#),
            !matches(low, #"\d|\btop\b|biggest|largest|how many|number of|last month|last week|this month|last day|first day|final day|weekend|weekday"#),
            !sr.isEmpty {
             let ordered = sr.sorted { $0.txnDate < $1.txnDate }
@@ -261,6 +316,14 @@ public enum FinanceRouter {
             let net = income - spent
             let verb = net >= 0 ? "kept" : "overspent by"
             return "**Net\(scope.label): \(money(net))** — \(money(income)) in minus \(money(spent)) out. You \(verb) \(money(abs(net)))."
+        }
+
+        // ---- median ---------------------------------------------------------
+        if matches(low, #"\bmedian\b"#), !debits.isEmpty {
+            let s = debits.map(\.debit).sorted()
+            let mid = s.count / 2
+            let med = s.count % 2 == 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid]
+            return "**Your median transaction\(scope.label) is \(money(med))** across \(grp(debits.count)) debits."
         }
 
         // ---- average --------------------------------------------------------
@@ -324,6 +387,28 @@ public enum FinanceRouter {
             return "**You spent \(money(total)) on weekdays\(scope.label)** across \(grp(wd.count)) transaction\(wd.count == 1 ? "" : "s")."
         }
 
+        // ---- amount range ("transactions between £10 and £20") --------------
+        if matches(low, #"between\s+£?\s*\d+(?:\.\d+)?\s+and\s+£?\s*\d+(?:\.\d+)?"#),
+           matches(low, #"pounds?|quid|pence|dollars?|euros?|rupees?|£"#),
+           let g = firstTwoGroups(low, #"between\s+£?\s*(\d+(?:\.\d+)?)\s+and\s+£?\s*(\d+(?:\.\d+)?)"#),
+           let a = Double(g.0), let bStr = g.1, let b = Double(bStr), !debits.isEmpty {
+            let lo = Swift.min(a, b), hi = Swift.max(a, b)
+            let hits = debits.filter { $0.debit >= lo && $0.debit <= hi }.sorted { $0.debit < $1.debit }
+            if matches(low, #"how many|number of|count"#) {
+                return "**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") between \(money(lo)) and \(money(hi))\(scope.label).**"
+            }
+            if hits.isEmpty { return "**No transactions between \(money(lo)) and \(money(hi))\(scope.label).**" }
+            var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") between \(money(lo)) and \(money(hi))\(scope.label):**"]
+            for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
+            return lines.joined(separator: "\n")
+        }
+
+        // ---- "how many pounds (did I spend) on X" is a SUM, not a count ------
+        if matches(low, #"how many (?:pounds|quid|pence|dollars|euros|rupees)"#), !debits.isEmpty {
+            let noun = debits.count == 1 ? "transaction" : "transactions"
+            return "**You spent \(money(spent))\(scope.label)** across \(grp(debits.count)) \(noun)."
+        }
+
         // ---- threshold ("transactions over £50", "did I spend above 100") ----
         if let g = firstGroup(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least)\s*£?\s*(\d+(?:\.\d+)?)"#),
            let thr = Double(g), !debits.isEmpty {
@@ -336,10 +421,32 @@ public enum FinanceRouter {
             return lines.joined(separator: "\n")
         }
 
-        // ---- amount reverse-lookup ("what was the £34.99 charge?") ----------
-        if matches(low, #"(?:what|which|who).*(?:charge|transaction|payment|purchase|debit)|what did i (?:buy|pay|get|purchase) for|the £?\d+(?:\.\d{2})? (?:charge|transaction|payment|purchase)"#),
-           !matches(low, #"\bover\b|\babove\b|\bunder\b|\bbelow\b|more than|less than|biggest|largest|smallest|highest|lowest|first|last|latest|earliest"#),
-           let g = firstGroup(low, #"£\s*(\d+(?:\.\d{1,2})?)|\bfor\s+(?:£\s*)?(\d+(?:\.\d{2}))\b"#) ?? firstGroup(low, #"\bfor\s+£?\s*(\d+(?:\.\d{1,2})?)\b"#),
+        // ---- threshold BELOW ("transactions under £5", "less than a tenner") ----
+        if let g = firstGroup(low, #"(?:under|below|less than|cheaper than|no more than|at most|beneath)\s*£?\s*(\d+(?:\.\d+)?)"#)
+                ?? (matches(low, #"\ba fiver\b"#) ? "5" : nil)
+                ?? (matches(low, #"\ba tenner\b"#) ? "10" : nil),
+           let thr = Double(g), !debits.isEmpty {
+            let hits = debits.filter { $0.debit < thr }.sorted { $0.debit < $1.debit }
+            if hits.isEmpty {
+                return "**No transactions under \(money(thr))\(scope.label).** Your smallest was \(money(debits.map(\.debit).min() ?? 0))."
+            }
+            var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label):**"]
+            for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
+            return lines.joined(separator: "\n")
+        }
+
+        // ---- amount reverse-lookup ("what was the £34.99 charge?", "which
+        // transaction was 40.70?", "what did I spend 100 pounds on?") ---------
+        // The amount is recognised from a currency SYMBOL (£100), an explicit
+        // two-decimal figure (40.70 — clearly money, not a count), a currency WORD
+        // (100 pounds), or a "for £X" phrasing — so bare small integers like "top 5"
+        // never register as an amount.
+        if matches(low, #"(?:what|which|who).*(?:charge|transaction|payment|purchase|debit|cost|was|spend|buy|bought|pay|paid)|what did i (?:buy|pay|get|purchase|spend) (?:for|on)|the £?\s?\d+(?:\.\d{1,2})? (?:charge|transaction|payment|purchase)"#),
+           !matches(low, #"\bover\b|\babove\b|\bunder\b|\bbelow\b|more than|less than|biggest|largest|smallest|highest|lowest|\bfirst\b|\blast\b|latest|earliest|how many|how much did i spend\b(?!\s+£?\s?\d)"#),
+           let g = firstGroup(low, #"£\s*(\d+(?:\.\d{1,2})?)"#)
+                ?? firstGroup(low, #"\b(\d+\.\d{2})\b"#)
+                ?? firstGroup(low, #"\b(\d+(?:\.\d{1,2})?)\s*(?:pounds?|quid|pence|dollars?|euros?|rupees?)\b"#)
+                ?? firstGroup(low, #"\bfor\s+£?\s*(\d+(?:\.\d{1,2})?)\b"#),
            let amt = Double(g) {
             let hits = sr.filter { abs($0.debit - amt) < 0.005 || abs($0.credit - amt) < 0.005 }
             if hits.isEmpty {
@@ -376,20 +483,47 @@ public enum FinanceRouter {
             }
         }
 
-        // ---- merchant vs merchant comparison --------------------------------
-        // "Did I spend more at TFL or Deliveroo?", "Lime vs Forest", "compare
-        // Dojo and TFL". Every content token that names ≥1 row becomes a side;
-        // identical row-signatures are merged so two tokens for one merchant
-        // ("craft" + "beer") don't fake a comparison.
-        if matches(low, #"\bor\b|\bvs\.?\b|versus|\bcompare\b|\band\b|which (?:cost|was|is)|cost me more"#),
+        // ---- merchant / category compare, combined-sum, or count-compare ----
+        // "Did I spend more at TFL or Deliveroo?" (compare by £); "TFL and Lime
+        // combined" / "how much on X and Y" (sum); "how many food vs transport"
+        // or "did I use Lime or Forest more" (compare by count). Every content
+        // token that names ≥1 row becomes a side; identical row-signatures merge
+        // so two tokens for one merchant ("craft" + "beer") don't fake a side.
+        if matches(low, #"\bor\b|\bvs\.?\b|versus|\bcompare\b|\band\b|which (?:cost|was|is)|cost me more|\bthan\b|\bdifference\b|combined|together|altogether"#),
            !rows.isEmpty {
-            // Search ALL debit rows, not the scoped set — parseScope has already
-            // narrowed to ONE of the two merchants being compared.
+            // Search ALL debit rows — parseScope may have narrowed to one contender.
             let allDebits = rows.filter { $0.debit > 0 }
             let monthWords = Set(monthNames.map(\.0))
             let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
                 .map(String.init)
                 .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !monthWords.contains($0) }
+            let compareWord = matches(low, #"\bmore\b|\bor\b|\bvs\.?\b|versus|\bcompare\b|\bthan\b|which (?:cost|was|is)|cost me more|\bless\b|higher|lower|bigger|smaller|greater|\bdifference\b|\bgap\b"#)
+            let wantsDiff = matches(low, #"\bdifference\b|how much (?:more|less)|\bgap\b"#)
+            let wantsCount = matches(low, #"how many|number of|how often|more often|\buse[ds]?\b|\bvisit\w*"#)
+            let wantsCombined = matches(low, #"combined|together|altogether|\bplus\b|sum of"#)
+                || (matches(low, #"\band\b"#) && !compareWord)
+
+            func render(_ gs: [(name: String, amt: Double, n: Int)], at: Bool) -> String {
+                if wantsCombined {
+                    let tot = gs.reduce(0) { $0 + $1.amt }, cnt = gs.reduce(0) { $0 + $1.n }
+                    return "**You spent \(money(tot)) on \(gs.map(\.name).joined(separator: " + ")) combined** "
+                        + "across \(grp(cnt)) transaction\(cnt == 1 ? "" : "s")."
+                }
+                if wantsCount {
+                    let ranked = gs.sorted { $0.n > $1.n }
+                    let parts = ranked.map { "\($0.name) \(grp($0.n)) (\(money($0.amt)))" }.joined(separator: " vs ")
+                    return "**You had more transactions \(at ? "at" : "in") \(ranked[0].name)** — \(parts)."
+                }
+                let ranked = gs.sorted { $0.amt > $1.amt }
+                let parts = ranked.map { "\($0.name) \(money($0.amt)) (\($0.n) txn\($0.n == 1 ? "" : "s"))" }
+                    .joined(separator: " vs ")
+                var out = "**You spent more \(at ? "at" : "on") \(ranked[0].name)** — \(parts)."
+                if wantsDiff, ranked.count == 2 {
+                    out += " Difference: \(money(ranked[0].amt - ranked[1].amt))."
+                }
+                return out
+            }
+
             var groups: [(name: String, amt: Double, n: Int)] = []
             var sigs = Set<String>()
             for t in Array(Set(toks)) {
@@ -397,44 +531,29 @@ public enum FinanceRouter {
                 let rs = allDebits.filter { $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil }
                 guard !rs.isEmpty else { continue }
                 let amt = rs.reduce(0) { $0 + $1.debit }
-                let sig = "\(rs.count)|\(amt)"
-                if sigs.insert(sig).inserted {
+                if sigs.insert("\(rs.count)|\(amt)").inserted {
                     groups.append((merchantDisplay(t), amt, rs.count))
                 }
             }
-            // Category fallback: "did I spend more on food or transport?" — the
-            // tokens name CATEGORIES, not merchants.
-            if groups.count < 2 {
-                var catGroups: [(name: String, amt: Double, n: Int)] = []
-                var seenCats = Set<String>()
-                let present = Set(allDebits.map(\.category))
-                for t in Array(Set(toks)) {
-                    var canonical: String?
-                    if let direct = present.first(where: { $0.lowercased().contains(t) }) {
-                        canonical = direct
-                    } else if let syn = categorySynonyms.first(where: { t.contains($0.0.trimmingCharacters(in: .whitespaces)) }),
-                              present.contains(syn.1) {
-                        canonical = syn.1
-                    }
-                    guard let cat = canonical, seenCats.insert(cat).inserted else { continue }
-                    let rs = allDebits.filter { $0.category == cat }
-                    guard !rs.isEmpty else { continue }
-                    catGroups.append((cat, rs.reduce(0) { $0 + $1.debit }, rs.count))
+            if groups.count >= 2 { return render(groups, at: true) }
+            // Category fallback: the tokens name CATEGORIES, not merchants.
+            var catGroups: [(name: String, amt: Double, n: Int)] = []
+            var seenCats = Set<String>()
+            let present = Set(allDebits.map(\.category))
+            for t in Array(Set(toks)) {
+                var canonical: String?
+                if let direct = present.first(where: { $0.lowercased().contains(t) }) {
+                    canonical = direct
+                } else if let syn = categorySynonyms.first(where: { t.contains($0.0.trimmingCharacters(in: .whitespaces)) }),
+                          present.contains(syn.1) {
+                    canonical = syn.1
                 }
-                if catGroups.count >= 2 {
-                    let ranked = catGroups.sorted { $0.amt > $1.amt }
-                    let parts = ranked.map { "\($0.name) \(money($0.amt)) (\($0.n) txn\($0.n == 1 ? "" : "s"))" }
-                        .joined(separator: " vs ")
-                    return "**You spent more on \(ranked[0].name)** — \(parts)."
-                }
+                guard let cat = canonical, seenCats.insert(cat).inserted else { continue }
+                let rs = allDebits.filter { $0.category == cat }
+                guard !rs.isEmpty else { continue }
+                catGroups.append((cat, rs.reduce(0) { $0 + $1.debit }, rs.count))
             }
-            if groups.count >= 2 {
-                let ranked = groups.sorted { $0.amt > $1.amt }
-                let parts = ranked.map { "\($0.name) \(money($0.amt)) (\($0.n) txn\($0.n == 1 ? "" : "s"))" }
-                    .joined(separator: " vs ")
-                // (no scope.label — the scope wrongly narrowed to one contender)
-                return "**You spent more at \(ranked[0].name)** — \(parts)."
-            }
+            if catGroups.count >= 2 { return render(catGroups, at: false) }
         }
 
         // ---- most-spent / most-used merchant --------------------------------
@@ -487,6 +606,26 @@ public enum FinanceRouter {
                 return "**\(name): \(grp(ordered.count)) transaction\(ordered.count == 1 ? "" : "s")** — \(items.joined(separator: ", "))."
             }
             return "**\(name): \(grp(ordered.count)) times between \(prettyDate(ordered.first!.txnDate)) and \(prettyDate(ordered.last!.txnDate))**, totalling \(money(spent))."
+        }
+
+        // ---- itemised list of a category / merchant's transactions ----------
+        // "list my Food & Dining transactions", "show me all my transport
+        // transactions", "what did I buy on Amazon" — enumerate the scoped rows
+        // (capped) rather than only summing them. Scoped-only, and never for the
+        // aggregate phrasings (how much / how many / biggest …) handled above.
+        if (scope.hasCategory || scope.hasMerchant), !sr.isEmpty,
+           matches(low, #"\blist\b|show me|show all|show my|let me see|itemi[sz]e|what (?:did|have) i (?:buy|bought|purchase|get)\b|all (?:my|the) .{0,20}(?:transactions|purchases|payments|charges)|(?:transactions?|purchases?|charges?|payments?)\s+(?:in|on|for|at|from)\b"#),
+           !matches(low, #"how much|how many|\btotal\b|average|\bavg\b|biggest|largest|smallest|percent|\bover\b|\babove\b|\bunder\b|more than"#) {
+            let ordered = sr.sorted { $0.txnDate < $1.txnDate }
+            let creditOnly = ordered.allSatisfy { $0.debit == 0 }
+            let tot = creditOnly ? income : spent
+            var lines = ["**\(grp(ordered.count)) transaction\(ordered.count == 1 ? "" : "s")\(scope.label), totalling \(money(tot)):**"]
+            for r in ordered.prefix(15) {
+                let amt = r.debit > 0 ? r.debit : r.credit
+                lines.append("- \(prettyDate(r.txnDate)) — \(r.descr) (\(money(amt)))")
+            }
+            if ordered.count > 15 { lines.append("_…and \(grp(ordered.count - 15)) more._") }
+            return lines.joined(separator: "\n")
         }
 
         // Advisory / opinion / open-ended that no deterministic handler caught →
@@ -595,8 +734,8 @@ public enum FinanceRouter {
             if !present.contains(canonical) { return canonical }
         }
         // (b) a content noun (after stripping intent words) that names no row — only
-        // when the question is actually asking about spending on / at something.
-        guard matches(low, #"spen[dt]|how much|paid|\bpay\b|\bcost\b|\bat\b|\bon\b"#) else { return nil }
+        // when the question is actually asking about spending on / visiting something.
+        guard matches(low, #"spen[dt]|how much|paid|\bpay\b|\bcost\b|\bat\b|\bon\b|\buse[ds]?\b|\bvisit\w*|\bgo\b|\bwent\b|\beat\b|\border\w*|\bshop\w*|\bbuy\b|\bbought\b"#) else { return nil }
         let months = Set(monthNames.map(\.0))
         let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
@@ -655,6 +794,7 @@ public enum FinanceRouter {
     private static let categorySynonyms: [(String, String)] = [
         ("grocer", "Groceries"), ("food", "Food & Dining"), ("dining", "Food & Dining"),
         ("restaurant", "Food & Dining"), ("eating out", "Food & Dining"), ("eating", "Food & Dining"),
+        ("eat out", "Food & Dining"), ("takeaway", "Food & Dining"), ("take away", "Food & Dining"),
         ("coffee", "Food & Dining"), ("drink", "Food & Dining"), ("pub", "Food & Dining"),
         ("transport", "Transport"), ("travel", "Transport"), ("tube", "Transport"),
         ("scooter", "Transport"), ("commut", "Transport"),
@@ -681,6 +821,11 @@ public enum FinanceRouter {
         if let direct = present.first(where: { low.contains($0.lowercased()) }) { return direct }
         // synonym → canonical, if that canonical is present
         for (word, canonical) in categorySynonyms where low.contains(word) {
+            // "shop / shopping AT <merchant>" is a verb + object ("did I shop at
+            // Netflix?"), NOT a request for the Shopping category — let it fall
+            // through to merchant / absent-target handling.
+            if (word == "shop" || word == "shopping"),
+               matches(low, #"shop(?:ping)?\s+(?:at|from|in)\b|(?:how many|number of|different|distinct|separate|several|unique)\s+shops?\b"#) { continue }
             if let hit = present.first(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
                 return hit
             }
@@ -742,8 +887,13 @@ public enum FinanceRouter {
         "cost", "costs", "transaction", "transactions", "purchase", "purchases",
         "payment", "payments", "expense", "expenses", "charge", "charges", "charged", "money",
         "account", "balance", "statement", "card", "credit", "debit", "what", "whats",
-        "times", "time", "use", "used", "order", "ordered", "buy", "bought", "most",
+        "times", "time", "use", "used", "using", "order", "ordered", "buy", "bought", "most",
         "biggest", "largest", "smallest", "any", "some", "there", "give", "show", "tell",
+        // verbs of spending/visiting that are never merchant names
+        "shop", "shopping", "shops", "store", "stores", "visit", "visited", "visiting",
+        "eat", "ate", "eating", "went", "off", "list", "receive",
+        // politeness / filler that must never become a phantom merchant target
+        "please", "thanks", "thank", "kindly", "okay", "just", "really", "actually",
         // intent words that could otherwise match a description as a whole word
         "receive", "received", "receiving", "income", "earn", "earned", "earning",
         "save", "saved", "saving", "savings", "net", "gross", "profit", "loss",
@@ -813,6 +963,10 @@ public enum FinanceRouter {
     /// "Feb 16 to Feb 20", "first/last week", "first/second half of March". Returns
     /// the rows inside [start, end] and a readable label, or nil if no range parsed.
     private static func matchDateRange(_ low: String, rows: [TxnRow]) -> (rows: [TxnRow], label: String)? {
+        // "between 10 and 20 pounds" is an AMOUNT range, not a date range — let the
+        // amount-range handler own it, don't scope to the 10th–20th of the month.
+        if matches(low, #"between\s+£?\s*\d+(?:\.\d+)?\s+and\s+£?\s*\d+(?:\.\d+)?"#),
+           matches(low, #"pounds?|quid|pence|dollars?|euros?|rupees?|£"#) { return nil }
         let allDates = rows.map(\.txnDate).sorted()
         guard let minD = allDates.first, let maxD = allDates.last else { return nil }
         func inRange(_ a: String, _ b: String) -> [TxnRow] {

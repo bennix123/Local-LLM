@@ -329,6 +329,41 @@ case "ai-mopup":
           + "(\(accepted) accept, \(logged) accept+log, \(kept) keep). "
           + "'Other' rows would drop from \(otherRows.count) to \(remaining).")
 
+case "extract-ai":
+    // usage: penny-conformance extract-ai <pdf> [model]
+    // Reads each page's text (as OCR would produce for a scanned PDF), runs the
+    // Claude LLM-extraction fallback, and compares the row count to the
+    // deterministic parser. Needs ANTHROPIC_API_KEY.
+    guard args.count >= 3 else { fail("usage: penny-conformance extract-ai <pdf> [model]") }
+    guard let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty else {
+        fail("set ANTHROPIC_API_KEY in the environment")
+    }
+    let exModel = args.count > 3 ? args[3] : "claude-opus-4-8"
+    let doc = try PDFTextExtractor(path: args[2])
+    var pageTexts: [String] = []
+    for i in 0..<doc.pageCount { pageTexts.append(doc.page(i)?.text ?? "") }
+    // deterministic baseline for comparison
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let ingester = try TxnIngester(categoriesJSONPath: base + "/contract/categories.json",
+                                   bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
+    let det = (try? ingester.ingestPDF(path: args[2]))?.rows.filter { $0.debit > 0 || $0.credit > 0 } ?? []
+    print("[pages] \(doc.pageCount) · deterministic baseline: \(det.count) transactions")
+    print("[ai] extracting via \(exModel) …\n")
+    let extractor = ClaudeStatementExtractor(apiKey: key, model: exModel)
+    let out = try await extractor.extract(pages: pageTexts, hintCurrency: nil)
+    print("[result] \(out.rows.count) transactions · currency \(out.currency) · bank \(out.bank ?? "?") · confidence \(String(format: "%.2f", out.confidence))")
+    let dsum = det.reduce(0.0) { $0 + $1.debit }
+    let asum = out.rows.reduce(0.0) { $0 + $1.debit }
+    print(String(format: "[compare] total debits — deterministic %.2f vs AI %.2f  (Δ %.2f)", dsum, asum, abs(dsum - asum)))
+    for r in out.rows.prefix(12) {
+        let dr = r.debit > 0 ? String(format: "%.2f", r.debit) : ""
+        let cr = r.credit > 0 ? String(format: "%.2f", r.credit) : ""
+        print(String(format: "   %-11@ | %-34@ | D:%-9@ | C:%-9@ | %@",
+                     r.txnDate as NSString, String(r.descr.prefix(34)) as NSString,
+                     dr as NSString, cr as NSString, r.category as NSString))
+    }
+    if out.rows.count > 12 { print("   … \(out.rows.count - 12) more") }
+
 default:
     fail("unknown subcommand: \(cmd)")
 }
