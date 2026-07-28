@@ -285,6 +285,18 @@ final class AppModel: ObservableObject {
     @Published var isAnalyzing = false
     @Published var summary = Summary()
 
+    // Progressive multi-statement analysis (up to 6 months): staged progress the
+    // loader UI observes, plus a small toast queue for batch-completion messages.
+    @Published var analysis: AnalysisProgress = .idle
+    @Published var toasts: [ToastMessage] = []
+
+    // Optional Anthropic key for the network fallbacks only (scanned-PDF OCR +
+    // LLM extraction, and "Other"-merchant categorization). Injected — read from
+    // the ANTHROPIC_API_KEY environment variable, or set from the app's settings
+    // (Keychain-backed; never written to disk here). nil disables the fallbacks,
+    // leaving the deterministic offline path completely untouched.
+    var claudeAPIKey: String? = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
+
     // chat
     @Published var messages: [ChatMessage] = []
     @Published var isThinking = false
@@ -570,7 +582,7 @@ final class AppModel: ObservableObject {
         Task {
             // Extract and a minimum-visible delay run concurrently, so tiny PDFs
             // (which parse in a few ms) still show the loader long enough to notice.
-            async let extraction = Self.extract(url: url)
+            async let extraction = Self.extract(url: url, aiKey: claudeAPIKey)
             await Self.minimumLoaderDelay()
             let result = await extraction
             isImporting = false
@@ -613,6 +625,137 @@ final class AppModel: ObservableObject {
             }
         }
     }
+
+    // MARK: - Progressive multi-statement import (up to 6 months)
+
+    /// Import several statements at once, in month-batches, so results appear as
+    /// soon as the first batch is parsed while the rest continue in the background.
+    /// After each batch the graph is refreshed (the UI reacts to `@Published graph/
+    /// docs/summary`) and a toast is posted. A batch that fails is retried on its
+    /// own — the others are unaffected — and if it still fails the run continues.
+    func importStatements(from urls: [URL], kind: String? = nil) {
+        guard !isImporting, !urls.isEmpty else { return }
+        // A lone file keeps the simple single-file path (no batching overhead).
+        if urls.count == 1 { importPDF(from: urls[0], kind: kind); return }
+
+        isImporting = true
+        isAnalyzing = true
+        errorMessage = nil
+        let batches = StatementBatchPlanner.plan(fileCount: urls.count)
+        analysis = StatementBatchPlanner.progress(stage: .readingPDF, batches: batches, batchesDone: 0)
+
+        Task {
+            var done = 0
+            var anySucceeded = false
+            var failedBatches = 0
+
+            // Reading + extracting are quick, deterministic pre-stages.
+            setStage(.extractingTransactions, batches, done)
+
+            for batch in batches {
+                setStage(.analyzing(monthRange: batch.monthRange), batches, done)
+                importingName = "Months \(batch.monthRange)"
+
+                var toRun = batch.fileIndices
+                var current = batch
+                var succeededHere = 0
+                while true {
+                    let failed = await runBatchFiles(toRun.map { urls[$0] }, kind: kind)
+                    succeededHere += (toRun.count - failed.count)
+                    if failed.isEmpty { break }
+                    // Retry ONLY the files that failed, on this batch alone.
+                    guard let retry = StatementBatchPlanner.nextAttempt(current) else {
+                        failedBatches += 1
+                        postToast("Couldn't read \(failed.count) file(s) in months \(batch.monthRange) — skipped. You can re-add them.", kind: .warning)
+                        break
+                    }
+                    current = retry
+                    toRun = failed
+                    postToast("Retrying months \(batch.monthRange)…", kind: .progress)
+                }
+
+                anySucceeded = anySucceeded || succeededHere > 0
+                done += 1
+                // Refresh the UI with whatever landed in this batch.
+                deriveDocs()
+                recomputeSummary()
+                setStage(.analyzing(monthRange: batch.monthRange), batches, done)
+
+                if done == 1 {
+                    postToast("The first \(batch.monthRange.contains("–") ? "2 months" : "month") of data have been processed. The remaining statements are still being analyzed.", kind: .progress)
+                } else if done < batches.count {
+                    postToast("Months \(batch.monthRange) processed — \(done) of \(batches.count) batches done.", kind: .progress)
+                }
+            }
+
+            // Insights pass (cross-month figures already recomputed above).
+            setStage(.generatingInsights, batches, done)
+            recomputeSummary()
+
+            isImporting = false
+            isAnalyzing = false
+            importingName = nil
+            analysis = StatementBatchPlanner.progress(stage: .completed, batches: batches, batchesDone: done)
+
+            if anySucceeded {
+                postToast(failedBatches == 0
+                    ? "Bank statement analysis completed successfully."
+                    : "Analysis completed with \(failedBatches) batch(es) skipped.",
+                    kind: failedBatches == 0 ? .success : .warning)
+                refineIssuersViaLLM()
+            } else {
+                errorMessage = "Couldn't read any transactions from the selected statements."
+            }
+            // Let the completed bar linger briefly, then reset.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                if self?.isImporting == false { self?.analysis = .idle }
+            }
+        }
+    }
+
+    private func setStage(_ stage: AnalysisStage, _ batches: [StatementBatch], _ done: Int) {
+        analysis = StatementBatchPlanner.progress(stage: stage, batches: batches, batchesDone: done)
+    }
+
+    /// Parse + persist + merge each file in a batch concurrently. Returns the
+    /// URLs that failed to yield any transactions (for retry).
+    private func runBatchFiles(_ urls: [URL], kind: String?) async -> [URL] {
+        var failures: [URL] = []
+        let aiKey = claudeAPIKey   // capture off the main actor for the detached tasks
+        await withTaskGroup(of: (URL, Result<ExtractResult, ImportFailure>).self) { group in
+            for url in urls {
+                group.addTask { (url, await Self.extract(url: url, aiKey: aiKey)) }
+            }
+            for await (url, result) in group {
+                switch result {
+                case .success(let r) where !r.text.isEmpty && !r.graph.transactions.isEmpty:
+                    let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
+                    StatementStore.save(record)
+                    addSlice(r.graph, text: r.text)
+                    if let kind, uploadsByKind[kind]?.contains(r.name) != true {
+                        uploadsByKind[kind, default: []].append(r.name)
+                    }
+                default:
+                    failures.append(url)
+                }
+            }
+        }
+        return failures
+    }
+
+    // MARK: - Toasts
+
+    func postToast(_ text: String, kind: ToastMessage.Kind = .progress) {
+        let toast = ToastMessage(text: text, kind: kind)
+        toasts.append(toast)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_200_000_000)
+            self?.toasts.removeAll { $0.id == toast.id }
+        }
+    }
+
+    func dismissToast(_ id: ToastMessage.ID) { toasts.removeAll { $0.id == id } }
 
     /// Best-effort: ask the on-device model to name the institution, then refine
     /// the account's display name. Runs when the model is loaded OR its weights are
@@ -660,7 +803,7 @@ final class AppModel: ObservableObject {
         try? await Task.sleep(nanoseconds: 650_000_000)   // ~0.65 s floor
     }
 
-    nonisolated private static func extract(url: URL) async -> Result<ExtractResult, ImportFailure> {
+    nonisolated private static func extract(url: URL, aiKey: String? = nil) async -> Result<ExtractResult, ImportFailure> {
         await Task.detached(priority: .userInitiated) {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -679,9 +822,22 @@ final class AppModel: ObservableObject {
                     parsed = (try? DeterministicIngest.ingest(csvAt: url, statementText: text))
                         ?? DeterministicIngest.Result()
                 } else {
-                    text = try StatementText.extract(from: url)
-                    parsed = (try? DeterministicIngest.ingest(pdfAt: url, statementText: text))
-                        ?? DeterministicIngest.Result()
+                    let digital = try StatementText.extract(from: url)
+                    if !ScannedPDFOCR.looksScanned(text: digital) {
+                        text = digital
+                        parsed = (try? DeterministicIngest.ingest(pdfAt: url, statementText: text))
+                            ?? DeterministicIngest.Result()
+                    } else if let aiKey, !aiKey.isEmpty,
+                              let slice = await Self.ocrAndExtract(url: url, aiKey: aiKey) {
+                        // Scanned / image-only PDF → OCR + LLM extraction fallback.
+                        return .success(slice)
+                    } else {
+                        // No text layer and no AI key (or OCR/extraction empty):
+                        // fall through with empty text so the caller shows the
+                        // existing "is it a scanned image?" guidance.
+                        text = ""
+                        parsed = DeterministicIngest.Result()
+                    }
                 }
                 return .success(ExtractResult(name: url.lastPathComponent, text: text,
                                               graph: parsed.graph))
@@ -689,6 +845,23 @@ final class AppModel: ObservableObject {
                 return .failure(ImportFailure(message: error.localizedDescription))
             }
         }.value
+    }
+
+    /// Scanned-PDF fallback: OCR the pages, LLM-extract transactions, and assemble
+    /// a canonical graph slice. Results are LLM-read (not exact) — the confidence
+    /// is folded into the statement so the UI can flag "AI-extracted, review".
+    nonisolated private static func ocrAndExtract(url: URL, aiKey: String) async -> ExtractResult? {
+        let pages = await ScannedPDFOCR.recognizePages(at: url)
+        let ocrText = pages.joined(separator: "\n")
+        guard !ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let extractor = ClaudeStatementExtractor(apiKey: aiKey)
+        guard let ai = try? await extractor.extract(pages: pages), !ai.rows.isEmpty else { return nil }
+        let out = IngestOutput(rows: ai.rows, bankName: ai.bank,
+                               confidence: "ai:\(Int((ai.confidence * 100).rounded()))",
+                               detectedCurrency: ai.currency, isCard: false)
+        let meta = StatementMetadataParser.parse(text: ocrText)
+        let graph = ModelAssembler.assemble(out, sourceName: url.lastPathComponent, metadata: meta).graph
+        return ExtractResult(name: url.lastPathComponent, text: ocrText, graph: graph)
     }
 
     func toggleDoc(_ name: String) {

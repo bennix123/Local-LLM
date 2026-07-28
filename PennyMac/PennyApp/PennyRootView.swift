@@ -15,6 +15,18 @@ struct PennyRootView: View {
         }
         .environmentObject(app)
         .frame(minWidth: 900, minHeight: 620)
+        // Progressive multi-statement analysis: a non-blocking staged card (the
+        // rest of the UI stays interactive so users can review data as it lands),
+        // plus the toast stack. Both auto-hide when idle.
+        .overlay(alignment: .top) {
+            if app.isImporting && app.analysis.batchesTotal > 1 {
+                AnalysisProgressView()
+                    .padding(.top, 14)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .overlay { ToastStack() }
+        .animation(.easeInOut(duration: 0.25), value: app.isImporting)
         .animation(.easeInOut(duration: 0.2), value: app.stage)
         .onAppear {
             TestWindowFix.applyIfTesting()

@@ -538,7 +538,10 @@ struct UploadStep: View {
                       allowedContentTypes: [.pdf, .commaSeparatedText],
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
-                for url in urls { app.importPDF(from: url, kind: current.id) }
+                // Progressive batch import — shows the first months fast and keeps
+                // refreshing. (The old per-file loop dropped all but the first,
+                // since importPDF serializes on `isImporting`.)
+                app.importStatements(from: urls, kind: current.id)
             }
         }
     }
