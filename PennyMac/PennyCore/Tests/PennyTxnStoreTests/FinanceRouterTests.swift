@@ -395,9 +395,11 @@ final class FinanceRouterSpendScopeTests: XCTestCase {
         XCTAssertEqual(answerOrFail("how much did i spend at tesco express", RouterFix.tescoPair),
                        "**You spent £20.00 at Tesco Express** across 1 transaction.",
                        "'tesco express' must scope to the longer merchant, not plain Tesco")
-        // Bare "tesco" widens to every row naming tesco (merchant match OR descr contains).
+        // Bare "tesco" scopes to exactly the Tesco-tagged rows, NOT the distinct
+        // merchant "Tesco Express". (Exact merchant-field match — the fix that also
+        // stops "TfL" matching "neTFLix" and "Amazon" pulling in "Amazon Prime".)
         XCTAssertEqual(answerOrFail("how much did i spend at tesco", RouterFix.tescoPair),
-                       "**You spent £100.00 at Tesco** across 3 transactions.")
+                       "**You spent £80.00 at Tesco** across 2 transactions.")
     }
 
     func testMerchantScopeReportsCreditsSeparately() {
@@ -734,5 +736,196 @@ final class FinanceRouterDeclineTests: XCTestCase {
         let accounts = [FinanceRouter.AccountBalance(name: "HSBC", balance: 1000, isCard: false)]
         XCTAssertNil(ask("what is my balance", [], accounts: accounts),
                      "the empty-rows guard precedes even account-based balance answers")
+    }
+}
+
+// MARK: - Merchant/category disambiguation regressions (3-month eval pass)
+
+/// Guards the fixes surfaced by the 3-month StatementBulkEvalTests set: merchant
+/// names must not match as a bare substring of another merchant, short (2-letter)
+/// merchant names must still resolve, a category synonym inside a merchant name
+/// must not hijack a merchant question, and a category superlative must not fire
+/// the recurring-charge detector.
+final class FinanceRouterDisambiguationTests: XCTestCase {
+    private func row(_ descr: String, merchant: String, category: String, _ debit: Double,
+                     _ seq: Int) -> TxnRow {
+        RouterFix.row("2026-06-\(String(format: "%02d", seq))", descr, merchant: merchant,
+                      category: category, debit: debit, seq: seq)
+    }
+
+    // "TfL" must not swallow "neTFLix"; "Amazon" must not pull in "Amazon Prime";
+    // "Tesco" must not include "Tesco Express".
+    func testMerchantNotMatchedAsSubstringOfAnother() {
+        let rows = [
+            row("TFL TRAVEL CHARGE", merchant: "TfL", category: "Transport", 10.00, 1),
+            row("TFL TRAVEL CHARGE", merchant: "TfL", category: "Transport", 5.00, 2),
+            row("NETFLIX.COM 4K UHD", merchant: "Netflix", category: "Subscriptions", 15.99, 3),
+            row("AMAZON.CO.UK*2A4B", merchant: "Amazon", category: "Shopping", 40.00, 4),
+            row("AMAZON PRIME*MSHIP", merchant: "Amazon Prime", category: "Subscriptions", 8.99, 5),
+            row("TESCO STORES 1", merchant: "Tesco", category: "Groceries", 30.00, 6),
+            row("TESCO EXPRESS 9", merchant: "Tesco Express", category: "Groceries", 12.00, 7),
+        ]
+        XCTAssertEqual(ask("how much did i spend at tfl", rows), "**You spent £15.00 at TfL** across 2 transactions.")
+        XCTAssertEqual(ask("how much did i spend at amazon", rows), "**You spent £40.00 at Amazon** across 1 transaction.")
+        XCTAssertEqual(ask("how much did i spend at tesco", rows), "**You spent £30.00 at Tesco** across 1 transaction.")
+    }
+
+    // A two-letter merchant ("EE") resolves and doesn't match "coffEE".
+    func testShortMerchantNameResolves() {
+        let rows = [
+            row("EE LIMITED MOBILE", merchant: "EE", category: "Utilities", 32.00, 1),
+            row("EE LIMITED MOBILE", merchant: "EE", category: "Utilities", 32.00, 2),
+            row("COSTA COFFEE 88", merchant: "Costa", category: "Food & Dining", 4.25, 3),
+        ]
+        XCTAssertEqual(ask("how much did i spend at ee", rows), "**You spent £64.00 at EE** across 2 transactions.")
+    }
+
+    // "gym" is a Subscriptions synonym, but "Pure Gym" is a merchant — a merchant
+    // question must resolve to the merchant total, not the Subscriptions category.
+    func testCategorySynonymInMerchantNameDoesNotHijack() {
+        let rows = [
+            row("PURE GYM LTD", merchant: "Pure Gym", category: "Healthcare", 28.99, 1),
+            row("PURE GYM LTD", merchant: "Pure Gym", category: "Healthcare", 28.99, 2),
+            row("NETFLIX.COM", merchant: "Netflix", category: "Subscriptions", 15.99, 3),
+        ]
+        XCTAssertEqual(ask("how much did i spend at pure gym", rows), "**You spent £57.98 at Pure Gym** across 2 transactions.")
+    }
+
+    // "biggest / smallest Subscriptions charge" is a category superlative, NOT a
+    // request for the recurring-cadence list.
+    func testCategorySuperlativeNotRecurringList() {
+        let rows = [
+            row("NETFLIX.COM", merchant: "Netflix", category: "Subscriptions", 15.99, 1),
+            row("DISNEY PLUS", merchant: "Disney Plus", category: "Subscriptions", 7.99, 2),
+            row("OPENAI CHATGPT", merchant: "OpenAI", category: "Subscriptions", 20.00, 3),
+        ]
+        let biggest = answerOrFail("what's the biggest subscriptions charge", rows)
+        XCTAssertTrue(biggest.contains("£20.00"), "expected the £20.00 max, got: \(biggest)")
+        XCTAssertFalse(biggest.contains("Recurring charges"), "must not run the recurring detector")
+        let smallest = answerOrFail("what's the smallest subscriptions charge", rows)
+        XCTAssertTrue(smallest.contains("£7.99"), "expected the £7.99 min, got: \(smallest)")
+    }
+}
+
+// MARK: - 6-month eval pass regressions
+
+final class FinanceRouterSixMonthTests: XCTestCase {
+    private func row(_ iso: String, merchant: String, category: String, _ debit: Double,
+                     _ seq: Int) -> TxnRow {
+        RouterFix.row(iso, "\(merchant) LONDON", merchant: merchant, category: category,
+                      debit: debit, seq: seq)
+    }
+
+    // "May" with month-context ("in May") must apply even when the scoped set has
+    // no May rows — answering £0, not silently dropping the month. (Bare "may" as
+    // a modal verb stays guarded elsewhere.)
+    func testNamedMayWithContextAppliesWhenEmpty() {
+        let rows = [
+            row("2026-01-28", merchant: "Cash Advance", category: "Cash", 150.00, 1),
+            row("2026-06-11", merchant: "Udemy", category: "Education", 18.99, 2),
+            row("2026-04-05", merchant: "Tesco", category: "Groceries", 40.00, 3),
+        ]
+        XCTAssertEqual(ask("how much did i spend on cash in may", rows),
+                       "**You spent £0.00 on Cash in May** across 0 transactions.")
+        XCTAssertEqual(ask("how much did i spend on education in may", rows),
+                       "**You spent £0.00 on Education in May** across 0 transactions.")
+    }
+
+    // Flowery total phrasing must resolve to the total, not invent a £0 "merchant"
+    // out of filler words like "across / whole".
+    func testTotalPhrasingWithFillerWords() {
+        let rows = [
+            row("2026-01-10", merchant: "Tesco", category: "Groceries", 40.00, 1),
+            row("2026-03-10", merchant: "Uber", category: "Transport", 12.00, 2),
+        ]
+        XCTAssertEqual(ask("how much did i spend across the whole 6 months", rows),
+                       "**You spent £52.00** across 2 transactions.")
+    }
+}
+
+// MARK: - Dense single-month eval regression (category combine precedence)
+
+final class FinanceRouterCategoryCombineTests: XCTestCase {
+    // "Food & Dining and Rent together" must combine the two CATEGORIES, not be
+    // mis-read as merchants because the token "food" word-matches a "CO-OP FOOD"
+    // description and "rent" matches "…LETTINGS RENT". Category combine wins.
+    func testCategoryCombineBeatsMerchantTokenMatch() {
+        let rows = [
+            RouterFix.row("2026-03-02", "CO-OP FOOD LONDON", merchant: "Co-op",
+                          category: "Food & Dining", debit: 14.50, seq: 1),
+            RouterFix.row("2026-03-05", "PRET A MANGER LONDON", merchant: "Pret A Manger",
+                          category: "Food & Dining", debit: 7.30, seq: 2),
+            RouterFix.row("2026-03-16", "HIGHBURY LETTINGS RENT", merchant: "Highbury Lettings",
+                          category: "Rent", debit: 1250.00, seq: 3),
+        ]
+        // Food & Dining £21.80 + Rent £1250.00 = £1271.80
+        let a = answerOrFail("how much did i spend on food & dining and rent together", rows)
+        XCTAssertTrue(a.contains("£1271.80"), "expected the two-category sum £1271.80, got: \(a)")
+        XCTAssertTrue(a.contains("Food & Dining") && a.contains("Rent"),
+                      "should name both categories, got: \(a)")
+    }
+}
+
+// MARK: - Bank current-account regressions (balance / savings-merchant)
+
+final class FinanceRouterBankAccountTests: XCTestCase {
+    /// A merchant/payee literally named "Savings" must not trigger the net/savings
+    /// calculation for ordinary per-merchant queries.
+    private static let acct: [TxnRow] = [
+        RouterFix.row("2026-01-25", "SALARY ACME LTD", merchant: "Acme Ltd", category: "Income",
+                      credit: 3000.00, balance: 3000.00, seq: 1),
+        RouterFix.row("2026-01-26", "TFR TO SAVINGS", merchant: "Savings", category: "Transfers",
+                      debit: 500.00, balance: 2500.00, seq: 2),
+        RouterFix.row("2026-02-26", "TFR TO SAVINGS", merchant: "Savings", category: "Transfers",
+                      debit: 500.00, balance: 1800.00, seq: 3),
+        RouterFix.row("2026-02-27", "TESCO", merchant: "Tesco", category: "Groceries",
+                      debit: 200.00, balance: 1600.00, seq: 4),
+    ]
+
+    func testSavingsMerchantNotHijackedByNetHandler() {
+        XCTAssertEqual(ask("what's the average charge at savings", Self.acct),
+                       "**Your average transaction at Savings is £500.00** across 2 debits.")
+        // Not the net handler — an ordinary transfer total (£1000, both scope labels ok).
+        let transfer = answerOrFail("how much did i transfer to savings", Self.acct)
+        XCTAssertTrue(transfer.contains("£1000.00") && !transfer.contains("Net"),
+                      "expected a £1000.00 spend/transfer total, not a net calc; got: \(transfer)")
+    }
+
+    // Running-balance queries on a current account.
+    func testBalanceAsOfDateOnCurrentAccount() {
+        XCTAssertEqual(ask("what was my balance on 26 January 2026", Self.acct),
+                       "**Your balance at the end of 26 Jan 2026 was £2500.00.**")
+        XCTAssertEqual(ask("what is my latest balance", Self.acct),
+                       "**Your latest balance is £1600.00.**")
+    }
+}
+
+// MARK: - Amex / foreign-spend regression
+
+final class FinanceRouterForeignSpendTests: XCTestCase {
+    private static let card: [TxnRow] = [
+        RouterFix.row("2026-02-15", "TFL TRAVEL CHARGE", merchant: "TfL", category: "Transport",
+                      debit: 2.10, seq: 1),
+        RouterFix.row("2026-03-01", "TEYA*LITLI DUBLINER FRA REYKJAVIK", merchant: "Litli Dubliner",
+                      category: "Food & Dining", debit: 3.47, seq: 2),
+        RouterFix.row("2026-02-24", "PAYMENT RECEIVED - THANK YOU", merchant: "", category: "Payments",
+                      credit: 500.00, seq: 3),
+    ]
+
+    // Foreign / abroad / overseas spend needs geo-FX knowledge the rows don't
+    // carry — the router must DEFER (nil), never invent a "£0 on Abroad" merchant.
+    func testForeignSpendDefers() {
+        for q in ["how much did i spend abroad", "how much did i spend overseas",
+                  "how much did i spend in foreign currency", "what did i spend internationally"] {
+            XCTAssertNil(ask(q, Self.card), "expected defer (nil) for: \(q)")
+        }
+    }
+
+    // Ordinary card questions still answer (card-repayment total, spend).
+    func testCardRepaymentAndSpendStillAnswer() {
+        XCTAssertEqual(ask("how much did i spend in total", Self.card),
+                       "**You spent £5.57** across 2 transactions.")
+        let repay = answerOrFail("how much did i pay off my card", Self.card)
+        XCTAssertTrue(repay.contains("£500.00"), "expected card-repayment total £500.00, got: \(repay)")
     }
 }
