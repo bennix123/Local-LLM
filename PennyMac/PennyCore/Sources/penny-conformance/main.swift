@@ -48,6 +48,31 @@ case "dump-meta":
     let data = try JSONSerialization.data(withJSONObject: ex.metadata)
     print(String(data: data, encoding: .utf8)!)
 
+case "dump-rows":
+    // usage: penny-conformance dump-rows <pdf> [contractDir] [bankProfilesDir]
+    // Ingests the PDF via the deterministic parser and prints the parsed rows as
+    // JSON — the machine-readable input for the pdfplumber cross-validation harness.
+    guard args.count >= 3 else { fail("usage: penny-conformance dump-rows <pdf>") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let contractDir = args.count > 3 ? args[3] : base + "/contract"
+    let profilesDir = args.count > 4 ? args[4] : base + "/backend/src/services/txn_store/bank_profiles"
+    let ingester = try TxnIngester(categoriesJSONPath: contractDir + "/categories.json",
+                                   bankProfilesDir: profilesDir)
+    let out = try ingester.ingestPDF(path: args[2])
+    let rows: [[String: Any]] = out.rows.map { r in
+        [
+            "date": r.txnDate, "descr": r.descr, "merchant": r.merchant,
+            "category": r.category, "debit": r.debit, "credit": r.credit,
+            "balance": r.balance.map { $0 as Any } ?? NSNull(),
+        ]
+    }
+    let payload: [String: Any] = [
+        "bank": out.bankName.map { $0 as Any } ?? NSNull(),
+        "currency": out.detectedCurrency, "count": rows.count, "rows": rows,
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload)
+    print(String(data: data, encoding: .utf8)!)
+
 case "run":
     // usage: penny-conformance run [contractDir] [bankProfilesDir]
     // Defaults resolve relative to the finquery repo layout.
