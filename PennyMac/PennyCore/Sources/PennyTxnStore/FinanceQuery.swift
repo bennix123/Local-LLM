@@ -55,6 +55,16 @@ public enum FinanceRouter {
         // be misleading (e.g. "£0 on Minimum"), so defer to the LLM / metadata layer.
         if isHeaderMetadataQuery(low) { return nil }
 
+        // ---- foreign / abroad spend → defer --------------------------------
+        // "How much did I spend abroad / overseas / in foreign currency" needs
+        // geo/FX knowledge the row set doesn't carry (a merchant in Reykjavik
+        // isn't flagged as foreign). Answering deterministically would either
+        // invent a phantom "£0 on Abroad" merchant or wrongly report the whole
+        // total — so defer to the model, which can reason about locations.
+        if matches(low, #"\babroad\b|\boverseas\b|\bforeign\b|internationa\w*|another country|different country|outside the (?:uk|country|us)|non[- ]?sterling"#) {
+            return nil
+        }
+
         // ---- document identity: "which statement is a credit card / current
         // account?" — answered from each account's `isCard` flag, not the merged
         // rows. Must run before the income handler, whose `\bcredits?\b` would
@@ -315,8 +325,13 @@ public enum FinanceRouter {
         }
 
         // ---- net / profit / loss / savings ----------------------------------
+        // Only the VERB "save/saved/saving" signals a net calculation. The bare
+        // NOUN "savings" is almost always an account or payee ("transfer to
+        // Savings", "average charge at Savings") — a spend/transfer lookup, not a
+        // net question — so it must not trigger this handler.
         if matches(low, #"\bnet\b|how much did i save|left over|left-over|surplus|net income|\bprofit\b|\bloss\b|\bp\s*&\s*l\b|profit and loss|made or lost|up or down|ahead or behind|in the black"#)
-            || (matches(low, #"\bsav(?:e|ed|ings?)\b"#) && !matches(low, #"rate|target|goal|should|advice|advise|\bhelp\b|recommend|how (?:can|do)"#)) {
+            || (matches(low, #"\bsav(?:e|ed|es|ing)\b"#)
+                && !matches(low, #"rate|target|goal|should|advice|advise|\bhelp\b|recommend|how (?:can|do)"#)) {
             let net = income - spent
             let verb = net >= 0 ? "kept" : "overspent by"
             return "**Net\(scope.label): \(money(net))** — \(money(income)) in minus \(money(spent)) out. You \(verb) \(money(abs(net)))."
@@ -541,23 +556,13 @@ public enum FinanceRouter {
                 return out
             }
 
-            var groups: [(name: String, amt: Double, n: Int)] = []
-            var sigs = Set<String>()
-            for t in Array(Set(toks)) {
-                let pat = #"\b"# + t + (t.count >= 5 ? "" : #"\b"#)
-                let rs = allDebits.filter { $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil }
-                guard !rs.isEmpty else { continue }
-                let amt = rs.reduce(0) { $0 + $1.debit }
-                if sigs.insert("\(rs.count)|\(amt)").inserted {
-                    groups.append((merchantDisplay(t), amt, rs.count))
-                }
-            }
-            if groups.count >= 2 { return render(groups, at: true) }
-            // Category fallback: scan the FULL question for category names /
+            // Category combine FIRST: scan the FULL question for category names /
             // synonyms — independent of the merchant-stopword-filtered `toks`, so
             // category words that are also merchant-stopwords ("subscriptions",
-            // "income") are still detected as a combine side. Ordered by first
-            // appearance for a natural "A vs B" / "A + B" rendering.
+            // "income") are still detected. This must precede the merchant-token
+            // path so "Food & Dining and Rent" isn't mis-read as merchants (the
+            // token "food" would otherwise word-match "CO-OP FOOD" descriptions).
+            // Ordered by first appearance for a natural "A + B" / "A vs B" render.
             let present = Set(allDebits.map(\.category))
             var catHits: [(cat: String, pos: Int)] = []
             var seenCats = Set<String>()
@@ -577,6 +582,22 @@ public enum FinanceRouter {
                 return (h.cat, rs.reduce(0) { $0 + $1.debit }, rs.count)
             }
             if catGroups.count >= 2 { return render(catGroups, at: false) }
+
+            // Merchant-token path: each content token that word-names ≥1 row's
+            // description becomes a side (handles multi-word merchants like
+            // "craft beer" named partially).
+            var groups: [(name: String, amt: Double, n: Int)] = []
+            var sigs = Set<String>()
+            for t in Array(Set(toks)) {
+                let pat = #"\b"# + t + (t.count >= 5 ? "" : #"\b"#)
+                let rs = allDebits.filter { $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil }
+                guard !rs.isEmpty else { continue }
+                let amt = rs.reduce(0) { $0 + $1.debit }
+                if sigs.insert("\(rs.count)|\(amt)").inserted {
+                    groups.append((merchantDisplay(t), amt, rs.count))
+                }
+            }
+            if groups.count >= 2 { return render(groups, at: true) }
         }
 
         // ---- most-spent / most-used merchant --------------------------------
@@ -710,9 +731,19 @@ public enum FinanceRouter {
         // Description matching is only allowed when no category already scoped the
         // rows, so a category question ("food") never gets narrowed to a merchant.
         if let merch = matchMerchant(low, rows: s.rows, allowDescription: !s.hasCategory) {
-            s.rows = s.rows.filter {
-                $0.merchant.lowercased() == merch.lowercased()
-                    || $0.descr.lowercased().contains(merch.lowercased())
+            let ml = merch.lowercased()
+            // Prefer an exact merchant-FIELD match: "Tesco" must not swallow "Tesco
+            // Express", nor "Amazon" pull in "Amazon Prime". Only when no row carries
+            // that merchant name do we fall back to the raw description — and then
+            // with WORD BOUNDARIES, so "TfL" can't match "neTFLix" or "EE" match
+            // "coffEE" via a bare substring.
+            let exact = s.rows.filter { $0.merchant.lowercased() == ml }
+            if !exact.isEmpty {
+                s.rows = exact
+            } else {
+                let pat = #"\b"# + NSRegularExpression.escapedPattern(for: ml)
+                    .replacingOccurrences(of: #"\ "#, with: #"\s+"#)
+                s.rows = s.rows.filter { $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil }
             }
             s.hasMerchant = true
             if s.entity == nil { s.entity = merch }
@@ -848,6 +879,12 @@ public enum FinanceRouter {
         let present = Set(rows.map(\.category).filter { !$0.isEmpty && $0 != "Payments" })
         // direct: the question names a category exactly as it appears in the data
         if let direct = present.first(where: { low.contains($0.lowercased()) }) { return direct }
+        // Merchant names the question actually mentions — so a category synonym
+        // that is only a fragment of a named merchant ("gym" inside "Pure Gym",
+        // "apple" inside a merchant) doesn't hijack a merchant question into a
+        // category. A merchant is "named" if its full name appears in the question.
+        let namedMerchants = Set(rows.map { $0.merchant.lowercased() })
+            .filter { !$0.isEmpty && low.contains($0) }
         // synonym → canonical, if that canonical is present
         for (word, canonical) in categorySynonyms where low.contains(word) {
             // "shop / shopping AT <merchant>" is a verb + object ("did I shop at
@@ -855,6 +892,9 @@ public enum FinanceRouter {
             // through to merchant / absent-target handling.
             if (word == "shop" || word == "shopping"),
                matches(low, #"shop(?:ping)?\s+(?:at|from|in)\b|(?:how many|number of|different|distinct|separate|several|unique)\s+shops?\b"#) { continue }
+            // Skip when the synonym is only present as part of a merchant the
+            // question names (e.g. "gym" in "how much at Pure Gym").
+            if namedMerchants.contains(where: { $0.contains(word) }) { continue }
             if let hit = present.first(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
                 return hit
             }
@@ -865,9 +905,15 @@ public enum FinanceRouter {
     private static func matchMerchant(_ low: String, rows: [TxnRow],
                                       allowDescription: Bool) -> String? {
         // 1) merchant-field candidates (populated by most parsers) — longest wins.
-        let merchants = Set(rows.map(\.merchant).filter { $0.count >= 4 })
-        if let hit = merchants.filter({ low.contains($0.lowercased()) })
-            .max(by: { $0.count < $1.count }) {
+        // Match on WORD BOUNDARIES (not bare substring) so short names like "EE"
+        // are found without also matching "coffEE"/"betwEEn", and a two-letter
+        // real merchant isn't dropped by an over-eager length floor.
+        let merchants = Set(rows.map(\.merchant).filter { $0.count >= 2 })
+        if let hit = merchants.filter({ m in
+            let pat = #"\b"# + NSRegularExpression.escapedPattern(for: m.lowercased())
+                .replacingOccurrences(of: " ", with: #"\s+"#) + #"\b"#
+            return low.range(of: pat, options: .regularExpression) != nil
+        }).max(by: { $0.count < $1.count }) {
             return hit
         }
         guard allowDescription else { return nil }
@@ -930,6 +976,7 @@ public enum FinanceRouter {
         "subscription", "subscriptions", "recurring", "breakdown", "summary", "overall",
         "category", "categories", "percentage", "percent", "frequent", "different",
         "weekend", "weekends", "day", "days", "week", "month", "months", "year", "years",
+        "quarter", "half", "across", "whole", "entire", "throughout", "altogether",
         "owe", "owed", "owing", "outstanding", "due",
         "altogether", "overall", "everything", "anything", "something", "stuff", "things",
         "new", "old", "this", "these", "those", "here",
@@ -1133,11 +1180,14 @@ public enum FinanceRouter {
         // the scope even when the month has no rows in the (possibly already
         // category/merchant-scoped) set, so "Entertainment in February" honestly
         // answers £0 instead of silently dropping the month and reporting the
-        // whole-category total. Exception: "may" is highly ambiguous with the
-        // modal verb, so only honour it when it actually matches data.
+        // whole-category total. Exception: bare "may" is ambiguous with the modal
+        // verb, so for an EMPTY month only honour it when there's clear month
+        // context ("in May", "during May", "May 2026") — otherwise require data.
         for (name, no) in monthNames where matches(low, #"\b"# + name + #"\b"#) {
             let inMonth = rows.filter { $0.monthNo == no }
-            if !inMonth.isEmpty || name != "may" {
+            let mayIsMonth = name != "may"
+                || matches(low, #"\b(?:in|during|for|of|through|this|last|next)\s+may\b|\bmay\s+(?:20\d\d|month)\b"#)
+            if !inMonth.isEmpty || mayIsMonth {
                 return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst())
             }
         }
@@ -1369,7 +1419,7 @@ public enum FinanceRouter {
         // many subscriptions" (a category-count lookup) — both are handled by
         // the scoped catch-alls below, not a request to enumerate the cadence.
         if matches(low, #"subscription|recurr|repeat\w*|regular (?:payment|charge)|standing order|direct debit"#),
-           !matches(low, #"\bhow much\b|\btotal\b|\bspen[dt]\b|\baverage\b|\bhow many\b|\bnumber of\b|\bcount\b|how often"#) {
+           !matches(low, #"\bhow much\b|\btotal\b|\bspen[dt]\b|\baverage\b|\bhow many\b|\bnumber of\b|\bcount\b|how often|\bbiggest\b|\blargest\b|\bsmallest\b|\bcheapest\b|\bpriciest\b|\bhighest\b|\blowest\b|\bpercent\w*\b|\bshare\b|\bwhat percentage\b|\btypical\b"#) {
             return recurringAnswer(periodRows, money: money)
         }
 
