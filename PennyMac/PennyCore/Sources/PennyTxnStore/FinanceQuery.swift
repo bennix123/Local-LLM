@@ -553,22 +553,28 @@ public enum FinanceRouter {
                 }
             }
             if groups.count >= 2 { return render(groups, at: true) }
-            // Category fallback: the tokens name CATEGORIES, not merchants.
-            var catGroups: [(name: String, amt: Double, n: Int)] = []
-            var seenCats = Set<String>()
+            // Category fallback: scan the FULL question for category names /
+            // synonyms — independent of the merchant-stopword-filtered `toks`, so
+            // category words that are also merchant-stopwords ("subscriptions",
+            // "income") are still detected as a combine side. Ordered by first
+            // appearance for a natural "A vs B" / "A + B" rendering.
             let present = Set(allDebits.map(\.category))
-            for t in Array(Set(toks)) {
-                var canonical: String?
-                if let direct = present.first(where: { $0.lowercased().contains(t) }) {
-                    canonical = direct
-                } else if let syn = categorySynonyms.first(where: { t.contains($0.0.trimmingCharacters(in: .whitespaces)) }),
-                          present.contains(syn.1) {
-                    canonical = syn.1
+            var catHits: [(cat: String, pos: Int)] = []
+            var seenCats = Set<String>()
+            for cat in present {
+                if let rng = low.range(of: cat.lowercased()), seenCats.insert(cat).inserted {
+                    catHits.append((cat, low.distance(from: low.startIndex, to: rng.lowerBound)))
                 }
-                guard let cat = canonical, seenCats.insert(cat).inserted else { continue }
-                let rs = allDebits.filter { $0.category == cat }
-                guard !rs.isEmpty else { continue }
-                catGroups.append((cat, rs.reduce(0) { $0 + $1.debit }, rs.count))
+            }
+            for (word, canonical) in categorySynonyms
+            where present.contains(canonical) && !seenCats.contains(canonical) {
+                if let rng = low.range(of: word.trimmingCharacters(in: .whitespaces)), seenCats.insert(canonical).inserted {
+                    catHits.append((canonical, low.distance(from: low.startIndex, to: rng.lowerBound)))
+                }
+            }
+            let catGroups = catHits.sorted { $0.pos < $1.pos }.map { h -> (name: String, amt: Double, n: Int) in
+                let rs = allDebits.filter { $0.category == h.cat }
+                return (h.cat, rs.reduce(0) { $0 + $1.debit }, rs.count)
             }
             if catGroups.count >= 2 { return render(catGroups, at: false) }
         }
