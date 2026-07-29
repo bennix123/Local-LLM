@@ -241,6 +241,9 @@ public enum FinanceRouter {
             || matches(low, #"\bmost\b.{0,26}\bin one (?:go|transaction|purchase|payment)\b|most i'?ve? (?:paid|spent)"#),
            matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|paid|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
+           // "biggest/highest category", "rank my categories" are breakdown
+           // questions, not a single-transaction lookup — let them fall through.
+           !matches(low, #"\bcategor|\brank\b"#),
            let t = debits.max(by: { $0.debit < $1.debit }) {
             return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
         }
@@ -249,6 +252,7 @@ public enum FinanceRouter {
         if matches(low, #"\b(smallest|cheapest|lowest|least expensive|tiniest)\b"#),
            matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
+           !matches(low, #"\bcategor|\brank\b"#),
            let t = debits.min(by: { $0.debit < $1.debit }) {
             return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
         }
@@ -409,12 +413,21 @@ public enum FinanceRouter {
             return "**You spent \(money(spent))\(scope.label)** across \(grp(debits.count)) \(noun)."
         }
 
+        // A "how much / total" phrasing on a threshold wants the SUM of the
+        // matching charges, not an itemised list.
+        let thresholdWantsSum = matches(low, #"how much|\btotal\b|\bsum\b|added up|all together|altogether|combined|in total"#)
+            && !matches(low, #"how many|number of"#)
+
         // ---- threshold ("transactions over £50", "did I spend above 100") ----
         if let g = firstGroup(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least)\s*£?\s*(\d+(?:\.\d+)?)"#),
            let thr = Double(g), !debits.isEmpty {
             let hits = debits.filter { $0.debit > thr }.sorted { $0.debit > $1.debit }
             if hits.isEmpty {
                 return "**No transactions over \(money(thr))\(scope.label).** Your largest was \(money(debits.map(\.debit).max() ?? 0))."
+            }
+            if thresholdWantsSum {
+                let sum = hits.reduce(0) { $0 + $1.debit }
+                return "**You spent \(money(sum)) across \(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") over \(money(thr))\(scope.label).**"
             }
             var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") over \(money(thr))\(scope.label):**"]
             for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
@@ -429,6 +442,10 @@ public enum FinanceRouter {
             let hits = debits.filter { $0.debit < thr }.sorted { $0.debit < $1.debit }
             if hits.isEmpty {
                 return "**No transactions under \(money(thr))\(scope.label).** Your smallest was \(money(debits.map(\.debit).min() ?? 0))."
+            }
+            if thresholdWantsSum {
+                let sum = hits.reduce(0) { $0 + $1.debit }
+                return "**You spent \(money(sum)) across \(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label).**"
             }
             var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label):**"]
             for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
@@ -563,8 +580,10 @@ public enum FinanceRouter {
         if !debits.isEmpty {
             let wantsFreq = matches(low, #"most (?:frequent|used|common|visited|regular)|(?:merchant|shop|store|place) .*most often|paid most often|most often"#)
             let wantsMost = matches(low, #"which (?:merchant|shop|store|place|retailer|company|business)|who did i (?:spend|pay)|where did i spend the most|most (?:spent|expensive) (?:merchant|shop|store)|biggest merchant|top merchant"#)
-            if wantsFreq || wantsMost {
-                return merchantRanking(debits, byCount: wantsFreq,
+            let wantsLeast = matches(low, #"which (?:merchant|shop|store|place|retailer|company|business)|where did i spend the least|least (?:spent|expensive) (?:merchant|shop|store)|smallest merchant|bottom merchant"#)
+                && matches(low, #"\bleast\b|\blowest\b|\bfewest\b|\bsmallest\b"#)
+            if wantsFreq || wantsMost || wantsLeast {
+                return merchantRanking(debits, byCount: wantsFreq, least: wantsLeast && !wantsFreq,
                                        scopeLabel: scope.label, money: money)
             }
         }
@@ -740,7 +759,11 @@ public enum FinanceRouter {
         let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
             .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !months.contains($0) }
-        guard !toks.isEmpty else { return nil }
+        // A genuine "spend at <X>" names a merchant/category in 1–2 tokens. Three or
+        // more leftover content words means the question wasn't a clean spend lookup
+        // (e.g. "how much were the new debits this period", "verify the ISK
+        // conversion") — defer to the model rather than inventing a £0 "merchant".
+        guard !toks.isEmpty, toks.count <= 2 else { return nil }
         return merchantDisplay(toks.joined(separator: " "))
     }
 
@@ -934,22 +957,34 @@ public enum FinanceRouter {
     }
 
     private static func merchantRanking(_ debits: [TxnRow], byCount: Bool,
+                                        least: Bool = false,
                                         scopeLabel: String, money: (Double) -> String) -> String {
-        var tot: [String: (amount: Double, count: Int)] = [:]
+        // Group by the PARSED merchant field so the ranking matches the per-merchant
+        // totals ("how much at X") exactly — a merchant whose rows have varied raw
+        // descriptions (e.g. CAREDENTALPLATINUM.COM + CARE DENTAL PLATINUM) stays one
+        // merchant. Fall back to the description-derived key only when merchant is empty.
+        var tot: [String: (amount: Double, count: Int, name: String)] = [:]
         for r in debits {
-            var e = tot[merchantKey(r.descr)] ?? (0, 0)
+            let usesMerchant = !r.merchant.isEmpty
+            let key = usesMerchant ? r.merchant.lowercased() : merchantKey(r.descr)
+            let name = usesMerchant ? r.merchant : merchantKey(r.descr).capitalized
+            var e = tot[key] ?? (0, 0, name)
             e.amount += r.debit; e.count += 1
-            tot[merchantKey(r.descr)] = e
+            tot[key] = e
         }
         let ranked = tot.sorted {
-            byCount ? $0.value.count > $1.value.count : $0.value.amount > $1.value.amount
+            let a = byCount ? Double($0.value.count) : $0.value.amount
+            let b = byCount ? Double($1.value.count) : $1.value.amount
+            return least ? a < b : a > b
         }
         guard let top = ranked.first else { return "No spending to rank." }
-        let name = top.key.capitalized
+        let name = top.value.name
         if byCount {
-            return "**Your most-used merchant\(scopeLabel) is \(name)** — \(top.value.count) transactions totalling \(money(top.value.amount))."
+            let sup = least ? "least-used" : "most-used"
+            return "**Your \(sup) merchant\(scopeLabel) is \(name)** — \(top.value.count) transaction\(top.value.count == 1 ? "" : "s") totalling \(money(top.value.amount))."
         }
-        return "**You spent the most at \(name)\(scopeLabel): \(money(top.value.amount))** across \(top.value.count) transaction\(top.value.count == 1 ? "" : "s")."
+        let verb = least ? "least" : "most"
+        return "**You spent the \(verb) at \(name)\(scopeLabel): \(money(top.value.amount))** across \(top.value.count) transaction\(top.value.count == 1 ? "" : "s")."
     }
 
     private static let monthNames: [(String, Int)] = [
@@ -1088,10 +1123,15 @@ public enum FinanceRouter {
             let m = sortedMonths.count >= 2 ? sortedMonths[sortedMonths.count - 2] : sortedMonths[0]
             return (rows.filter { $0.month == m }, "last month")
         }
-        // named month (matches whole word so "mar" doesn't hit "market")
+        // named month (matches whole word so "mar" doesn't hit "market"). Apply
+        // the scope even when the month has no rows in the (possibly already
+        // category/merchant-scoped) set, so "Entertainment in February" honestly
+        // answers £0 instead of silently dropping the month and reporting the
+        // whole-category total. Exception: "may" is highly ambiguous with the
+        // modal verb, so only honour it when it actually matches data.
         for (name, no) in monthNames where matches(low, #"\b"# + name + #"\b"#) {
             let inMonth = rows.filter { $0.monthNo == no }
-            if !inMonth.isEmpty {
+            if !inMonth.isEmpty || name != "may" {
                 return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst())
             }
         }
@@ -1319,10 +1359,11 @@ public enum FinanceRouter {
 
         // ---- recurring charges & subscriptions ------------------------------
         // Deferred when the question is a direct "how much did I spend on
-        // subscriptions" total — that's a category-spend lookup (handled by the
-        // catch-all), not a request to enumerate the recurring cadence.
+        // subscriptions" total (a category-spend lookup) OR a count like "how
+        // many subscriptions" (a category-count lookup) — both are handled by
+        // the scoped catch-alls below, not a request to enumerate the cadence.
         if matches(low, #"subscription|recurr|repeat\w*|regular (?:payment|charge)|standing order|direct debit"#),
-           !matches(low, #"\bhow much\b|\btotal\b|\bspen[dt]\b|\baverage\b"#) {
+           !matches(low, #"\bhow much\b|\btotal\b|\bspen[dt]\b|\baverage\b|\bhow many\b|\bnumber of\b|\bcount\b|how often"#) {
             return recurringAnswer(periodRows, money: money)
         }
 
