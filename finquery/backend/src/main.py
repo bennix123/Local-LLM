@@ -50,15 +50,25 @@ app.add_middleware(
 
 load_dotenv()   
 
-# Initialize together and RAG engine (lazy loading)
-together_client = Together()
+# Initialize together and RAG engine (lazy loading).
+# NOTE: Together is only needed for the RAG / LLM fallback path. The deterministic
+# core pipeline (txn_store parse + SQL query) needs no API key, so we instantiate
+# the client lazily instead of at import time — the server boots without a key.
+together_client: Together | None = None
 rag_engine: RAGEngine | None = None
+
+def get_together_client() -> Together:
+    """Lazy initialization of the Together LLM client (raises if no API key)."""
+    global together_client
+    if together_client is None:
+        together_client = Together()
+    return together_client
 
 def get_rag_engine():
     """Lazy initialization of RAG engine. (when needed)"""
     global rag_engine
     if rag_engine is None:
-        rag_engine = RAGEngine(together_client, use_hybrid=True)
+        rag_engine = RAGEngine(get_together_client(), use_hybrid=True)
     return rag_engine
 
 ######################### API Endpoints #########################
@@ -212,7 +222,7 @@ async def upload_document(file: UploadFile = File(...), user_id: str = Depends(g
             )
 
         # process pdf
-        chunks, no_of_pages = process_pdf(together_client, temp_path)
+        chunks, no_of_pages = process_pdf(get_together_client(), temp_path)
         
         if not chunks:
             raise HTTPException(status_code=400, detail="No content extracted from PDF")

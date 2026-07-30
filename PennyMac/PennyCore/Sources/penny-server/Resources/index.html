@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Penny · on-device finance (Swift + MLX)</title>
+<style>
+  :root {
+    --bg:#0b0d10; --panel:#14181d; --panel2:#1b2027; --line:#252c35;
+    --ink:#e8edf2; --mut:#8b97a5; --lime:#c6f24e; --lime-ink:#0b0d10;
+    --up:#5ad19b; --down:#ff8a7a; --acc:#7cc4ff; --radius:16px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f4f6f8; --panel:#ffffff; --panel2:#f0f3f6; --line:#e2e7ec;
+            --ink:#141a20; --mut:#5c6773; --lime:#5aa800; --lime-ink:#ffffff; }
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; min-height:100vh;
+  }
+  a { color:var(--acc); }
+  header {
+    display:flex; align-items:center; gap:12px; padding:14px 22px;
+    border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5;
+  }
+  .logo { width:30px;height:30px;border-radius:9px;background:var(--lime);color:var(--lime-ink);
+          display:grid;place-items:center;font-weight:800; }
+  header h1 { font-size:16px; margin:0; font-weight:700; letter-spacing:-.01em; }
+  header .tag { font:11px/1 ui-monospace,monospace; color:var(--mut); border:1px solid var(--line);
+                padding:5px 8px; border-radius:20px; }
+  .spacer { flex:1; }
+  .wrap { flex:1; display:grid; grid-template-columns: 1fr 380px; gap:0; min-height:0; }
+  @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+  main { padding:22px; overflow:auto; }
+  aside { border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; background:var(--panel); }
+  @media (max-width:900px){ aside{ border-left:0; border-top:1px solid var(--line); } }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:0 0 14px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+
+  .btn { background:var(--lime); color:var(--lime-ink); border:0; border-radius:11px; padding:11px 16px;
+         font-weight:700; cursor:pointer; font-size:14px; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  .btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+
+  /* upload */
+  .drop { border:1.5px dashed var(--line); border-radius:14px; padding:26px; text-align:center; color:var(--mut);
+          cursor:pointer; transition:.15s; }
+  .drop.hot { border-color:var(--lime); color:var(--ink); background:var(--panel2); }
+  .drop .big { font-size:30px; }
+
+  /* stat tiles */
+  .tiles { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  @media (max-width:700px){ .tiles{ grid-template-columns:repeat(2,1fr);} }
+  .tile { background:var(--panel2); border:1px solid var(--line); border-radius:13px; padding:14px; }
+  .tile .k { font:11px/1 ui-monospace,monospace; color:var(--mut); text-transform:uppercase; letter-spacing:.05em;}
+  .tile .v { font-size:22px; font-weight:750; margin-top:7px; letter-spacing:-.02em; }
+  .v.down{ color:var(--down);} .v.up{ color:var(--up);}
+
+  /* bars */
+  .bar { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .bar .lab { width:130px; flex:none; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar .track { flex:1; height:9px; background:var(--panel2); border-radius:6px; overflow:hidden; }
+  .bar .fill { height:100%; background:var(--lime); border-radius:6px; }
+  .bar .amt { width:96px; text-align:right; flex:none; font-variant-numeric:tabular-nums; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; position:sticky; top:0; background:var(--panel);}
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:20px; background:var(--panel2); border:1px solid var(--line); font-size:11px; color:var(--mut);}
+  .tblwrap { max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:12px; }
+
+  /* model */
+  .prog { height:8px; background:var(--panel2); border-radius:6px; overflow:hidden; margin-top:10px; }
+  .prog i { display:block; height:100%; width:0; background:var(--lime); transition:width .3s; }
+  .muted { color:var(--mut); font-size:12.5px; }
+
+  /* chat */
+  .chat-head { padding:14px 18px; border-bottom:1px solid var(--line); font-weight:700; display:flex; gap:8px; align-items:center;}
+  .msgs { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:88%; padding:10px 13px; border-radius:14px; font-size:14px; white-space:pre-wrap; }
+  .msg.me { align-self:flex-end; background:var(--lime); color:var(--lime-ink); }
+  .msg.bot { align-self:flex-start; background:var(--panel2); border:1px solid var(--line); }
+  .msg .src { display:block; margin-top:6px; font:10px/1 ui-monospace,monospace; opacity:.7; text-transform:uppercase; letter-spacing:.05em; }
+  .chat-in { display:flex; gap:8px; padding:14px; border-top:1px solid var(--line); }
+  .chat-in input { flex:1; background:var(--panel2); border:1px solid var(--line); color:var(--ink); border-radius:11px; padding:11px 13px; font-size:14px; }
+  .chat-in input:focus { outline:2px solid var(--lime); }
+  .empty { color:var(--mut); text-align:center; padding:40px 20px; font-size:13.5px; }
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+  .chip { border:1px solid var(--line); background:var(--panel2); color:var(--mut); border-radius:20px;
+          padding:6px 11px; font-size:12px; cursor:pointer; }
+  .chip:hover { color:var(--ink); border-color:var(--lime); }
+  strong{ font-weight:750; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">P</div>
+  <h1>Penny</h1>
+  <span class="tag">on-device · Swift + MLX</span>
+  <div class="spacer"></div>
+  <span class="tag" id="modelTag">model: not loaded</span>
+</header>
+
+<div class="wrap">
+  <main>
+    <!-- MODEL -->
+    <div class="card" id="modelCard">
+      <h2>On-device model (MLX)</h2>
+      <div class="row" style="align-items:center">
+        <button class="btn" id="loadBtn">Load on-device model (MLX)</button>
+        <span class="muted" id="modelMsg">Deterministic answers work without it. The model handles open-ended questions — fully on this machine.</span>
+      </div>
+      <div class="prog" id="progWrap" style="display:none"><i id="progFill"></i></div>
+    </div>
+
+    <!-- UPLOAD -->
+    <div class="card">
+      <h2>Add a statement</h2>
+      <div class="drop" id="drop">
+        <div class="big">📄</div>
+        <div><strong>Drop a PDF or CSV</strong> — or click to choose</div>
+        <div class="muted" style="margin-top:6px">Parsed on-device by the Swift engine. Nothing is uploaded anywhere.</div>
+      </div>
+      <input type="file" id="file" accept=".pdf,.csv" hidden />
+      <div id="stmtList" class="row" style="margin-top:12px"></div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dash" style="display:none">
+      <div class="card">
+        <h2>Overview</h2>
+        <div class="tiles" id="tiles"></div>
+      </div>
+      <div class="row" style="gap:18px; align-items:flex-start">
+        <div class="card" style="flex:1; min-width:280px">
+          <h2>Spending by category</h2>
+          <div id="cats"></div>
+        </div>
+        <div class="card" style="flex:1; min-width:280px">
+          <h2>Top merchants</h2>
+          <div id="merch"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Transactions <span class="pill" id="txnCount"></span></h2>
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Out</th><th class="num">In</th><th class="num">Balance</th></tr></thead>
+            <tbody id="txnBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="dashEmpty" class="card empty">Upload a statement to see your dashboard.</div>
+  </main>
+
+  <!-- CHAT -->
+  <aside>
+    <div class="chat-head">💬 Ask Penny</div>
+    <div class="msgs" id="msgs">
+      <div class="empty" id="chatEmpty">
+        Ask about your money once a statement is loaded.
+        <div class="chips" id="chips"></div>
+      </div>
+    </div>
+    <form class="chat-in" id="chatForm">
+      <input id="q" placeholder="How much did I spend on groceries?" autocomplete="off" />
+      <button class="btn" type="submit" id="sendBtn">Ask</button>
+    </form>
+  </aside>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let hasData = false;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+// ---------- money ----------
+let SYM = '£';
+const fmt = n => SYM + (n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2});
+
+// ---------- model ----------
+async function refreshModel() {
+  const m = await api('/api/model');
+  const tag = $('#modelTag'), msg = $('#modelMsg'), btn = $('#loadBtn');
+  const pw = $('#progWrap'), pf = $('#progFill');
+  if (m.loaded) {
+    tag.textContent = 'model: ready'; msg.textContent = 'On-device model ready. Open-ended questions run on MLX.';
+    btn.disabled = true; btn.textContent = 'Model loaded ✓'; pw.style.display='none';
+  } else if (m.loading) {
+    tag.textContent = 'model: loading ' + Math.round(m.progress*100) + '%';
+    btn.disabled = true; btn.textContent = 'Loading…';
+    pw.style.display='block'; pf.style.width = (m.progress*100)+'%';
+    msg.textContent = 'Downloading + loading weights on-device (first run only)…';
+    setTimeout(refreshModel, 800);
+  } else {
+    tag.textContent = 'model: not loaded'; btn.disabled = false; btn.textContent = 'Load on-device model (MLX)';
+    if (m.error) msg.textContent = '⚠ ' + m.error;
+  }
+}
+$('#loadBtn').onclick = async () => { await api('/api/model/load', {method:'POST'}); refreshModel(); };
+
+// ---------- upload ----------
+const drop = $('#drop'), file = $('#file');
+drop.onclick = () => file.click();
+['dragover','dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('hot'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('hot'); }));
+drop.addEventListener('drop', ev => { if (ev.dataTransfer.files[0]) upload(ev.dataTransfer.files[0]); });
+file.onchange = () => { if (file.files[0]) upload(file.files[0]); };
+
+async function upload(f) {
+  drop.querySelector('div:nth-child(2)').innerHTML = '<strong>Parsing ' + f.name + '…</strong>';
+  const buf = await f.arrayBuffer();
+  const res = await api('/api/parse', {
+    method:'POST',
+    headers:{'X-Filename': f.name, 'Content-Type':'application/octet-stream'},
+    body: buf
+  });
+  drop.querySelector('div:nth-child(2)').innerHTML = '<strong>Drop a PDF or CSV</strong> — or click to choose';
+  if (res.error) { alert('Parse failed: ' + res.error); return; }
+  render(res.dashboard);
+}
+
+// ---------- dashboard ----------
+function render(d) {
+  if (!d || !d.totals || d.totals.count === 0) return;
+  hasData = true; SYM = d.symbol || '£';
+  $('#dash').style.display='block'; $('#dashEmpty').style.display='none';
+  $('#chatEmpty').style.display = 'none';
+
+  // statements
+  $('#stmtList').innerHTML = (d.statements||[]).map(s =>
+    `<span class="pill">${s.name} · ${s.count} txns${s.isCard?' · card':''}</span>`).join('');
+
+  // tiles
+  const t = d.totals;
+  $('#tiles').innerHTML = `
+    <div class="tile"><div class="k">Spent</div><div class="v down">${fmt(t.spent)}</div></div>
+    <div class="tile"><div class="k">Income</div><div class="v up">${fmt(t.income)}</div></div>
+    <div class="tile"><div class="k">Net</div><div class="v ${t.net>=0?'up':'down'}">${fmt(t.net)}</div></div>
+    <div class="tile"><div class="k">Transactions</div><div class="v">${t.count.toLocaleString()}</div></div>`;
+
+  // category bars
+  const cats = d.categories||[], maxC = Math.max(1, ...cats.map(c=>c.amount));
+  $('#cats').innerHTML = cats.slice(0,10).map(c =>
+    `<div class="bar"><div class="lab">${c.category}</div><div class="track"><div class="fill" style="width:${c.amount/maxC*100}%"></div></div><div class="amt">${fmt(c.amount)}</div></div>`).join('') || '<div class="muted">No spending.</div>';
+
+  // merchants
+  const ms = d.topMerchants||[], maxM = Math.max(1, ...ms.map(m=>m.amount));
+  $('#merch').innerHTML = ms.map(m =>
+    `<div class="bar"><div class="lab">${m.merchant}</div><div class="track"><div class="fill" style="width:${m.amount/maxM*100}%"></div></div><div class="amt">${fmt(m.amount)}</div></div>`).join('') || '<div class="muted">—</div>';
+
+  // transactions
+  const tx = d.transactions||[];
+  $('#txnCount').textContent = tx.length + ' shown';
+  $('#txnBody').innerHTML = tx.slice().reverse().map(r => `
+    <tr><td>${r.date}</td><td>${esc(r.description)}</td><td><span class="pill">${r.category}</span></td>
+    <td class="num">${r.debit?fmt(r.debit):''}</td><td class="num">${r.credit?fmt(r.credit):''}</td>
+    <td class="num">${r.balance!=null?fmt(r.balance):''}</td></tr>`).join('');
+}
+const esc = s => (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// ---------- chat ----------
+const chips = ['How much did I spend in total?','What did I spend on groceries?','What is my biggest expense?',
+  'How much money came in?','What are my recurring charges?','How many transactions are there?'];
+$('#chips').innerHTML = chips.map(c=>`<span class="chip">${c}</span>`).join('');
+$('#chips').onclick = e => { if (e.target.classList.contains('chip')) { $('#q').value = e.target.textContent; $('#chatForm').requestSubmit(); } };
+
+function addMsg(text, who, src) {
+  $('#chatEmpty').style.display = 'none';
+  const el = document.createElement('div');
+  el.className = 'msg ' + who;
+  el.innerHTML = mdBold(esc(text)) + (src ? `<span class="src">${src}</span>` : '');
+  $('#msgs').appendChild(el);
+  $('#msgs').scrollTop = $('#msgs').scrollHeight;
+  return el;
+}
+const mdBold = s => s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+
+$('#chatForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('#q').value.trim(); if (!q) return;
+  $('#q').value=''; addMsg(q,'me');
+  const thinking = addMsg('…','bot');
+  try {
+    const res = await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    thinking.remove();
+    const badges = {deterministic:'swift engine', mlx:'on-device MLX', 'needs-model':'needs model', none:''};
+    const badge = badges[res.engine] ?? res.engine;
+    addMsg(res.answer || res.error || 'No answer.','bot', badge);
+  } catch(err){ thinking.remove(); addMsg('Error: '+err.message,'bot'); }
+};
+
+// ---------- init ----------
+(async () => {
+  refreshModel();
+  const s = await api('/api/state');
+  if (s.dashboard) render(s.dashboard);
+})();
+</script>
+</body>
+</html>

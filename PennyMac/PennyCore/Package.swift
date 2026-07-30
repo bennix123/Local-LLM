@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "PennyTxnStore", targets: ["PennyTxnStore"]),
         .executable(name: "penny-cli", targets: ["penny-cli"]),
         .executable(name: "penny-conformance", targets: ["penny-conformance"]),
+        .executable(name: "penny-server", targets: ["penny-server"]),
     ],
     dependencies: [
         // MLXLLM / MLXLMCommon: tokenizer, chat template, generation.
@@ -68,6 +69,18 @@ let package = Package(
         .executableTarget(
             name: "penny-conformance",
             dependencies: ["PennyTxnStore"]
+        ),
+        // Local web server: the full macOS pipeline (PennyTxnStore parse+categorize,
+        // PennyFinance deterministic query, PennyCore/MLX chat) exposed over HTTP,
+        // serving a single-page web UI. MLX is the ONLY LLM — no cloud, no Python.
+        .executableTarget(
+            name: "penny-server",
+            dependencies: ["PennyCore"],
+            resources: [
+                .copy("Resources/index.html"),
+                .copy("Resources/categories.json"),
+                .copy("Resources/bank_profiles"),
+            ]
         ),
         // XCTest layer over the same deterministic pipeline: the 22-fixture
         // conformance contract plus component tests (router, retriever, DB,
