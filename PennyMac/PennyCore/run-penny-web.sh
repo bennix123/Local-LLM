@@ -8,6 +8,12 @@ cd "$(dirname "$0")"                      # PennyMac/PennyCore
 PORT="${PENNY_PORT:-8088}"
 BIN_DIR=".build/debug"
 
+# --local (or PENNY_LOCAL=1): run the server only and open it in this Mac's
+# browser — no public Cloudflare tunnel. Default is to expose a public URL.
+LOCAL=0
+[ "${1:-}" = "--local" ] && LOCAL=1
+[ "${PENNY_LOCAL:-0}" = "1" ] && LOCAL=1
+
 echo "▸ Building penny-server…"
 swift build --product penny-server
 
@@ -35,6 +41,17 @@ echo "▸ Starting server on http://127.0.0.1:$PORT"
 env PENNY_PORT="$PORT" "$BIN_DIR/penny-server" &
 SERVER_PID=$!
 sleep 2
+
+if [ "$LOCAL" = "1" ]; then
+  echo
+  echo "════════════════════════════════════════════════════════════════"
+  echo "  Penny is running locally:  http://127.0.0.1:$PORT"
+  echo "  (local-only — no public tunnel). Ctrl-C to stop."
+  echo "════════════════════════════════════════════════════════════════"
+  command -v open >/dev/null && open "http://127.0.0.1:$PORT" || true
+  wait
+  exit 0
+fi
 
 echo "▸ Opening Cloudflare tunnel…"
 TUNNEL_LOG="$(mktemp)"
