@@ -228,8 +228,12 @@ func dashboardJSON(_ engine: PennyEngine) async -> [String: Any] {
 }
 
 func modelJSON(_ m: ModelState) -> [String: Any] {
+    // `systemAvailable`: Apple's on-device system model (FoundationModels) is ready,
+    // so chat works with no MLX download — the UI advertises this and drops the
+    // "load the model first" gate. See AppleFoundationLLM / WWDC26-326.
     ["id": m.id, "loaded": m.loaded, "loading": m.loading,
-     "progress": m.progress, "error": m.error as Any? ?? NSNull()]
+     "progress": m.progress, "error": m.error as Any? ?? NSNull(),
+     "systemAvailable": PennyLLM.systemModelAvailable]
 }
 
 // MARK: - Routing
@@ -295,9 +299,10 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
         if let det = await engine.deterministicAnswer(question) {
             return .json(200, ["answer": det, "engine": "deterministic"])
         }
-        // 2) on-device MLX fallback
+        // 2) on-device model fallback — Apple's system model (no download) if the
+        //    machine has Apple Intelligence, else the MLX model once it's loaded.
         let model = await engine.model
-        guard model.loaded else {
+        guard model.loaded || PennyLLM.systemModelAvailable else {
             return .json(200, [
                 "answer": "That one needs the on-device model. Click **Load on-device model (MLX)** and try again.",
                 "engine": "needs-model",
@@ -305,9 +310,11 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
         }
         do {
             let ans = try await engine.mlxAnswer(question)
-            return .json(200, ["answer": ans, "engine": "mlx"])
+            // PennyLLM.ask prefers Apple's system model; label the reply accordingly.
+            let engineName = (!model.loaded && PennyLLM.systemModelAvailable) ? "apple" : "mlx"
+            return .json(200, ["answer": ans, "engine": engineName])
         } catch {
-            return .json(500, ["error": "mlx failed: \(error.localizedDescription)"])
+            return .json(500, ["error": "on-device model failed: \(error.localizedDescription)"])
         }
 
     default:

@@ -120,6 +120,14 @@ public actor PennyLLM {
 
     public var isLoaded: Bool { container != nil }
 
+    /// True when Apple's on-device system model (FoundationModels) is ready — chat
+    /// and categorization then run with NO MLX download. Lets callers relax the
+    /// "load the model first" gate and advertise on-device readiness up front.
+    public static var systemModelAvailable: Bool {
+        if #available(macOS 26.0, *) { return AppleFoundationLLM.isAvailable }
+        return false
+    }
+
     /// Load (downloading the weights on first use) and cache the model.
     /// The Swift twin of ensure_loaded() in the reference.
     @discardableResult
@@ -153,6 +161,21 @@ public actor PennyLLM {
         maxTokens: Int = 600,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> String {
+        // Apple's on-device system model first (no download); MLX is the fallback.
+        // Non-streaming, so a failure emits nothing and the MLX path can take over
+        // cleanly without double-showing a half-streamed answer. See WWDC26-326.
+        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+            do {
+                let ans = try await AppleFoundationLLM.answer(
+                    question: question, statementText: statementText, maxTokens: maxTokens)
+                onToken(ans)
+                return ans
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // fall through to the MLX model below
+            }
+        }
         let container = try await load()
 
         let clipped = String(statementText.prefix(12_000))
@@ -259,6 +282,16 @@ public actor PennyLLM {
                                     seedCategories: [String],
                                     forbidOther: Bool = false) async throws -> [MerchantCategory] {
         guard !descriptors.isEmpty else { return [] }
+        // Prefer Apple's on-device system model (FoundationModels) when the machine
+        // has Apple Intelligence: it emits validated @Generable structs (no JSON to
+        // truncate) and needs no weights download. Falls through to MLX on any error
+        // or when it's unavailable. See AppleFoundationLLM / WWDC26-326.
+        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+            if let out = try? await AppleFoundationLLM.categorize(
+                descriptors, seedCategories: seedCategories, forbidOther: forbidOther), !out.isEmpty {
+                return out
+            }
+        }
         let container = try await load()
         // When `forbidOther`, the model must place EVERY descriptor — no "Other".
         let otherRule = forbidOther ? """

@@ -31,11 +31,19 @@
   header .tag { font:11px/1 ui-monospace,monospace; color:var(--mut); border:1px solid var(--line);
                 padding:5px 8px; border-radius:20px; }
   .spacer { flex:1; }
-  .wrap { flex:1; display:grid; grid-template-columns: 1fr 380px; gap:0; min-height:0; }
+  .wrap { flex:1; display:grid; grid-template-columns: 1fr var(--aside-w, 380px); gap:0; min-height:0; }
   @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
   main { padding:22px; overflow:auto; }
-  aside { border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; background:var(--panel); }
+  aside { position:relative; border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; background:var(--panel); }
   @media (max-width:900px){ aside{ border-left:0; border-top:1px solid var(--line); } }
+
+  /* Drag handle on the chat panel's left edge — pull it wider to read long
+     transaction lists without every row wrapping mid-line. */
+  .dragbar { position:absolute; left:-5px; top:0; bottom:0; width:11px; cursor:col-resize; z-index:10; }
+  .dragbar::after { content:""; position:absolute; left:4px; top:0; bottom:0; width:3px; border-radius:3px;
+                    background:transparent; transition:background .15s; }
+  .dragbar:hover::after, .dragbar.active::after { background:var(--lime); }
+  @media (max-width:900px){ .dragbar{ display:none; } }
 
   .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px; margin-bottom:18px; }
   .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:0 0 14px; }
@@ -45,6 +53,8 @@
          font-weight:700; cursor:pointer; font-size:14px; }
   .btn:disabled { opacity:.5; cursor:default; }
   .btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  .btn.ghost.danger { color:var(--down); border-color:var(--down); font-size:13px; padding:8px 13px; }
+  .btn.ghost.danger:hover { background:var(--down); color:var(--bg); }
 
   /* upload */
   .drop { border:1.5px dashed var(--line); border-radius:14px; padding:26px; text-align:center; color:var(--mut);
@@ -103,6 +113,7 @@
   <h1>Penny</h1>
   <span class="tag">on-device · Swift + MLX</span>
   <div class="spacer"></div>
+  <button class="btn ghost danger" id="wipeBtn" style="display:none">Wipe all data</button>
   <span class="tag" id="modelTag">model: not loaded</span>
 </header>
 
@@ -162,6 +173,7 @@
 
   <!-- CHAT -->
   <aside>
+    <div class="dragbar" id="dragbar" title="Drag to resize the chat panel"></div>
     <div class="chat-head">💬 Ask Penny</div>
     <div class="msgs" id="msgs">
       <div class="empty" id="chatEmpty">
@@ -179,6 +191,32 @@
 <script>
 const $ = s => document.querySelector(s);
 let hasData = false;
+
+// ---------- resizable chat panel ----------
+// Drag the left edge of the chat panel to widen it (up to 80% of the window) so
+// long transaction lists read cleanly. The chosen width is remembered.
+(function () {
+  const wrap = document.querySelector('.wrap'), bar = $('#dragbar'), KEY = 'penny.asideW';
+  const clamp = w => Math.max(340, Math.min(w, Math.round(window.innerWidth * 0.8)));
+  const setW = w => wrap.style.setProperty('--aside-w', clamp(w) + 'px');
+  const curW = () => parseInt(getComputedStyle(wrap).getPropertyValue('--aside-w'), 10) || 380;
+  const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+  if (saved) setW(saved);
+  let dragging = false;
+  bar.addEventListener('mousedown', e => {
+    dragging = true; bar.classList.add('active');
+    document.body.style.userSelect = 'none'; document.body.style.cursor = 'col-resize';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => { if (dragging) setW(window.innerWidth - e.clientX); });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; bar.classList.remove('active');
+    document.body.style.userSelect = ''; document.body.style.cursor = '';
+    localStorage.setItem(KEY, curW());
+  });
+  window.addEventListener('resize', () => setW(curW()));
+})();
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -203,6 +241,13 @@ async function refreshModel() {
     pw.style.display='block'; pf.style.width = (m.progress*100)+'%';
     msg.textContent = 'Downloading + loading weights on-device (first run only)…';
     setTimeout(refreshModel, 800);
+  } else if (m.systemAvailable) {
+    // Apple's on-device system model (FoundationModels) is ready — chat works with
+    // zero download. The MLX button stays as an optional fallback engine.
+    tag.textContent = 'model: Apple Intelligence';
+    btn.disabled = false; btn.textContent = 'Load MLX model (optional)';
+    msg.textContent = 'Apple Intelligence is on this Mac — open-ended questions run on the built-in on-device model, no download needed.';
+    pw.style.display = 'none';
   } else {
     tag.textContent = 'model: not loaded'; btn.disabled = false; btn.textContent = 'Load on-device model (MLX)';
     if (m.error) msg.textContent = '⚠ ' + m.error;
@@ -237,6 +282,7 @@ function render(d) {
   hasData = true; SYM = d.symbol || '£';
   $('#dash').style.display='block'; $('#dashEmpty').style.display='none';
   $('#chatEmpty').style.display = 'none';
+  $('#wipeBtn').style.display = 'inline-block';
 
   // statements
   $('#stmtList').innerHTML = (d.statements||[]).map(s =>
@@ -270,6 +316,26 @@ function render(d) {
 }
 const esc = s => (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+// ---------- wipe all data ----------
+$('#wipeBtn').onclick = async () => {
+  if (!confirm('Wipe all data? This clears every loaded statement and your dashboard. The on-device model stays loaded.')) return;
+  const btn = $('#wipeBtn');
+  btn.disabled = true; btn.textContent = 'Wiping…';
+  try { await api('/api/reset', {method:'POST'}); } catch(_) {}
+  hasData = false;
+  $('#dash').style.display = 'none';
+  $('#dashEmpty').style.display = 'block';
+  $('#stmtList').innerHTML = '';
+  // Reset the chat back to its empty state, keeping the #chatEmpty node (which
+  // lives inside #msgs and would otherwise be destroyed by clearing innerHTML).
+  const empty = $('#chatEmpty');
+  $('#msgs').innerHTML = '';
+  $('#msgs').appendChild(empty);
+  empty.style.display = 'block';
+  btn.disabled = false; btn.textContent = 'Wipe all data';
+  btn.style.display = 'none';
+};
+
 // ---------- chat ----------
 const chips = ['How much did I spend in total?','What did I spend on groceries?','What is my biggest expense?',
   'How much money came in?','What are my recurring charges?','How many transactions are there?'];
@@ -295,7 +361,7 @@ $('#chatForm').onsubmit = async e => {
   try {
     const res = await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
     thinking.remove();
-    const badges = {deterministic:'swift engine', mlx:'on-device MLX', 'needs-model':'needs model', none:''};
+    const badges = {deterministic:'swift engine', apple:'apple intelligence', mlx:'on-device MLX', 'needs-model':'needs model', none:''};
     const badge = badges[res.engine] ?? res.engine;
     addMsg(res.answer || res.error || 'No answer.','bot', badge);
   } catch(err){ thinking.remove(); addMsg('Error: '+err.message,'bot'); }
