@@ -256,9 +256,21 @@ public actor PennyLLM {
     /// user's actual spending instead of being enum-locked. Deterministic (temp 0),
     /// fully offline. Descriptors the model skips are simply absent from the result.
     public func categorizeMerchants(_ descriptors: [String],
-                                    seedCategories: [String]) async throws -> [MerchantCategory] {
+                                    seedCategories: [String],
+                                    forbidOther: Bool = false) async throws -> [MerchantCategory] {
         guard !descriptors.isEmpty else { return [] }
         let container = try await load()
+        // When `forbidOther`, the model must place EVERY descriptor — no "Other".
+        let otherRule = forbidOther ? """
+            NEVER answer "Other", "Unknown", "Uncategorized", "Misc" or "N/A" — every \
+            descriptor MUST get a concrete category. Money sent to or received from a \
+            person, or a UPI / IMPS / NEFT / RTGS / bank transfer, or a "name@bank" UPI \
+            handle, is "Transfers". Metro / rail / bus / transit is "Transport". \
+            Card-network, forex markup, interest, ATM or bank charges are "Fees". \
+            If still unsure, pick the single closest real category — never "Other".
+            """ : """
+            Use "Other" only when the descriptor is truly unguessable.
+            """
         let system = """
             You categorize bank- and card-statement merchant descriptors for a \
             personal-finance app. Judge each merchant's real-world business type from \
@@ -267,8 +279,7 @@ public actor PennyLLM {
 
             Prefer one of the KNOWN CATEGORIES when it fits. If none fits, invent a \
             NEW concise category name — 1 to 3 words, Title Case, like "Pet Care" or \
-            "Home Improvement" — describing the business type. Use "Other" only when \
-            the descriptor is truly unguessable.
+            "Home Improvement" — describing the business type. \(otherRule)
 
             Output ONLY a JSON array (no prose, no markdown code fences). One object \
             per descriptor, in the given order, with keys: "merchant" (the descriptor \

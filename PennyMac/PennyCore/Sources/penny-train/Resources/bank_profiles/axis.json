@@ -1,0 +1,23 @@
+{
+  "bank_name": "Axis",
+  "version": 1,
+  "identifiers": {
+    "text_contains_any": ["Axis Bank", "AXIS BANK", "UTIB0", "AXISBANK"],
+    "header_row_contains_any": ["Tran Date", "Particulars", "Debit", "Credit", "Balance"]
+  },
+  "column_map": {
+    "date":        { "header_aliases": ["Tran Date", "Trans Date", "Date", "Value Date"] },
+    "description": { "header_aliases": ["Particulars", "Description", "Narration", "Remarks"] },
+    "debit":       { "header_aliases": ["Debit", "Withdrawal", "Dr Amount"] },
+    "credit":      { "header_aliases": ["Credit", "Deposit", "Cr Amount"] },
+    "balance":     { "header_aliases": ["Balance", "Running Balance", "Closing Balance"] }
+  },
+  "debit_credit_style": "separate_columns",
+  "date_format": "%d-%m-%Y",
+  "number_format": "indian",
+  "currency": "INR",
+  "known_banner_page_indices": [],
+  "created_from": "manual",
+  "last_validated": "2026-07-11",
+  "success_rate": 0.88
+}

@@ -1,0 +1,24 @@
+{
+  "bank_name": "Barclays",
+  "version": 1,
+  "identifiers": {
+    "text_contains_any": ["Barclays", "BARCLAYS"],
+    "header_row_contains_any": ["Money Out", "Money In", "Sort Code", "Current Account Statement"]
+  },
+  "column_map": {
+    "date":        { "header_aliases": ["Date"] },
+    "description": { "header_aliases": ["Description", "Details", "Particulars"] },
+    "debit":       { "header_aliases": ["Money Out", "Payments Out", "Out"] },
+    "credit":      { "header_aliases": ["Money In", "Payments In", "In"] },
+    "balance":     { "header_aliases": ["Balance"] }
+  },
+  "debit_credit_style": "separate_columns",
+  "date_format": "%d %b %Y",
+  "number_format": "international",
+  "currency": "GBP",
+  "known_banner_page_indices": [0],
+  "use_positional_parser": true,
+  "created_from": "manual",
+  "last_validated": "2026-07-11",
+  "success_rate": 0.97
+}

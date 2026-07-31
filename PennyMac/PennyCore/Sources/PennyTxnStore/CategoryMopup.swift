@@ -55,10 +55,11 @@ public enum CategoryMopup {
     /// when nothing clears the bar the original graph is returned unchanged.
     public static func apply(_ results: [ClaudeCategorization],
                              to graph: FinancialGraph,
-                             scope: Scope = .unresolved) -> FinancialGraph {
+                             scope: Scope = .unresolved,
+                             minConfidence: Double = acceptThreshold) -> FinancialGraph {
         // descriptor → (category, confidence) for accepted, non-"Other" verdicts.
         var verdicts: [String: (category: String, confidence: Double)] = [:]
-        for r in results where r.confidence >= acceptThreshold && r.category != "Other" {
+        for r in results where r.confidence >= minConfidence && r.category != "Other" {
             verdicts[r.merchant] = (r.category, r.confidence)
         }
         guard !verdicts.isEmpty else { return graph }
@@ -89,6 +90,55 @@ public enum CategoryMopup {
         }
         guard changed else { return graph }
 
+        return FinancialGraph(
+            accounts: graph.accounts,
+            statements: graph.statements,
+            transactions: transactions,
+            merchants: graph.merchants,
+            categories: categoriesByID.values.sorted { $0.id.raw < $1.id.raw })
+    }
+
+    /// Final guarantee for the user's "no Other" preference: re-label every debit
+    /// row the AI pass still left as "Other" (or unlabeled) with a concrete
+    /// category. Transfer-shaped descriptors (UPI / IMPS / NEFT / RTGS, or a
+    /// "name@bank" VPA) become "Transfers"; anything else takes `fallback` — by
+    /// this point the model has already placed every merchant it could recognise.
+    /// App-only: the deterministic ingest never calls this, so the offline
+    /// 15-fixture contract is unaffected.
+    public static func assignConcreteToResidualOther(_ graph: FinancialGraph,
+                                                     fallback: String = "Transfers") -> FinancialGraph {
+        func concreteCategory(for descr: String) -> String {
+            let s = descr.lowercased()
+            if s.contains("@")
+                || s.range(of: #"\b(upi|imps|neft|rtgs|ach|p2p|vpa|trf|transfer|paytm|gpay|phonepe|bhim)\b"#,
+                           options: .regularExpression) != nil {
+                return "Transfers"
+            }
+            return fallback
+        }
+        var categoriesByID = Dictionary(graph.categories.map { ($0.id, $0) },
+                                        uniquingKeysWith: { a, _ in a })
+        var changed = false
+        let transactions = graph.transactions.map { t -> Transaction in
+            guard t.amount.isDebit else { return t }
+            let cat = t.enrichment.categoryID?.raw
+            guard cat == nil || cat == "Other" else { return t }
+            changed = true
+            let name = concreteCategory(for: t.rawDescription)
+            let id = CategoryID(name)
+            categoriesByID[id] = Category(id: id, name: name)
+            let e = t.enrichment
+            let enrichment = Enrichment(
+                merchantID: e.merchantID, cleanDescription: e.cleanDescription,
+                categoryID: id, tags: e.tags, recurringID: e.recurringID,
+                transferPairID: e.transferPairID, confidence: e.confidence)
+            return Transaction(
+                id: t.id, accountID: t.accountID, statementID: t.statementID,
+                date: t.date, processDate: t.processDate, rawDescription: t.rawDescription,
+                amount: t.amount, balance: t.balance, currency: t.currency,
+                fx: t.fx, enrichment: enrichment)
+        }
+        guard changed else { return graph }
         return FinancialGraph(
             accounts: graph.accounts,
             statements: graph.statements,

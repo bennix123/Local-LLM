@@ -497,7 +497,11 @@ final class AppModel: ObservableObject {
     /// cache + the in-flight download temp against the true total (which the Hub
     /// *does* report accurately) for a smooth, honest bar.
     func loadAndContinue() {
-        if modelPhase == .ready { stage = .dashboard; return }
+        if modelPhase == .ready {
+            stage = .dashboard
+            refineCategoriesForLoadedStatements()   // place any restored "Other" rows now the model's up
+            return
+        }
         guard modelPhase == .idle else { return }
         resetLoadTelemetry()
         totalBytes = Self.catalogBytes(selectedModelID)   // provisional denominator
@@ -900,10 +904,22 @@ final class AppModel: ObservableObject {
     /// Errors surface as an empty result — the deterministic graph always stands.
     nonisolated private static func localCategorize(_ descriptors: [String], llm: PennyLLM,
                                                     seeds: [String]) async -> [ClaudeCategorization] {
-        let verdicts = (try? await llm.categorizeMerchants(descriptors, seedCategories: seeds)) ?? []
-        return verdicts.map {
-            ClaudeCategorization(merchant: $0.merchant, category: $0.category, confidence: $0.confidence)
+        // Batch the descriptors: a small on-device model handed 100+ cryptic UPI
+        // descriptors at once truncates its JSON and returns nothing usable. In
+        // chunks it emits clean, parseable verdicts — so most rows get a real
+        // category (Transport, Fees…) instead of falling through to the sweep.
+        var out: [ClaudeCategorization] = []
+        let batchSize = 24
+        var i = 0
+        while i < descriptors.count {
+            let chunk = Array(descriptors[i ..< min(i + batchSize, descriptors.count)])
+            let verdicts = (try? await llm.categorizeMerchants(chunk, seedCategories: seeds, forbidOther: true)) ?? []
+            out.append(contentsOf: verdicts.map {
+                ClaudeCategorization(merchant: $0.merchant, category: $0.category, confidence: $0.confidence)
+            })
+            i += batchSize
         }
+        return out
     }
 
     /// One batched Claude API categorization pass — dynamic taxonomy (the model
@@ -998,16 +1014,16 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.isRecategorizing = false
             self.bytesSentOut += bytes
-            guard !results.isEmpty else {
-                if manual {
-                    self.postToast(usingClaude ? "Couldn't reach Claude — categories unchanged."
-                                               : "The model couldn't read these merchants — categories unchanged.",
-                                   kind: .warning)
-                }
-                return
-            }
+            // NOTE: no early-return on empty results — the deterministic sweep below
+            // guarantees no row is left "Other" even when the model returns nothing
+            // usable (e.g. it choked on a batch of cryptic UPI descriptors).
             let before = self.graph
-            let refined = CategoryMopup.apply(results, to: before, scope: scope)
+            // On-device (key-less) runs accept the model's real categories even below
+            // the AI-threshold — with `forbidOther` the model already commits to a real
+            // label, and we then guarantee no debit is left "Other".
+            let minConf = usingClaude ? CategoryMopup.acceptThreshold : 0.0
+            var refined = CategoryMopup.apply(results, to: before, scope: scope, minConfidence: minConf)
+            refined = CategoryMopup.assignConcreteToResidualOther(refined)   // "no Other" guarantee
             guard refined != before else {
                 if manual {
                     self.postToast("\(usingClaude ? "Claude" : self.modelDisplayName) wasn't confident enough to change any category.", kind: .progress)
@@ -1305,9 +1321,12 @@ final class AppModel: ObservableObject {
         return dataWord && listWord
     }
 
-    /// Build a complete Markdown table from the extracted transactions.
-    static func transactionsMarkdown(_ txns: [PennyCore.Transaction], currency: String) -> String {
-        let cap = 200
+    /// Build a Markdown table from the extracted transactions. `limit` caps the
+    /// rows rendered (nil = every row); the caller passes nil when the user asks
+    /// for "all"/"full"/"every" so the whole ledger is shown.
+    static func transactionsMarkdown(_ txns: [PennyCore.Transaction], currency: String,
+                                     limit: Int? = 200) -> String {
+        let cap = limit ?? txns.count
         let shown = Array(txns.prefix(cap))
         var lines = [
             "| # | Date | Description | Category | Debit | Credit | Balance |",
@@ -1323,7 +1342,9 @@ final class AppModel: ObservableObject {
             lines.append("| \(i + 1) | \(t.date) | \(desc) | \(category) | \(debit) | \(credit) | \(balance) |")
         }
         var out = lines.joined(separator: "\n")
-        if txns.count > cap { out += "\n\n_Showing first \(cap) of \(txns.count)._" }
+        if txns.count > cap {
+            out += "\n\n_Showing first \(cap) of \(txns.count). Ask “show all transactions” to see every row._"
+        }
         return out
     }
 
@@ -1788,10 +1809,16 @@ final class AppModel: ObservableObject {
         // (which truncates rows and garbles columns).
         let txns = selectedTransactions()
         if wantsTransactionTable(q), !txns.isEmpty {
-            let verb = txns.count == 1 ? "is" : "are"
+            // Show every row when the user explicitly asks for the whole ledger;
+            // otherwise cap at 200 (with a note on how to see the rest).
+            let l = q.lowercased()
+            let wantsAll = ["all", "full", "every", "complete", "entire", "whole"].contains { l.contains($0) }
+            let limit: Int? = wantsAll ? nil : 200
             let noun = txns.count == 1 ? "transaction" : "transactions"
-            let header = "Here \(verb) all \(txns.count) \(noun) on record:\n\n"
-            let table = Self.transactionsMarkdown(txns, currency: summary.currency)
+            let header = (wantsAll || txns.count <= 200)
+                ? "Here \(txns.count == 1 ? "is" : "are") all \(txns.count) \(noun) on record:\n\n"
+                : "Here are your \(txns.count) \(noun) (showing the first 200):\n\n"
+            let table = Self.transactionsMarkdown(txns, currency: summary.currency, limit: limit)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
             return
         }

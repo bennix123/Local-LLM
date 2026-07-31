@@ -1,0 +1,23 @@
+{
+  "bank_name": "PNB",
+  "version": 1,
+  "identifiers": {
+    "text_contains_any": ["Punjab National Bank", "PNB", "PUNB0"],
+    "header_row_contains_any": ["Particulars", "Withdrawal", "Deposit", "Chq No"]
+  },
+  "column_map": {
+    "date":        { "header_aliases": ["Date", "Txn Date", "Value Date"] },
+    "description": { "header_aliases": ["Particulars", "Description", "Narration"] },
+    "debit":       { "header_aliases": ["Withdrawal", "Debit", "Dr Amount"] },
+    "credit":      { "header_aliases": ["Deposit", "Credit", "Cr Amount"] },
+    "balance":     { "header_aliases": ["Balance", "Closing Balance"] }
+  },
+  "debit_credit_style": "dr_cr_suffix",
+  "date_format": "%d-%b-%Y",
+  "number_format": "indian",
+  "currency": "INR",
+  "known_banner_page_indices": [0],
+  "created_from": "manual",
+  "last_validated": "2026-07-11",
+  "success_rate": 0.92
+}

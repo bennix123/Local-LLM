@@ -86,7 +86,7 @@ struct ContextPanelView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Today").font(Theme.serif(17, .heavy)).foregroundStyle(Theme.ink)
             HStack(spacing: 6) {
-                if app.isAnalyzing { ProgressView().controlSize(.small) }
+                if app.isAnalyzing || app.isRecategorizing { ProgressView().controlSize(.small) }
                 Text(statusLine).font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
             }
         }
@@ -95,6 +95,7 @@ struct ContextPanelView: View {
 
     private var statusLine: String {
         if app.isAnalyzing { return "reading your transactions…" }
+        if app.isRecategorizing { return "categorizing merchants on-device…" }
         if app.contextReady { return "\(s.count) transactions · on-device" }
         return "on-device · upload a statement to begin"
     }
@@ -119,17 +120,13 @@ struct ContextPanelView: View {
     }
 
     @ViewBuilder private var categoriesSection: some View {
-        if !s.categories.isEmpty {
+        // While the statement is being read or categorized on-device, hide the
+        // in-progress figures (they're incomplete — "Other" is still being placed)
+        // behind a loader, rather than showing numbers that are about to change.
+        if app.isAnalyzing || app.isRecategorizing {
+            categoriesLoadingCard
+        } else if !s.categories.isEmpty {
             categoryBars
-        } else if app.isAnalyzing {
-            infoCard {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Extracting transactions on-device…")
-                        .font(Theme.font(11)).foregroundStyle(Theme.dim)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
         } else if !app.docs.isEmpty {
             infoCard {
                 Text("No transactions detected in this statement.")
@@ -205,6 +202,28 @@ struct ContextPanelView: View {
                         .frame(minWidth: 40, alignment: .trailing)
                 }
                 .padding(.vertical, 2)
+            }
+        }
+        .padding(.horizontal, 13).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hardCard(radius: 12, border: 2, shadow: 3)
+    }
+
+    /// Loader shown in place of the category bars while the on-device pass runs,
+    /// so the user never sees half-categorized figures (or a shrinking "Other").
+    private var categoriesLoadingCard: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Text("spend by category")
+                    .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
+                ProgressView().controlSize(.mini)
+            }
+            Text(app.isRecategorizing ? "Categorizing your spending on-device…"
+                                      : "Reading your statement on-device…")
+                .font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(0..<5, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 3).fill(Theme.bg2).frame(height: 12)
             }
         }
         .padding(.horizontal, 13).padding(.vertical, 12)

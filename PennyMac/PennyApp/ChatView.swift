@@ -147,7 +147,7 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
-            if app.messages.isEmpty {
+            if app.messages.isEmpty && !busy {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(chips, id: \.action) { chip in
@@ -165,7 +165,7 @@ struct ChatView: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField("ask penny anything... e.g. why am i broke?", text: $draft)
+                TextField(busy ? "Categorizing your spending on-device…" : "ask penny anything... e.g. why am i broke?", text: $draft)
                     .textFieldStyle(.plain)
                     .font(Theme.font(13))
                     .foregroundStyle(Theme.ink)   // explicit: never white-on-cream
@@ -175,10 +175,16 @@ struct ChatView: View {
                     .background(Capsule().fill(Theme.ink).offset(y: 3))
                     .overlay(Capsule().stroke(Theme.ink, lineWidth: 2))
                     .onSubmit(sendDraft)
-                    .disabled(app.isThinking)
+                    .disabled(app.isThinking || busy)
                     .accessibilityIdentifier("chat.input")
 
-                if app.isThinking {
+                if busy {
+                    // On-device categorization in flight — block input, show a spinner
+                    // where the send button is until every transaction is placed.
+                    ProgressView().controlSize(.small)
+                        .frame(width: 38, height: 38)
+                        .accessibilityIdentifier("chat.busy")
+                } else if app.isThinking {
                     // While the model streams, the send button becomes a Stop button so
                     // the user can cut off a runaway or hallucinating answer mid-stream.
                     Button(action: app.cancelGeneration) {
@@ -213,8 +219,12 @@ struct ChatView: View {
         .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .top)
     }
 
+    /// On-device statement read / categorization in flight — the chat is blocked
+    /// until Penny has finished placing every transaction.
+    private var busy: Bool { app.isAnalyzing || app.isRecategorizing }
+
     private var canSend: Bool {
-        !app.isThinking && !draft.trimmingCharacters(in: .whitespaces).isEmpty
+        !app.isThinking && !busy && !draft.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func sendDraft() {

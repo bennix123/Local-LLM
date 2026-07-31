@@ -14,6 +14,7 @@ let package = Package(
         .executable(name: "penny-cli", targets: ["penny-cli"]),
         .executable(name: "penny-conformance", targets: ["penny-conformance"]),
         .executable(name: "penny-server", targets: ["penny-server"]),
+        .executable(name: "penny-train", targets: ["penny-train"]),
     ],
     dependencies: [
         // MLXLLM / MLXLMCommon: tokenizer, chat template, generation.
@@ -78,6 +79,18 @@ let package = Package(
             dependencies: ["PennyCore"],
             resources: [
                 .copy("Resources/index.html"),
+                .copy("Resources/categories.json"),
+                .copy("Resources/bank_profiles"),
+            ]
+        ),
+        // Eval-driven "training": parse a statement, generate thousands of
+        // user-style questions with ground-truth computed from the parsed rows,
+        // run them through FinanceRouter, and report every wrong answer so the
+        // router can be hardened. Deterministic — no MLX.
+        .executableTarget(
+            name: "penny-train",
+            dependencies: ["PennyTxnStore"],
+            resources: [
                 .copy("Resources/categories.json"),
                 .copy("Resources/bank_profiles"),
             ]

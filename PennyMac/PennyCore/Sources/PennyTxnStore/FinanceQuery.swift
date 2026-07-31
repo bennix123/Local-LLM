@@ -925,7 +925,11 @@ public enum FinanceRouter {
         let months = Set(monthNames.map(\.0))
         let tokens = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
-            .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !months.contains($0) }
+            // A bare number is never a merchant — most importantly a 4-digit YEAR
+            // ("spend in September 2024"), which would otherwise match any description
+            // carrying that number and wrongly scope the rows to a phantom merchant.
+            .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !months.contains($0)
+                      && !$0.allSatisfy(\.isNumber) }
         guard !tokens.isEmpty else { return nil }
 
         // Whole-WORD match against descriptions (not substring): "net" must not
@@ -977,6 +981,7 @@ public enum FinanceRouter {
         "category", "categories", "percentage", "percent", "frequent", "different",
         "weekend", "weekends", "day", "days", "week", "month", "months", "year", "years",
         "quarter", "half", "across", "whole", "entire", "throughout", "altogether",
+        "sum", "out", "outgoing", "outgoings", "overall", "went", "came", "total",
         "owe", "owed", "owing", "outstanding", "due",
         "altogether", "overall", "everything", "anything", "something", "stuff", "things",
         "new", "old", "this", "these", "those", "here",
@@ -1184,11 +1189,19 @@ public enum FinanceRouter {
         // verb, so for an EMPTY month only honour it when there's clear month
         // context ("in May", "during May", "May 2026") — otherwise require data.
         for (name, no) in monthNames where matches(low, #"\b"# + name + #"\b"#) {
-            let inMonth = rows.filter { $0.monthNo == no }
+            var inMonth = rows.filter { $0.monthNo == no }
+            // Honor an explicit year ("September 2024") so a statement spanning two
+            // years scopes to the right one; ignored when that year has no such month.
+            var yearLabel = ""
+            if let r = low.range(of: #"\b20\d\d\b"#, options: .regularExpression),
+               let y = Int(low[r]) {
+                let byYear = inMonth.filter { $0.year == y }
+                if !byYear.isEmpty { inMonth = byYear; yearLabel = " \(y)" }
+            }
             let mayIsMonth = name != "may"
                 || matches(low, #"\b(?:in|during|for|of|through|this|last|next)\s+may\b|\bmay\s+(?:20\d\d|month)\b"#)
             if !inMonth.isEmpty || mayIsMonth {
-                return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst())
+                return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst() + yearLabel)
             }
         }
         return nil
