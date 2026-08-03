@@ -210,7 +210,7 @@ enum FinanceCorpus {
             query: "how much did I spend in June 2026",
             expectedQuery: Query(filters: [june2026, .direction(.debit)], aggregate: .sum),
             expectedResult: .money(dec("195.50"), citations: 3),
-            expectedRouter: "**You spent £195.50 in June** across 3 transactions.", fixture: .scope),
+            expectedRouter: "**You spent £195.50 in June 2026** across 3 transactions.", fixture: .scope),
 
         // Wave B2 — category synonym ("grocery" → Groceries), parity with the router.
         CorpusEntry(

@@ -132,6 +132,21 @@ public final class TxnIngester {
                 if detectedCur.isEmpty { detectedCur = "INR" }
                 txns = BankParsers.parseColumnarDebitCredit(doc, categories: categories, currency: detectedCur)
             }
+            // Universal last-ditch: a labeled "Date … Balance" column table that
+            // neither the dedicated route nor generic nor the Debit/Credit engine
+            // read — e.g. a real Monzo app export whose layout differs from the
+            // synthetic specimen, or any UK-style money-in/out table we don't have a
+            // brand detector for. `parseColumnTable` self-gates on locating that
+            // header, so it's a no-op when the doc has none; it runs only after every
+            // other parser abstained, so it can't regress a statement that parses.
+            if txns.isEmpty {
+                let (rows, summary) = UKParsers.parseColumnTable(doc, categories: categories)
+                if !rows.isEmpty {
+                    txns = rows
+                    cardSummary = summary
+                    if detectedCur.isEmpty || detectedCur == "INR" { detectedCur = "GBP" }
+                }
+            }
         }
 
         // category hints folded into the description tail

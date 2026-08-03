@@ -37,7 +37,17 @@ enum UKParsers {
         low.pyContains("revolut") && low.pyContains("exchange rate")
     }
     static func isMonzoTable(_ low: String) -> Bool {
-        low.pyContains("monzo") && low.pyContains("personal account statement")
+        // Brand + a Monzo table signature. The older "Personal Account Statement"
+        // layout and the real app export (Monzo_bank_statement_…pdf) both land
+        // here: the export drops that exact phrase but carries "Money In/Out"
+        // columns, a "…Account Balance" summary, and "Transfer to Pot" rows — all
+        // Monzo-specific. The synthetic specimen (Paid In/Paid Out, no Pot) is
+        // intentionally NOT matched: it parses via the generic cascade and must
+        // keep that route.
+        guard low.pyContains("monzo") else { return false }
+        return low.pyContains("personal account statement")
+            || low.pyContains("money out") || low.pyContains("money in")
+            || low.pyContains("transfer to pot") || low.pyContains("account balance")
     }
     static func isNatWestTable(_ low: String) -> Bool {
         low.pyContains("natwest") && low.pyContains("statement of account")
@@ -372,6 +382,16 @@ enum UKParsers {
                         // "in" must not re-match the "out" run
                         if !labels.contains(where: { abs($0.1 - r.0) < 1 }) {
                             labels.append((p, r.0, r.1, .in_)); break
+                        }
+                    }
+                    // No separate in/out columns (only "balance" so far) → the layout
+                    // may carry a single signed "Amount" column with no "(GBP)" suffix
+                    // (some Monzo exports). Fall back to it; unreachable when in/out
+                    // labels exist, so the in/out families are untouched. The
+                    // balance-walk repair below fixes any sign ambiguity.
+                    if labels.count < 2 {
+                        for p in signedPhrases {
+                            if let r = findLabel(ln, p) { labels.append((p, r.0, r.1, .signed)); break }
                         }
                     }
                 }
