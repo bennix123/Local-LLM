@@ -214,6 +214,13 @@ public actor PennyLLM {
     /// The model ONLY reads out the rows; every figure is later computed in Swift, so
     /// the model can't fudge a total. Temperature 0 for deterministic extraction.
     public func extractTransactions(from statementText: String, maxTokens: Int = 4096) async throws -> [Transaction] {
+        // Apple's on-device system model first (no download, no MLX/Metal init).
+        // Only a genuine FM error falls through to the MLX model below.
+        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+            do { return try await AppleFoundationLLM.extractTransactions(from: statementText, maxTokens: maxTokens) }
+            catch is CancellationError { throw CancellationError() }
+            catch { /* fall through to the MLX model below */ }
+        }
         let container = try await load()
         let clipped = String(statementText.prefix(16_000))
         let system = """
@@ -247,6 +254,14 @@ public actor PennyLLM {
     /// banks) to any institution the model recognizes. Deterministic (temp 0) and
     /// tiny — a dozen output tokens. Returns nil when it can't identify one.
     public func detectIssuer(from statementText: String) async throws -> String? {
+        // Apple's on-device system model first (no download, no MLX/Metal init).
+        // A nil result here is a legitimate "UNKNOWN" and is returned as-is; only a
+        // genuine FM error falls through to the MLX model below.
+        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+            do { return try await AppleFoundationLLM.detectIssuer(from: statementText) }
+            catch is CancellationError { throw CancellationError() }
+            catch { /* fall through to the MLX model below */ }
+        }
         let container = try await load()
         let head = String(statementText.prefix(2_000))
         let system = """

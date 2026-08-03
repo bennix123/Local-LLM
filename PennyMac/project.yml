@@ -39,6 +39,34 @@ targets:
       # routes questions through PennyFinance's engine before the legacy router.
       - package: PennyCore
         product: PennyFinance
+    # Fix #2 — guarantee MLX's Metal shader library ships inside Penny.app.
+    # MLX loads `mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib` to init
+    # its Metal backend; without it, Metal aborts with SIGTRAP in
+    # ~MTLLibraryDataWithArchive (the crash seen on client machines). Xcode's SwiftPM
+    # integration normally embeds that bundle automatically, but this run-script is a
+    # belt-and-braces safety net: if the metallib isn't already in the app's
+    # Resources, find it in the build products and copy it in. Runs after the default
+    # phases assemble the bundle and before code signing, so the copy is signed.
+    postBuildScripts:
+      - name: "Embed MLX default.metallib (safety net)"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          APP_RES="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          DEST="${APP_RES}/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib"
+          if [ -f "${DEST}" ]; then
+            echo "note: default.metallib already embedded — nothing to do"
+            exit 0
+          fi
+          SRC="$(/usr/bin/find "${BUILT_PRODUCTS_DIR}" -name default.metallib -path '*mlx-swift_Cmlx.bundle*' -print -quit 2>/dev/null || true)"
+          if [ -z "${SRC}" ]; then
+            echo "warning: default.metallib not found in build products; MLX fallback may fail to init Metal"
+            exit 0
+          fi
+          BUNDLE_DIR="${SRC%/Contents/Resources/default.metallib}"
+          echo "note: embedding $(/usr/bin/basename "${BUNDLE_DIR}") into ${APP_RES}"
+          /bin/mkdir -p "${APP_RES}"
+          /bin/cp -R "${BUNDLE_DIR}" "${APP_RES}/"
     info:
       path: PennyApp/Info.plist
       properties:

@@ -377,6 +377,13 @@ final class AppModel: ObservableObject {
             // post-load hook in `loadAndContinue` catches that case).
             self.refineCategoriesForLoadedStatements()
         }
+        // macOS 26+ with Apple Intelligence: the built-in system model handles chat,
+        // categorization, issuer detection and extraction with zero download. Mark the
+        // engine ready up front so onboarding skips the MLX model picker and we never
+        // bring up MLX/Metal — whose shader-library init (~MTLLibraryDataWithArchive)
+        // crashed with SIGTRAP on some client machines. Users can still open the picker
+        // to deliberately download an MLX model (chooseModel resets modelPhase).
+        if PennyLLM.systemModelAvailable { modelPhase = .ready }
         // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
         // optionally skip to the dashboard, and import a fixture statement
         // directly — the sandboxed NSOpenPanel can't be driven reliably.
@@ -499,6 +506,7 @@ final class AppModel: ObservableObject {
     func loadAndContinue() {
         if modelPhase == .ready {
             stage = .dashboard
+            refineIssuersViaLLM()   // label onboarding imports (FM path needs no MLX load)
             refineCategoriesForLoadedStatements()   // place any restored "Other" rows now the model's up
             return
         }
@@ -818,7 +826,9 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             let loaded = await self.llm.isLoaded
             let onDisk = DownloadMeter.bytesOnDisk(repo: self.selectedModelID) > 0
-            guard loaded || onDisk else {
+            // The Apple system model (macOS 26+) needs no weights on disk and never
+            // brings up MLX — so it's always eligible to name the issuer.
+            guard loaded || onDisk || PennyLLM.systemModelAvailable else {
                 print("🏦[issuer] skip \(docName): model not loaded and no weights on disk")
                 return
             }
@@ -1001,7 +1011,9 @@ final class AppModel: ObservableObject {
                 // must never trigger a multi-GB weights download. The manual
                 // button may load on demand: by dashboard time the chosen
                 // model's weights are on disk.
-                if !manual, await !llm.isLoaded {
+                // The Apple system model (macOS 26+) categorizes with no weights load,
+                // so automatic runs may proceed even when no MLX model is loaded.
+                if !manual, await !llm.isLoaded, !PennyLLM.systemModelAvailable {
                     self?.isRecategorizing = false
                     return
                 }

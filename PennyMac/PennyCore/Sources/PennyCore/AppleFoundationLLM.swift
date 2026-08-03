@@ -108,6 +108,85 @@ enum AppleFoundationLLM {
         return out
     }
 
+    // MARK: - Issuer detection
+
+    /// Name the institution that issued a statement, on-device. Mirrors
+    /// `PennyLLM.detectIssuer`' contract: returns the bare common name, or nil for
+    /// an empty / "UNKNOWN" / implausible answer (reusing PennyLLM.cleanIssuer so
+    /// both engines normalize identically).
+    static func detectIssuer(from statementText: String) async throws -> String? {
+        let head = String(statementText.prefix(2_000))
+        let instructions = """
+            You identify the financial institution that issued a bank or credit-card \
+            statement. Reply with ONLY the institution's common name — for example \
+            "American Express", "Monzo", "Barclays", "NatWest". No account type, no \
+            extra words, no punctuation, no quotes, no explanation. If you genuinely \
+            cannot tell, reply exactly UNKNOWN.
+            """
+        let prompt = "STATEMENT (header text):\n\(head)\n\nInstitution name:"
+        let session = LanguageModelSession(instructions: instructions)
+        let response = try await session.respond(
+            to: prompt,
+            options: GenerationOptions(temperature: 0, maximumResponseTokens: 16))
+        return PennyLLM.cleanIssuer(response.content)
+    }
+
+    // MARK: - Structured transaction extraction
+
+    /// One extracted row. All amounts are strings ("" when absent) so guided
+    /// generation stays on the same shape family as `Verdict`; PennyLLM parses the
+    /// numbers. The model only reads rows out — every figure is recomputed in Swift.
+    @Generable
+    struct Row: Equatable {
+        @Guide(description: "The transaction date exactly as printed on the statement.")
+        let date: String
+        @Guide(description: "The merchant or description text for the transaction.")
+        let description: String
+        @Guide(description: "Money out (debit) as a plain number with no currency symbol or thousands separators, or an empty string if there is none.")
+        let debit: String
+        @Guide(description: "Money in (credit) as a plain number with no currency symbol or thousands separators, or an empty string if there is none.")
+        let credit: String
+        @Guide(description: "The running balance as a plain number with no currency symbol or thousands separators, or an empty string if absent.")
+        let balance: String
+    }
+
+    @Generable
+    struct RowList: Equatable {
+        @Guide(description: "Every transaction on the statement, in the order it appears.")
+        let rows: [Row]
+    }
+
+    /// Fallback structured extraction on the Apple system model. The deterministic
+    /// parser is Penny's primary path; this only runs when a caller needs the model
+    /// to read rows out of text the parser couldn't structure.
+    static func extractTransactions(from statementText: String, maxTokens: Int) async throws -> [Transaction] {
+        let clipped = String(statementText.prefix(16_000))
+        let instructions = """
+            You extract structured data from bank statements. Return every transaction \
+            in order. For each: the date as printed, the description, and the debit \
+            (money out), credit (money in) and balance as plain numbers — no currency \
+            symbols, no thousands separators. Use an empty string when a value is absent.
+            """
+        let prompt = "BANK STATEMENT TEXT:\n\(clipped)"
+        let session = LanguageModelSession(instructions: instructions)
+        let response = try await session.respond(
+            to: prompt,
+            generating: RowList.self,
+            options: GenerationOptions(temperature: 0, maximumResponseTokens: maxTokens))
+        return response.content.rows.map { r in
+            Transaction(date: r.date, description: r.description,
+                        debit: Self.number(r.debit), credit: Self.number(r.credit),
+                        balance: Self.number(r.balance))
+        }
+    }
+
+    /// Parse a model-emitted amount string ("1,234.50", "₹1,00,000", "") to a Double,
+    /// keeping digits, dot and minus — nil for empty/unparseable, matching the MLX path.
+    private static func number(_ s: String) -> Double? {
+        let cleaned = s.filter { $0.isNumber || $0 == "." || $0 == "-" }
+        return cleaned.isEmpty ? nil : Double(cleaned)
+    }
+
     // MARK: - Chat
 
     /// One grounded answer over one statement from the Apple system model.
