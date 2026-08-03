@@ -31,8 +31,15 @@ enum AccountProfile {
 
         var bankName: String? = nil
         if !text.isEmpty {
+            // 0. Paytm app export — layout-gated (column banner + bank marker),
+            // and checked BEFORE the fast-track: its transaction details name
+            // counterparty banks ("XX 6317 (HDFC BANK)"), which would otherwise
+            // fast-track the whole statement to that bank's name.
+            if BankParsers.isPaytmStatement(text) {
+                bankName = "Paytm Payments Bank"
+            }
             // 1. fast-track popular names
-            for (pat, name) in fastTrack {
+            for (pat, name) in fastTrack where bankName == nil {
                 if pat.search(text) != nil {
                     bankName = name
                     break

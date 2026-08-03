@@ -52,7 +52,7 @@ public final class TxnIngester {
 
         // parser selection
         let profileBank = (matchedProfile?.bankName ?? "").pyLower()
-        enum Route { case barclays, pnb, wrenfield, columnar, rowRE, ukLayout, generic }
+        enum Route { case barclays, pnb, wrenfield, paytm, columnar, rowRE, ukLayout, generic }
         // UK-layout detectors read the first pages directly (their brand headers
         // can sit before the table start that `head` is anchored to).
         var early = ""
@@ -68,6 +68,11 @@ public final class TxnIngester {
             route = .pnb
         } else if profileBank == "wrenfield" || BankParsers.isWrenfield(head) {
             route = .wrenfield
+        } else if profileBank == "paytm" || BankParsers.isPaytmStatement(early) {
+            // Before the HDFC-style detector: the Paytm app export's summary box
+            // trips `isTransactionStatement`, which then scrapes one junk row
+            // out of the header instead of the 400+ real transactions.
+            route = .paytm
         } else if profileBank == "hdfc" || BankParsers.isTransactionStatement(head) {
             route = .rowRE
         } else if isUKLayout {
@@ -94,6 +99,9 @@ public final class TxnIngester {
             txns = BankParsers.parsePNB(doc, categories: categories)
         case .wrenfield:
             txns = BankParsers.parseWrenfield(doc, categories: categories)
+        case .paytm:
+            if detectedCur.isEmpty { detectedCur = "INR" }
+            txns = BankParsers.parsePaytm(doc, categories: categories)
         case .columnar:
             if detectedCur.isEmpty { detectedCur = "INR" }
             txns = BankParsers.parseColumnarDebitCredit(doc, categories: categories, currency: detectedCur)
