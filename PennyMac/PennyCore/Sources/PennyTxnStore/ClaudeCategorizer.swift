@@ -43,11 +43,17 @@ public enum ClaudeCategorizerError: Error, LocalizedError {
 
 public final class ClaudeCategorizer {
 
-    /// Penny's canonical spend taxonomy — the closed set the model must choose from.
+    /// Penny's canonical taxonomy — the seed set offered to the model (and the
+    /// closed set in enum-locked mode). Merchant-type buckets first, then money
+    /// movement. "Transfers" is for genuine person-to-person/self transfers
+    /// only — never a catch-all for UPI/IMPS/NEFT rails (user directive).
     public static let canonicalCategories = [
-        "Groceries", "Food & Dining", "Transport", "Shopping", "Subscriptions",
-        "Entertainment", "Healthcare", "Utilities", "Rent", "Cash", "Fees & Charges",
-        "Education", "Income", "Transfers", "Investment & Insurance", "Payments", "Other",
+        "Food & Dining", "Groceries", "Shopping", "Transport", "Fuel",
+        "Utilities", "Healthcare", "Personal Care", "Entertainment",
+        "Subscriptions", "Education", "Rent", "Investment", "Insurance",
+        "Loan Repayment", "Government", "Taxes", "ATM Withdrawal",
+        "Cash Deposit", "Fees & Charges", "Payments", "Income", "Salary",
+        "Interest", "Refund", "Transfers", "Other",
     ]
 
     let apiKey: String
@@ -80,13 +86,21 @@ public final class ClaudeCategorizer {
     /// words, Title Case, e.g. "Pet Care") when none fits — the category field is a
     /// free string, not enum-locked. Callers should normalize/snap the returned
     /// names (the app uses `PennyLLM.normalizeCategory`) before applying them.
+    ///
+    /// `locationContext` — an optional sentence naming the issuing bank and its
+    /// country/currency (see `CategoryMopup.DescriptorGroup.locationContext`).
+    /// Appended to the system prompt so the model resolves region-specific
+    /// merchants (local grocery chains, transit systems, wallets) correctly.
     public func dynamicCategorize(descriptions: [String],
-                                  seedCategories: [String] = canonicalCategories)
+                                  seedCategories: [String] = canonicalCategories,
+                                  locationContext: String? = nil)
     async throws -> [ClaudeCategorization] {
-        try await run(descriptions: descriptions, categories: seedCategories, enumLocked: false)
+        try await run(descriptions: descriptions, categories: seedCategories,
+                      enumLocked: false, locationContext: locationContext)
     }
 
-    private func run(descriptions: [String], categories: [String], enumLocked: Bool)
+    private func run(descriptions: [String], categories: [String], enumLocked: Bool,
+                     locationContext: String? = nil)
     async throws -> [ClaudeCategorization] {
         guard !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
         let merchants = Array(NSOrderedSet(array: descriptions)) as? [String] ?? descriptions
@@ -96,7 +110,8 @@ public final class ClaudeCategorizer {
         var cats = categories
         if !cats.contains("Other") { cats.append("Other") }
 
-        let body = requestBody(merchants: merchants, categories: cats, enumLocked: enumLocked)
+        let body = requestBody(merchants: merchants, categories: cats,
+                               enumLocked: enumLocked, locationContext: locationContext)
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -125,29 +140,57 @@ public final class ClaudeCategorizer {
     // MARK: - Request
 
     private func requestBody(merchants: [String], categories: [String],
-                             enumLocked: Bool) -> [String: Any] {
+                             enumLocked: Bool, locationContext: String? = nil) -> [String: Any] {
         let list = merchants.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        let system = enumLocked ? """
-        You categorize bank- and card-statement merchant descriptors into a fixed \
-        set of personal-finance categories. Use the merchant's real-world business \
-        type, inferring from brand names, card-acquirer prefixes (e.g. DOJO*, TST-, \
-        TEYA*), and location hints. Assign exactly one category per descriptor from \
-        the allowed list. Use "Other" only when you genuinely cannot tell. Return a \
-        confidence from 0 to 1 (1 = certain).
+        // Merchant-first doctrine (user directive): the category comes from WHO
+        // was paid, never from HOW the money moved. UPI/IMPS/NEFT/card are
+        // payment methods; labeling them "Transfers" was the old failure mode.
+        let doctrine = """
+        Classify by WHO was paid, never by HOW the money moved. UPI, IMPS, NEFT, \
+        RTGS, card networks and wallets are payment methods, not categories. \
+        Work in this priority order: \
+        1) the merchant or payee name — including names encoded in UPI VPA \
+        handles ("billdeskpg.appleservices@…" → Apple → Subscriptions; \
+        "BurgerKingIndia@…" → Burger King → Food & Dining; "airtelpayments@…" → \
+        Airtel → Utilities; "zerodha…" → Zerodha → Investment; "paytm metro" → \
+        Transport) and card-acquirer prefixes (DOJO*, TST-, SQ*, IZ*, TEYA*); \
+        2) the rest of the description (shop/clinic/school/fuel-pump wording, \
+        location hints); \
+        3) the payment method, ONLY when nothing identifies the payee.
+
+        Use "Transfers" ONLY for genuine person-to-person or self transfers: \
+        money sent to an individual by name, own-account moves, or a personal \
+        UPI handle with no business identity. A recognizable business or \
+        merchant is NEVER "Transfers", whatever the payment rail.
+        """
+        var system = enumLocked ? """
+        You categorize bank- and card-statement transactions into a fixed set of \
+        personal-finance categories.
+
+        \(doctrine)
+
+        Assign exactly one category per descriptor from the allowed list. Use \
+        "Other" only when you genuinely cannot tell. Return a confidence from \
+        0 to 1 (1 = certain).
 
         Allowed categories: \(categories.joined(separator: ", ")).
         """ : """
-        You categorize bank- and card-statement merchant descriptors for a \
-        personal-finance app. Use the merchant's real-world business type, \
-        inferring from brand names, card-acquirer prefixes (e.g. DOJO*, TST-, \
-        TEYA*), and location hints. Prefer one of the KNOWN CATEGORIES when it \
-        fits; if none fits, coin a NEW concise category name — 1 to 3 words, \
-        Title Case, like "Pet Care" or "Home Improvement" — describing the \
-        business type. Use "Other" only when you genuinely cannot tell. Return a \
-        confidence from 0 to 1 (1 = certain).
+        You categorize bank- and card-statement transactions for a \
+        personal-finance app.
+
+        \(doctrine)
+
+        Prefer one of the KNOWN CATEGORIES when it fits; if none fits, coin a \
+        NEW concise category name — 1 to 3 words, Title Case, like "Pet Care" \
+        or "Home Improvement" — describing the payee's business type. Use \
+        "Other" only when you genuinely cannot tell. Return a confidence from \
+        0 to 1 (1 = certain).
 
         Known categories: \(categories.joined(separator: ", ")).
         """
+        if let locationContext, !locationContext.isEmpty {
+            system += "\n\n" + locationContext
+        }
         // Structured-outputs schema: category is enum-locked to the taxonomy in
         // fixed mode, a free string in dynamic mode (the model may coin names).
         var categoryField: [String: Any] = ["type": "string"]
@@ -170,7 +213,10 @@ public final class ClaudeCategorizer {
         ]
         return [
             "model": model,
-            "max_tokens": max(1024, min(8192, merchants.count * 80 + 512)),
+            // Headroom for models that prepend a reasoning block (Sonnet 5)
+            // before the JSON text — a truncated response parse-fails and
+            // silently costs the whole batch.
+            "max_tokens": max(1024, min(8192, merchants.count * 100 + 1024)),
             "system": system,
             "output_config": ["format": ["type": "json_schema", "schema": schema]],
             "messages": [[

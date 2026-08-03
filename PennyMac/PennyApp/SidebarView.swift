@@ -9,6 +9,8 @@ struct SidebarView: View {
     var onSwitchModel: () -> Void
     @State private var pulsing = false
     @State private var confirmingWipe = false
+    @State private var editingAPIKey = false
+    @State private var apiKeyDraft = ""
 
     private let flows: [(icon: String, label: String, action: String)] = [
         ("🔥", "Roast me", "roast"),
@@ -225,6 +227,7 @@ struct SidebarView: View {
             stat("Transactions", "\(app.transactionCount)")
             stat("Data sent out", app.dataSentLabel,
                  valueColor: app.bytesSentOut == 0 ? Theme.limeD : Theme.coral)
+            apiKeyRow
             if app.recheckableMerchantCount > 0 { categorizeButton }
             if app.showUpgradeNudge { upgradeNudge }
         }
@@ -233,11 +236,68 @@ struct SidebarView: View {
         .hardCard(radius: 13, border: 2, shadow: 3)
     }
 
-    /// Manual trigger for the AI mop-up: asks Claude (or the on-device model
-    /// when no API key is set) to categorize the unresolved merchants AND to
-    /// re-check rows an earlier AI pass placed — the model may coin new
-    /// categories beyond the canonical list. Shown while any merchant is
-    /// still unresolved.
+    /// Claude API key management — categories come from the API ONLY, so the
+    /// key is front and center: keyless shows an add-key affordance that
+    /// reveals a paste field; keyed shows the connected state with a remove
+    /// affordance. The key lives in the Keychain (see `APIKeyStore`).
+    @ViewBuilder private var apiKeyRow: some View {
+        if app.claudeAPIKey != nil {
+            HStack(spacing: 6) {
+                Text("Claude API").font(Theme.mono(9)).foregroundStyle(Theme.dim)
+                Spacer(minLength: 4)
+                Text("connected").font(Theme.mono(9)).foregroundStyle(Theme.limeD)
+                Button { app.clearClaudeAPIKey() } label: {
+                    Text("×").font(Theme.font(11, .bold)).foregroundStyle(Theme.dim)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("brain.apiKey.remove")
+            }
+            .padding(.top, 1)
+        } else if editingAPIKey {
+            HStack(spacing: 5) {
+                SecureField("sk-ant-…", text: $apiKeyDraft)
+                    .textFieldStyle(.plain)
+                    .font(Theme.mono(9))
+                    .onSubmit(saveAPIKey)
+                    .accessibilityIdentifier("brain.apiKey.field")
+                Button(action: saveAPIKey) {
+                    Text("save").font(Theme.mono(8.5)).foregroundStyle(Theme.limeD)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("brain.apiKey.save")
+            }
+            .padding(.top, 2)
+        } else {
+            Button { editingAPIKey = true } label: {
+                Text(MD.inline("🔑 **add Claude API key** — categories need it"))
+                    .font(Theme.font(9.5, .semibold))
+                    .foregroundStyle(Theme.coral)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("brain.apiKey.add")
+            .padding(.top, 3)
+        }
+    }
+
+    private func saveAPIKey() {
+        let key = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        app.setClaudeAPIKey(key)
+        apiKeyDraft = ""
+        editingAPIKey = false
+    }
+
+    /// Manual trigger for the API categorization pass: asks Claude to
+    /// categorize the unresolved merchants AND to re-check rows an earlier
+    /// pass placed — the model may coin new categories beyond the canonical
+    /// list. Categories come from the API only; without a key this surfaces
+    /// the add-key toast.
     private var categorizeButton: some View {
         Button { app.refineCategoriesForLoadedStatements(manual: true) } label: {
             HStack(spacing: 6) {

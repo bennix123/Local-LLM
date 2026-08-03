@@ -165,7 +165,7 @@ struct ChatView: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField(busy ? "Categorizing your spending on-device…" : "ask penny anything... e.g. why am i broke?", text: $draft)
+                TextField(busy ? "Categorizing with Claude…" : "ask penny anything... e.g. why am i broke?", text: $draft)
                     .textFieldStyle(.plain)
                     .font(Theme.font(13))
                     .foregroundStyle(Theme.ink)   // explicit: never white-on-cream

@@ -95,7 +95,7 @@ struct ContextPanelView: View {
 
     private var statusLine: String {
         if app.isAnalyzing { return "reading your transactions…" }
-        if app.isRecategorizing { return "categorizing merchants on-device…" }
+        if app.isRecategorizing { return "categorizing with Claude…" }
         if app.contextReady { return "\(s.count) transactions · on-device" }
         return "on-device · upload a statement to begin"
     }
@@ -218,7 +218,7 @@ struct ContextPanelView: View {
                     .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
                 ProgressView().controlSize(.mini)
             }
-            Text(app.isRecategorizing ? "Categorizing your spending on-device…"
+            Text(app.isRecategorizing ? "Categorizing your spending with Claude…"
                                       : "Reading your statement on-device…")
                 .font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)

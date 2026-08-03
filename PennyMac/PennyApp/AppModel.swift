@@ -1,9 +1,41 @@
 import Foundation
 import SwiftUI
+import Security
 import PennyCore
 import PennyModel
 import PennyFinance
 import PennyTxnStore
+
+/// Keychain persistence for the user's Anthropic API key — categories come
+/// from the Claude API only, so the key must survive relaunches. Generic
+/// password item; never written to UserDefaults or any file.
+enum APIKeyStore {
+    private static let service = "com.penny.anthropic-api-key"
+
+    private static var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service]
+    }
+
+    static func load() -> String? {
+        var q = query
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func save(_ key: String) {
+        SecItemDelete(query as CFDictionary)
+        var q = query
+        q[kSecValueData as String] = Data(key.utf8)
+        SecItemAdd(q as CFDictionary, nil)
+    }
+
+    static func clear() { SecItemDelete(query as CFDictionary) }
+}
 
 // MARK: - App-level types
 
@@ -291,12 +323,31 @@ final class AppModel: ObservableObject {
     @Published var analysis: AnalysisProgress = .idle
     @Published var toasts: [ToastMessage] = []
 
-    // Optional Anthropic key for the network fallbacks only (scanned-PDF OCR +
-    // LLM extraction, and "Other"-merchant categorization). Injected — read from
-    // the ANTHROPIC_API_KEY environment variable, or set from the app's settings
-    // (Keychain-backed; never written to disk here). nil disables the fallbacks,
-    // leaving the deterministic offline path completely untouched.
-    var claudeAPIKey: String? = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
+    // Anthropic key powering categorization (API-only, user directive) and the
+    // scanned-PDF OCR extraction fallback. Read from the ANTHROPIC_API_KEY
+    // environment variable, else from the Keychain (saved via the sidebar's
+    // key field). nil → categorization is a no-op and rows keep their
+    // deterministic placeholder labels.
+    @Published var claudeAPIKey: String? =
+        ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? APIKeyStore.load()
+
+    /// Save the user's API key (Keychain-backed) and immediately run the full
+    /// API categorization pass over whatever is loaded.
+    func setClaudeAPIKey(_ raw: String) {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        claudeAPIKey = key
+        APIKeyStore.save(key)
+        postToast("Claude API key saved — categorizing with the API…", kind: .success)
+        refineCategoriesForLoadedStatements(manual: true)
+    }
+
+    /// Forget the stored key. Existing API-assigned categories stay.
+    func clearClaudeAPIKey() {
+        claudeAPIKey = nil
+        APIKeyStore.clear()
+        postToast("Claude API key removed.", kind: .progress)
+    }
 
     /// Bytes actually sent to Anthropic this session (AI categorization + the
     /// scanned-PDF OCR fallback). Drives the privacy panel honestly — 0 keeps the
@@ -908,48 +959,45 @@ final class AppModel: ObservableObject {
         return raw
     }
 
-    /// One batched on-device categorization pass over the unresolved descriptors.
-    /// The local model may reuse a seed category or coin a brand-new one (dynamic
-    /// taxonomy); verdicts are bridged into the shape `CategoryMopup` consumes.
-    /// Errors surface as an empty result — the deterministic graph always stands.
-    nonisolated private static func localCategorize(_ descriptors: [String], llm: PennyLLM,
-                                                    seeds: [String]) async -> [ClaudeCategorization] {
-        // Batch the descriptors: a small on-device model handed 100+ cryptic UPI
-        // descriptors at once truncates its JSON and returns nothing usable. In
-        // chunks it emits clean, parseable verdicts — so most rows get a real
-        // category (Transport, Fees…) instead of falling through to the sweep.
-        var out: [ClaudeCategorization] = []
-        let batchSize = 24
-        var i = 0
-        while i < descriptors.count {
-            let chunk = Array(descriptors[i ..< min(i + batchSize, descriptors.count)])
-            let verdicts = (try? await llm.categorizeMerchants(chunk, seedCategories: seeds, forbidOther: true)) ?? []
-            out.append(contentsOf: verdicts.map {
-                ClaudeCategorization(merchant: $0.merchant, category: $0.category, confidence: $0.confidence)
-            })
-            i += batchSize
-        }
-        return out
-    }
-
-    /// One batched Claude API categorization pass — dynamic taxonomy (the model
-    /// may coin new category names beyond the seeds); coined names are tamed by
-    /// the same normalizer the local path uses so the taxonomy can't fragment.
-    /// Haiku 4.5 is far cheaper than Opus and plenty capable for merchant
-    /// classification. Errors/refusals surface as an empty result. Returns the
-    /// request-body size for "data sent out" accounting.
-    nonisolated private static func aiCategorize(_ descriptors: [String], aiKey: String,
-                                                 seeds: [String])
+    /// The Claude API categorization pass — dynamic taxonomy (the model may coin
+    /// new category names beyond the seeds); coined names are tamed by the same
+    /// normalizer the local path uses so the taxonomy can't fragment.
+    ///
+    /// One group per issuing bank, each request carrying that statement's
+    /// location context (bank name + currency + country) so region-specific
+    /// merchants resolve correctly. Groups are further chunked so a 300-row
+    /// import can't blow past `max_tokens` and lose verdicts to truncation —
+    /// every descriptor gets a real API verdict.
+    ///
+    /// Sonnet 5 — the user's explicit model choice for categorization
+    /// (verified live 2026-08-04: correctly reads ambiguous merchants like the
+    /// Latymers pub that Haiku misfiled). Errors/refusals surface as an empty
+    /// result. Returns the total request-body size for "data sent out"
+    /// accounting.
+    nonisolated private static func aiCategorize(_ groups: [CategoryMopup.DescriptorGroup],
+                                                 aiKey: String, seeds: [String])
     async -> (results: [ClaudeCategorization], bytesSent: Int) {
-        let categorizer = ClaudeCategorizer(apiKey: aiKey, model: "claude-haiku-4-5")
-        let raw = (try? await categorizer.dynamicCategorize(descriptions: descriptors,
-                                                            seedCategories: seeds)) ?? []
-        let results = raw.map {
-            ClaudeCategorization(merchant: $0.merchant,
-                                 category: PennyLLM.normalizeCategory($0.category, seeds: seeds),
-                                 confidence: $0.confidence)
+        let categorizer = ClaudeCategorizer(apiKey: aiKey, model: "claude-sonnet-5")
+        var results: [ClaudeCategorization] = []
+        var bytes = 0
+        let batchSize = 60   // 60 × ~80 output tokens stays well under the 8192 cap
+        for group in groups {
+            var i = 0
+            while i < group.descriptors.count {
+                let chunk = Array(group.descriptors[i ..< min(i + batchSize, group.descriptors.count)])
+                let raw = (try? await categorizer.dynamicCategorize(
+                    descriptions: chunk, seedCategories: seeds,
+                    locationContext: group.locationContext)) ?? []
+                bytes += categorizer.lastRequestByteCount
+                results.append(contentsOf: raw.map {
+                    ClaudeCategorization(merchant: $0.merchant,
+                                         category: PennyLLM.normalizeCategory($0.category, seeds: seeds),
+                                         confidence: $0.confidence)
+                })
+                i += batchSize
+            }
         }
-        return (results, categorizer.lastRequestByteCount)
+        return (results, bytes)
     }
 
     /// Category names offered to the model as known choices: Penny's canonical
@@ -972,57 +1020,42 @@ final class AppModel: ObservableObject {
     /// categories — which may include brand-new, model-coined names — re-persist
     /// the affected statements, and refresh the UI.
     ///
-    /// With an API key set, Claude is the PRIMARY categorizer: automatic runs
-    /// (launch restore, post-import) send every debit merchant Claude hasn't
-    /// placed yet — the deterministic labels are only instant placeholders —
-    /// and the manual button re-checks every debit row. Idempotent across
-    /// launches: AI-placed rows carry a `.category` signal and are skipped.
-    ///
-    /// Key-less, the on-device model is the fallback with the conservative
-    /// scopes: automatic runs sweep only "Other" rows; manual also re-evaluates
-    /// earlier AI verdicts. Best-effort — the existing labels always stand.
+    /// Categories come from the Claude API ONLY (user directive): every
+    /// transaction — credits included — is checked with the API; the local LLM
+    /// is never used for categorization. Automatic runs (launch restore,
+    /// post-import) send every row the API hasn't placed yet — deterministic
+    /// labels are only instant placeholders — and the manual button re-checks
+    /// every row. Idempotent across launches: AI-placed rows carry a
+    /// `.category` signal and are skipped. Key-less, this is a no-op (manual
+    /// runs surface why) — rows keep their deterministic placeholders.
     func refineCategoriesForLoadedStatements(manual: Bool = false) {
         guard !isRecategorizing else { return }
-        let keyed = !(claudeAPIKey ?? "").isEmpty
-        let scope: CategoryMopup.Scope = keyed ? (manual ? .allDebits : .withoutAIVerdict)
-                                               : (manual ? .unresolvedOrAIRelabeled : .unresolved)
-        let descriptors = CategoryMopup.unresolvedDescriptors(in: graph, scope: scope)
+        guard let key = claudeAPIKey, !key.isEmpty else {
+            if manual {
+                postToast("Categories come from the Claude API — add your API key in settings first.",
+                          kind: .progress)
+            }
+            return
+        }
+        let scope: CategoryMopup.Scope = manual ? .allDebits : .withoutAIVerdict
+        // Every transaction is covered — credits included — grouped per bank so
+        // each request carries that statement's location (bank + currency +
+        // country) for region-correct categories.
+        let groups = CategoryMopup.descriptorGroups(in: graph, scope: scope,
+                                                    includeCredits: true)
+        let descriptors = groups.flatMap(\.descriptors)
         guard !descriptors.isEmpty else {
             if manual { postToast("Nothing to categorize — every merchant is already placed.", kind: .success) }
             return
         }
         isRecategorizing = true
         let seeds = seedCategories()
-        let llm = self.llm
-        let key = claudeAPIKey
         Task { [weak self] in
-            let usingClaude = keyed
-            let results: [ClaudeCategorization]
-            var bytes = 0
-            if let key, usingClaude {
-                if manual {
-                    self?.postToast("Asking Claude to categorize \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s")…",
-                                    kind: .progress)
-                }
-                (results, bytes) = await Self.aiCategorize(descriptors, aiKey: key, seeds: seeds)
-            } else {
-                // No key → on-device fallback. Automatic runs (launch restore,
-                // post-import) only piggyback on an already-loaded model — they
-                // must never trigger a multi-GB weights download. The manual
-                // button may load on demand: by dashboard time the chosen
-                // model's weights are on disk.
-                // The Apple system model (macOS 26+) categorizes with no weights load,
-                // so automatic runs may proceed even when no MLX model is loaded.
-                if !manual, await !llm.isLoaded, !PennyLLM.systemModelAvailable {
-                    self?.isRecategorizing = false
-                    return
-                }
-                if manual {
-                    self?.postToast("Categorizing \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s") on-device…",
-                                    kind: .progress)
-                }
-                results = await Self.localCategorize(descriptors, llm: llm, seeds: seeds)
+            if manual {
+                self?.postToast("Asking Claude to categorize \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s")…",
+                                kind: .progress)
             }
+            let (results, bytes) = await Self.aiCategorize(groups, aiKey: key, seeds: seeds)
             guard let self else { return }
             self.isRecategorizing = false
             self.bytesSentOut += bytes
@@ -1030,15 +1063,19 @@ final class AppModel: ObservableObject {
             // guarantees no row is left "Other" even when the model returns nothing
             // usable (e.g. it choked on a batch of cryptic UPI descriptors).
             let before = self.graph
-            // On-device (key-less) runs accept the model's real categories even below
-            // the AI-threshold — with `forbidOther` the model already commits to a real
-            // label, and we then guarantee no debit is left "Other".
-            let minConf = usingClaude ? CategoryMopup.acceptThreshold : 0.0
-            var refined = CategoryMopup.apply(results, to: before, scope: scope, minConfidence: minConf)
+            // Every non-"Other" verdict is applied regardless of confidence: the
+            // API commits to a label via structured output, and the user's rule
+            // is that every transaction's category comes from the API — a
+            // confidence gate here would silently hand rows back to the
+            // deterministic sweep. "Other" verdicts still fall through to it.
+            let minConf = 0.0
+            var refined = CategoryMopup.apply(results, to: before, scope: scope,
+                                              minConfidence: minConf,
+                                              includeCredits: true)
             refined = CategoryMopup.assignConcreteToResidualOther(refined)   // "no Other" guarantee
             guard refined != before else {
                 if manual {
-                    self.postToast("\(usingClaude ? "Claude" : self.modelDisplayName) wasn't confident enough to change any category.", kind: .progress)
+                    self.postToast("Claude wasn't confident enough to change any category.", kind: .progress)
                 }
                 return
             }
@@ -1046,7 +1083,7 @@ final class AppModel: ObservableObject {
                                   uniquingKeysWith: { a, _ in a })
             let moved = refined.transactions.filter { prev[$0.id] != $0.enrichment.categoryID?.raw }.count
             self.applyRefinedGraph(refined)
-            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") \(usingClaude ? "with Claude" : "on-device").", kind: .success)
+            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") with Claude.", kind: .success)
         }
     }
 

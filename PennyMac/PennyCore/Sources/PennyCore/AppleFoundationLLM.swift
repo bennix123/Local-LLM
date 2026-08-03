@@ -58,22 +58,29 @@ enum AppleFoundationLLM {
 
         let otherRule = forbidOther ? """
             NEVER use "Other", "Unknown", "Uncategorized", "Misc" or "N/A" — every \
-            descriptor MUST get a concrete category. Money sent to or received from a \
-            person, or a UPI / IMPS / NEFT / RTGS / bank transfer, or a "name@bank" UPI \
-            handle, is "Transfers". Metro / rail / bus / transit is "Transport". \
-            Card-network, forex markup, interest, ATM or bank charges are "Fees". \
-            If still unsure, pick the single closest real category — never "Other".
+            descriptor MUST get a concrete category. Only when the payee is a person \
+            or cannot be identified at all, use "Transfers". Metro / rail / bus / \
+            transit is "Transport". Card-network, forex markup, ATM or bank charges \
+            are "Fees & Charges". If still unsure, pick the single closest real \
+            category — never "Other".
             """ : """
             Use "Other" only when a descriptor is truly unguessable.
             """
         let instructions = """
-            You categorize bank- and card-statement merchant descriptors for a \
-            personal-finance app. Judge each merchant's real-world business type from \
-            brand names, card-acquirer prefixes (DOJO*, TST-, SQ*, IZ*, TEYA*) and \
-            location hints. Prefer one of the KNOWN CATEGORIES when it fits; otherwise \
-            coin a concise 1 to 3 word Title Case category describing the business type. \
-            \(otherRule) Echo each merchant string back exactly, one verdict per \
-            descriptor, in the given order.
+            You categorize bank- and card-statement transactions for a \
+            personal-finance app. Classify by WHO was paid, never by HOW the money \
+            moved: UPI / IMPS / NEFT / cards are payment methods, not categories. \
+            Priority: 1) the merchant or payee name — including names inside UPI \
+            VPA handles ("BurgerKingIndia@…" → Burger King → Food & Dining, \
+            "billdeskpg.appleservices@…" → Apple → Subscriptions) and \
+            card-acquirer prefixes (DOJO*, TST-, SQ*, IZ*, TEYA*); 2) the rest of \
+            the description and location hints; 3) the payment method only when \
+            nothing identifies the payee. "Transfers" is ONLY for money sent to an \
+            individual or own-account moves — a recognizable business is NEVER \
+            "Transfers". Prefer one of the KNOWN CATEGORIES when it fits; otherwise \
+            coin a concise 1 to 3 word Title Case category describing the business \
+            type. \(otherRule) Echo each merchant string back exactly, one verdict \
+            per descriptor, in the given order.
 
             KNOWN CATEGORIES: \(seedCategories.joined(separator: ", ")).
             """
