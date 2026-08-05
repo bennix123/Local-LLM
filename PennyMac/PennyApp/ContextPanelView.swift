@@ -7,6 +7,12 @@ import SwiftUI
 struct ContextPanelView: View {
     @EnvironmentObject var app: AppModel
 
+    /// The count shown in the categorizing loader — eased toward the real
+    /// `app.categorizeProgress.done` by `converterTick` so it rolls up merchant by
+    /// merchant instead of jumping a whole batch of 40 at once.
+    @State private var shownConverted = 0
+    private let converterTick = Timer.publish(every: 0.03, on: .main, in: .common).autoconnect()
+
     private var s: Summary { app.summary }
 
     private func money(_ v: Double?) -> String {
@@ -120,13 +126,16 @@ struct ContextPanelView: View {
     }
 
     @ViewBuilder private var categoriesSection: some View {
-        // While the statement is being read or categorized on-device, hide the
-        // in-progress figures (they're incomplete — "Other" is still being placed)
-        // behind a loader, rather than showing numbers that are about to change.
-        if app.isAnalyzing || app.isRecategorizing {
-            categoriesLoadingCard
-        } else if !s.categories.isEmpty {
+        // Show the bars the moment there ARE categories — the deterministic pass
+        // labels every row at import, so we never make the user stare at a blank
+        // skeleton for the whole (30–60s) Claude refinement. The bars update in
+        // place as Claude improves them, with a small "refining" marker in the
+        // header. The skeleton is only for the brief window where nothing exists
+        // yet (statement still being read, or no categories at all yet).
+        if !s.categories.isEmpty {
             categoryBars
+        } else if app.isAnalyzing || app.isRecategorizing {
+            categoriesLoadingCard
         } else if !app.docs.isEmpty {
             infoCard {
                 Text("No transactions detected in this statement.")
@@ -178,9 +187,22 @@ struct ContextPanelView: View {
     private var categoryBars: some View {
         let total = s.categories.reduce(0) { $0 + abs($1.amount) }
         return VStack(alignment: .leading, spacing: 5) {
-            Text("spend by category")
-                .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
-                .padding(.bottom, 4)
+            HStack(spacing: 6) {
+                Text("spend by category")
+                    .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
+                // Bars are live from the deterministic pass; show a quiet marker
+                // while Claude is still refining them so the changing numbers read.
+                if app.isRecategorizing {
+                    ProgressView().controlSize(.mini)
+                    if let p = app.categorizeProgress, p.total > 0 {
+                        Text("refining \(p.done)/\(p.total)")
+                            .font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
+                    } else {
+                        Text("refining…").font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
+                    }
+                }
+            }
+            .padding(.bottom, 4)
             ForEach(s.categories.prefix(6)) { cat in
                 let meta = CategoryMeta.style(for: cat.name)
                 let pct = total > 0 ? abs(cat.amount) / total : 0
@@ -209,6 +231,16 @@ struct ContextPanelView: View {
         .hardCard(radius: 12, border: 2, shadow: 3)
     }
 
+    /// The loader's status line: a live, ticking "converted / total merchants"
+    /// count while Claude works through a big statement, else the phase message.
+    private var categorizingMessage: String {
+        if let p = app.categorizeProgress, p.total > 0 {
+            return "Identifying merchants with Claude… \(shownConverted) / \(p.total)"
+        }
+        return app.isRecategorizing ? "Categorizing your spending with Claude…"
+                                    : "Reading your statement on-device…"
+    }
+
     /// Loader shown in place of the category bars while the on-device pass runs,
     /// so the user never sees half-categorized figures (or a shrinking "Other").
     private var categoriesLoadingCard: some View {
@@ -218,10 +250,17 @@ struct ContextPanelView: View {
                     .font(Theme.serif(13.5, .heavy)).foregroundStyle(Theme.ink)
                 ProgressView().controlSize(.mini)
             }
-            Text(app.isRecategorizing ? "Categorizing your spending with Claude…"
-                                      : "Reading your statement on-device…")
+            Text(categorizingMessage)
                 .font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.dim)
+                .contentTransition(.numericText())        // digits roll as it counts
                 .fixedSize(horizontal: false, vertical: true)
+            // A moving count + determinate bar on big statements, so the loader
+            // never looks frozen while Claude works through the merchants.
+            if let p = app.categorizeProgress, p.total > 0 {
+                ProgressView(value: Double(shownConverted), total: Double(p.total))
+                    .tint(Theme.ink2)
+                    .padding(.bottom, 2)
+            }
             ForEach(0..<5, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 3).fill(Theme.bg2).frame(height: 12)
             }
@@ -229,6 +268,18 @@ struct ContextPanelView: View {
         .padding(.horizontal, 13).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hardCard(radius: 12, border: 2, shadow: 3)
+        // Ease the shown count toward the real batch total: reset at the start of a
+        // pass, then step up ~one merchant per tick so it visibly counts on.
+        .onReceive(converterTick) { _ in
+            guard let p = app.categorizeProgress else { shownConverted = 0; return }
+            if p.done == 0 { shownConverted = 0; return }
+            if shownConverted < p.done {
+                let step = max(1, (p.done - shownConverted) / 12)   // catch up if far behind
+                withAnimation(.easeOut(duration: 0.03)) {
+                    shownConverted = min(p.done, shownConverted + step)
+                }
+            }
+        }
     }
 
     private func infoCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

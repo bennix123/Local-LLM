@@ -37,6 +37,24 @@ enum APIKeyStore {
     static func clear() { SecItemDelete(query as CFDictionary) }
 }
 
+/// The hosted categorization proxy. It holds the real Anthropic key server-side
+/// and forwards `/v1/messages`, so distributed builds (TestFlight) categorize
+/// without every user pasting their own key — the reason categories showed as
+/// all "Other" for testers, who have neither the `ANTHROPIC_API_KEY` env var nor
+/// a Keychain key. A developer's own key still wins (see `AppModel`); the proxy
+/// is only used when there isn't one.
+///
+/// SETUP: set `urlString` to your deployed proxy's `/v1/messages` URL and
+/// `appToken` to the shared token the proxy checks (see `penny-proxy/`). Leaving
+/// `urlString` empty disables the proxy and restores the old key-only behavior.
+enum PennyBackend {
+    static let urlString = ""            // e.g. "https://penny-proxy.<you>.workers.dev/v1/messages"
+    static let appToken  = ""            // shared token the proxy validates (optional)
+
+    static var proxyURL: URL? { urlString.isEmpty ? nil : URL(string: urlString) }
+    static var isConfigured: Bool { proxyURL != nil }
+}
+
 // MARK: - App-level types
 
 enum AppStage { case onboarding, modelPicker, dashboard }
@@ -135,6 +153,25 @@ struct LoadedDoc: Identifiable, Equatable {
             (#"\bmetro bank\b"#,                          "Metro Bank"),
             (#"co-?operative bank|the co-?op bank"#,      "Co-operative Bank"),
             (#"\bchase\b"#,                               "Chase"),
+            // Indian banks / wallets. Paytm statements carry the "PPBL" (Paytm
+            // Payments Bank Ltd) letterhead; match that, not bare "paytm" (which
+            // also appears in UPI transaction lines). Note "axis" is matched only
+            // as "Axis Bank" — the IFSC prefix "utib"/handles like "@sliceaxis"
+            // must NOT read as an Axis statement.
+            (#"\bppbl\b|paytm payments bank"#,            "Paytm Payments Bank"),
+            (#"\baxis bank\b"#,                           "Axis Bank"),
+            (#"\bhdfc\b"#,                                "HDFC Bank"),
+            (#"\bicici\b"#,                               "ICICI Bank"),
+            (#"state bank of india|\bsbi\b"#,             "State Bank of India"),
+            (#"\bkotak\b"#,                               "Kotak Mahindra Bank"),
+            (#"\byes bank\b"#,                            "Yes Bank"),
+            (#"\bidfc\b"#,                                "IDFC First Bank"),
+            (#"\bindusind\b"#,                            "IndusInd Bank"),
+            (#"punjab national|\bpnb\b"#,                 "Punjab National Bank"),
+            (#"bank of baroda"#,                          "Bank of Baroda"),
+            (#"\bcanara\b"#,                              "Canara Bank"),
+            (#"union bank of india"#,                     "Union Bank of India"),
+            (#"\bidbi\b"#,                                "IDBI Bank"),
         ]
         var best: (idx: Int, name: String)? = nil
         for (pat, name) in table {
@@ -252,8 +289,19 @@ final class AppModel: ObservableObject {
     /// and reset the in-memory session. The onboarding privacy copy promises
     /// "you can wipe everything anytime", so this must really erase disk.
     func wipeAllData() {
+        // Stop any in-flight categorization first — otherwise it keeps running
+        // (and showing "categorizing… N/M") against the now-empty graph.
+        recategorizeTask?.cancel()
+        recategorizeTask = nil
+        isRecategorizing = false
+        categorizeProgress = nil
+
         StatementStore.wipeAll()
         try? FileManager.default.removeItem(at: Self.historyURL)
+        // The learned merchant knowledge base is user data too — wipe it.
+        merchantKB = MerchantKnowledgeBase()
+        try? FileManager.default.removeItem(at: Self.merchantKBURL)
+
         graph = .empty
         statementText = [:]
         issuerOverrides = [:]
@@ -331,6 +379,21 @@ final class AppModel: ObservableObject {
     @Published var claudeAPIKey: String? =
         ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"] ?? APIKeyStore.load()
 
+    /// The credential + endpoint the categorizer should use. A developer's own key
+    /// talks to Anthropic directly (`x-api-key`); everyone else (TestFlight) goes
+    /// through the hosted proxy, which holds the key server-side. `nil` only when
+    /// there is neither a local key nor a configured proxy — then categorization is
+    /// a no-op and rows keep their deterministic placeholders.
+    var categorizerConfig: (key: String, endpoint: ClaudeCategorizer.Endpoint)? {
+        if let k = claudeAPIKey, !k.isEmpty { return (k, .anthropic) }
+        if let url = PennyBackend.proxyURL { return (PennyBackend.appToken, .proxy(url)) }
+        return nil
+    }
+
+    /// Whether a categorization pass can run at all (own key OR proxy). Drives the
+    /// "add your key" prompts — with a proxy configured, no key is needed.
+    var categorizationAvailable: Bool { categorizerConfig != nil }
+
     /// Save the user's API key (Keychain-backed) and immediately run the full
     /// API categorization pass over whatever is loaded.
     func setClaudeAPIKey(_ raw: String) {
@@ -357,6 +420,35 @@ final class AppModel: ObservableObject {
     /// An AI re-categorization pass is in flight — disables the manual button and
     /// guards against concurrent runs.
     @Published private(set) var isRecategorizing = false
+
+    /// Live progress of the in-flight categorization pass — `done`/`total` distinct
+    /// NEW merchants sent to Claude — so the "spend by category" loader shows a
+    /// moving count instead of a frozen skeleton on big statements. nil when idle
+    /// or when every merchant was already known (no API call). See `ContextPanelView`.
+    struct CategorizeProgress: Equatable { var done: Int; var total: Int }
+    @Published private(set) var categorizeProgress: CategorizeProgress?
+
+    /// Handle on the in-flight categorization pass so Wipe (and app teardown) can
+    /// cancel it — otherwise it keeps running against a wiped graph.
+    private var recategorizeTask: Task<Void, Never>?
+
+    /// The growing merchant knowledge base (spec Steps 6 & 8): once Claude has
+    /// identified a merchant we store its business + primary/secondary category
+    /// keyed by normalized name, so recognised merchants resolve instantly, the
+    /// same merchant is ALWAYS categorized the same way, and only genuinely new
+    /// merchants ever reach the API. Loaded at launch, saved after each pass.
+    private var merchantKB = MerchantKnowledgeBase.load(from: AppModel.merchantKBURL)
+
+    /// On-disk location of the merchant knowledge base (per-process temp under
+    /// TestMode so tests never touch the user's real KB).
+    static var merchantKBURL: URL {
+        let base: URL = TestMode.active
+            ? URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("penny-uitest-kb-\(getpid())", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Penny", isDirectory: true)
+        return base.appendingPathComponent("merchant_kb.json")
+    }
 
     // chat
     @Published var messages: [ChatMessage] = []
@@ -887,6 +979,15 @@ final class AppModel: ObservableObject {
                 let issuer = try await self.llm.detectIssuer(from: text)
                 print("🏦[issuer] \(docName) → \(issuer ?? "nil")  (model loaded=\(loaded))")
                 if let issuer, let stmt = self.graph.statements.first(where: { $0.sourceName == docName }) {
+                    // Don't let an LLM guess overturn a confident deterministic
+                    // letterhead match: the model can be misled by another bank's
+                    // name in transaction lines (e.g. "utib0000100" / "@sliceaxis"
+                    // in a Paytm statement reading as "Axis Bank"). The header
+                    // heuristic is higher-precision, so keep it when it fired.
+                    guard LoadedDoc.detectIssuer(in: text) == nil else {
+                        print("🏦[issuer] \(docName): keep letterhead detection, ignore LLM ‘\(issuer)’")
+                        return
+                    }
                     // Issuer refinement is a presentation layer, not canonical data:
                     // record it as an override and re-derive the label. It's re-derived
                     // each launch, so it is deliberately NOT persisted (the model stays truth).
@@ -975,43 +1076,120 @@ final class AppModel: ObservableObject {
     /// result. Returns the total request-body size for "data sent out"
     /// accounting.
     nonisolated private static func aiCategorize(_ groups: [CategoryMopup.DescriptorGroup],
-                                                 aiKey: String, seeds: [String])
-    async -> (results: [ClaudeCategorization], bytesSent: Int) {
-        let categorizer = ClaudeCategorizer(apiKey: aiKey, model: "claude-sonnet-5")
-        var results: [ClaudeCategorization] = []
-        var bytes = 0
-        let batchSize = 60   // 60 × ~80 output tokens stays well under the 8192 cap
+                                                 aiKey: String,
+                                                 endpoint: ClaudeCategorizer.Endpoint = .anthropic,
+                                                 onBatch: @escaping @Sendable ([String]) -> Void = { _ in })
+    async -> (results: [ClaudeCategorization], bytesSent: Int, failed: Int, apiError: String?) {
+        // Rich merchant-first output is ~130 tokens/merchant, so batches are modest.
+        // A batch that truncates or errors is split and retried once (see
+        // categorizeChunk) so a single bad batch never silently drops rows.
+        let batchSize = 40
+        // Flatten every group into ≤batchSize work items tagged with their bank
+        // location, so batches from different banks can run together.
+        struct Work: Sendable { let chunk: [String]; let location: String? }
+        var work: [Work] = []
         for group in groups {
             var i = 0
             while i < group.descriptors.count {
-                let chunk = Array(group.descriptors[i ..< min(i + batchSize, group.descriptors.count)])
-                let raw = (try? await categorizer.dynamicCategorize(
-                    descriptions: chunk, seedCategories: seeds,
-                    locationContext: group.locationContext)) ?? []
-                bytes += categorizer.lastRequestByteCount
-                results.append(contentsOf: raw.map {
-                    ClaudeCategorization(merchant: $0.merchant,
-                                         category: PennyLLM.normalizeCategory($0.category, seeds: seeds),
-                                         confidence: $0.confidence)
-                })
+                work.append(Work(chunk: Array(group.descriptors[i ..< min(i + batchSize, group.descriptors.count)]),
+                                 location: group.locationContext))
                 i += batchSize
             }
         }
-        return (results, bytes)
+        guard !work.isEmpty else { return ([], 0, 0, nil) }
+
+        // Run batches CONCURRENTLY, bounded, so a 400-merchant statement is a few
+        // batches "deep" in wall-clock instead of a dozen sequential Sonnet calls.
+        // Each task uses its own categorizer, so there's no shared mutable state
+        // (byte counts don't race).
+        let maxConcurrent = min(4, work.count)
+        var results: [ClaudeCategorization] = []
+        var bytes = 0, failed = 0
+        var apiError: String? = nil
+        await withTaskGroup(of: (results: [ClaudeCategorization], bytes: Int, failed: Int, error: String?).self) { taskGroup in
+            var next = 0
+            func submit(_ w: Work) {
+                taskGroup.addTask {
+                    let categorizer = ClaudeCategorizer(apiKey: aiKey, model: "claude-sonnet-5",
+                                                        endpoint: endpoint)
+                    let out = await categorizeChunk(categorizer, w.chunk, location: w.location, canSplit: true)
+                    onBatch(w.chunk)   // advance the loader by the batch's transactions
+                    return out
+                }
+            }
+            while next < maxConcurrent { submit(work[next]); next += 1 }
+            for await r in taskGroup {
+                results.append(contentsOf: r.results); bytes += r.bytes; failed += r.failed
+                if apiError == nil { apiError = r.error }   // first failure reason wins
+                // Stop feeding new batches once cancelled (e.g. Wipe); the group
+                // cancels any still in flight as it unwinds.
+                if Task.isCancelled { break }
+                if next < work.count { submit(work[next]); next += 1 }
+            }
+        }
+        return (results, bytes, failed, apiError)
     }
 
-    /// Category names offered to the model as known choices: Penny's canonical
-    /// taxonomy plus whatever already exists in the graph — including categories
-    /// the AI coined on earlier runs — so repeat passes reuse the same labels
-    /// instead of fragmenting into near-duplicates.
-    private func seedCategories() -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for name in ClaudeCategorizer.canonicalCategories + graph.categories.map(\.name)
-        where seen.insert(name.lowercased()).inserted {
-            out.append(name)
+    /// One rich-categorize call, with a single split-and-retry on failure: a large
+    /// batch whose JSON truncates (or errors) is halved and each half retried once,
+    /// so a single oversized/failed batch surfaces as a small `failed` count
+    /// instead of silently vanishing into the deterministic sweep. Returns the
+    /// request bytes so the privacy panel stays honest across splits.
+    nonisolated private static func categorizeChunk(_ categorizer: ClaudeCategorizer,
+                                                    _ chunk: [String], location: String?,
+                                                    canSplit: Bool)
+    async -> (results: [ClaudeCategorization], bytes: Int, failed: Int, error: String?) {
+        do {
+            let rich = try await categorizer.dynamicCategorize(
+                descriptions: chunk, locationContext: location)
+            return (rich, categorizer.lastRequestByteCount, 0, nil)
+        } catch {
+            let message = friendlyAPIError(error)
+            guard canSplit, chunk.count > 8 else {
+                return ([], categorizer.lastRequestByteCount, chunk.count, message)
+            }
+            let mid = chunk.count / 2
+            let a = await categorizeChunk(categorizer, Array(chunk[..<mid]), location: location, canSplit: false)
+            let b = await categorizeChunk(categorizer, Array(chunk[mid...]), location: location, canSplit: false)
+            return (a.results + b.results, a.bytes + b.bytes, a.failed + b.failed, a.error ?? b.error ?? message)
         }
-        return out
+    }
+
+    /// Turn a categorizer error into a short, actionable sentence for the user.
+    /// The most important case: an out-of-credits 400 must say to add credits, NOT
+    /// "couldn't reach Claude — tap to retry" (retrying an unpaid account just fails
+    /// again). Also names a bad key and rate limits distinctly.
+    nonisolated static func friendlyAPIError(_ error: Error) -> String {
+        if let e = error as? ClaudeCategorizerError {
+            switch e {
+            case .http(let status, let body):
+                let low = body.lowercased()
+                if low.contains("credit balance") || low.contains("billing") {
+                    return "Claude API credits exhausted — add credits at console.anthropic.com (Plans & Billing) to categorize the rest."
+                }
+                if status == 401 || low.contains("authentication") || low.contains("invalid x-api-key") {
+                    return "Your Anthropic API key was rejected — re-enter it in settings."
+                }
+                if status == 429 { return "Anthropic rate limit hit — wait a moment and tap ✨ to retry." }
+                return "Anthropic API error \(status) — tap ✨ to retry."
+            case .missingKey:  return "No Anthropic API key set — add one in settings."
+            case .refused:     return "Claude declined the request."
+            case .badResponse: return "Couldn't read Claude's response — tap ✨ to retry."
+            }
+        }
+        return "Couldn't reach Claude — check your connection and tap ✨ to retry."
+    }
+
+    /// The category the app DISPLAYS for a rich verdict: the specific secondary
+    /// when the model gave a usable one (spec Step 5 — prefer specific), else the
+    /// broad primary. Guards against a secondary that's actually a sentence.
+    nonisolated static func displayCategory(for c: ClaudeCategorization) -> String {
+        if let s = c.secondaryCategory?.trimmingCharacters(in: .whitespaces),
+           !s.isEmpty, s.split(separator: " ").count <= 4, s.count <= 32,
+           s.caseInsensitiveCompare("Other") != .orderedSame {
+            return s
+        }
+        return c.primaryCategory ?? c.category
     }
 
     // MARK: - AI re-categorization of already-loaded statements
@@ -1030,7 +1208,7 @@ final class AppModel: ObservableObject {
     /// runs surface why) — rows keep their deterministic placeholders.
     func refineCategoriesForLoadedStatements(manual: Bool = false) {
         guard !isRecategorizing else { return }
-        guard let key = claudeAPIKey, !key.isEmpty else {
+        guard let config = categorizerConfig else {
             if manual {
                 postToast("Categories come from the Claude API — add your API key in settings first.",
                           kind: .progress)
@@ -1048,17 +1226,101 @@ final class AppModel: ObservableObject {
             if manual { postToast("Nothing to categorize — every merchant is already placed.", kind: .success) }
             return
         }
-        isRecategorizing = true
-        let seeds = seedCategories()
-        Task { [weak self] in
-            if manual {
-                self?.postToast("Asking Claude to categorize \(descriptors.count) merchant\(descriptors.count == 1 ? "" : "s")…",
-                                kind: .progress)
+
+        // Resolve already-known merchants from the knowledge base up front (spec
+        // Steps 6 & 8): they skip the API entirely and are guaranteed the SAME
+        // category as last time. For the rest, dedupe by NORMALIZED merchant key so
+        // a statement with many variant strings for the same merchant only sends
+        // ONE representative per merchant — then the verdict is expanded to every
+        // row sharing that key. Big statements shrink dramatically here.
+        var knownVerdicts: [ClaudeCategorization] = []   // one per raw (already expanded)
+        var unknownGroups: [CategoryMopup.DescriptorGroup] = []
+        var keyToRaws: [String: [String]] = [:]          // key → every raw sharing it
+        var repSeen = Set<String>()                      // keys already given a representative
+        for group in groups {
+            var reps: [String] = []
+            for d in group.descriptors {
+                if let p = merchantKB.lookup(d) {
+                    knownVerdicts.append(ClaudeCategorization(
+                        merchant: d, category: p.displayCategory,
+                        confidence: max(p.confidence, 0.9),
+                        cleanMerchant: p.merchant, business: p.business,
+                        primaryCategory: p.primaryCategory,
+                        secondaryCategory: p.secondaryCategory))
+                    continue
+                }
+                let k = MerchantKnowledgeBase.key(for: d)
+                keyToRaws[k, default: []].append(d)
+                if repSeen.insert(k).inserted { reps.append(d) }   // first raw for this key
             }
-            let (results, bytes) = await Self.aiCategorize(groups, aiKey: key, seeds: seeds)
+            if !reps.isEmpty {
+                var g = group; g.descriptors = reps; unknownGroups.append(g)
+            }
+        }
+        let unknownCount = repSeen.count
+
+        // Progress is counted in TRANSACTIONS, not merchants — the user counts "55
+        // transactions", so the loader must reach 55 even though we make only one
+        // API call per distinct merchant and fan the verdict out to its rows.
+        var rawTxnCount: [String: Int] = [:]
+        for t in graph.transactions { rawTxnCount[t.rawDescription, default: 0] += 1 }
+        let totalTxns = descriptors.reduce(0) { $0 + (rawTxnCount[$1] ?? 0) }
+        // Transactions already covered by the KB (resolved instantly, no API call).
+        let knownTxns = knownVerdicts.reduce(0) { $0 + (rawTxnCount[$1.merchant] ?? 0) }
+
+        isRecategorizing = true
+        categorizeProgress = unknownCount > 0 ? CategorizeProgress(done: knownTxns, total: totalTxns) : nil
+        // Each finished merchant batch advances the counter by the number of
+        // TRANSACTIONS those merchants cover (via keyToRaws), so it climbs 0→55.
+        let onBatch: @Sendable ([String]) -> Void = { [weak self, keyToRaws, rawTxnCount] reps in
+            let covered = reps.reduce(0) { sum, rep in
+                let raws = keyToRaws[MerchantKnowledgeBase.key(for: rep)] ?? [rep]
+                return sum + raws.reduce(0) { $0 + (rawTxnCount[$1] ?? 1) }
+            }
+            Task { @MainActor in
+                guard let self, var p = self.categorizeProgress else { return }
+                p.done = min(p.total, p.done + covered)
+                self.categorizeProgress = p
+            }
+        }
+        recategorizeTask = Task { [weak self] in
+            if manual {
+                if unknownCount == 0 {
+                    self?.postToast("All \(totalTxns) transaction\(totalTxns == 1 ? "" : "s") categorized from memory — no API call needed.",
+                                    kind: .success)
+                } else {
+                    self?.postToast("Categorizing \(totalTxns) transaction\(totalTxns == 1 ? "" : "s") — asking Claude about \(unknownCount) new merchant\(unknownCount == 1 ? "" : "s")…",
+                                    kind: .progress)
+                }
+            }
+            let (fresh, bytes, failed, apiError) = await Self.aiCategorize(
+                unknownGroups, aiKey: config.key, endpoint: config.endpoint, onBatch: onBatch)
             guard let self else { return }
             self.isRecategorizing = false
+            self.categorizeProgress = nil
+            // Wiped or superseded mid-flight — drop the results, touch nothing.
+            if Task.isCancelled { return }
             self.bytesSentOut += bytes
+
+            // Learn the new recognitions so future passes (and relaunches) reuse
+            // them without another API call, then persist the KB.
+            for c in fresh { self.merchantKB.learn(c) }
+            self.merchantKB.save(to: Self.merchantKBURL)
+
+            // Build the apply list: KB-known verdicts plus the fresh ones. Each
+            // fresh verdict (one representative per merchant) is EXPANDED to every
+            // row sharing its key, mapped to the DISPLAY (specific) category so
+            // "Bike Rental" / "Cafe" / "Food Delivery" replace the broad bucket.
+            var results = knownVerdicts
+            for c in fresh {
+                let display = Self.displayCategory(for: c)
+                let k = MerchantKnowledgeBase.key(for: c.merchant)
+                for raw in (keyToRaws[k] ?? [c.merchant]) {
+                    results.append(ClaudeCategorization(merchant: raw, category: display,
+                                                        confidence: c.confidence))
+                }
+            }
+
             // NOTE: no early-return on empty results — the deterministic sweep below
             // guarantees no row is left "Other" even when the model returns nothing
             // usable (e.g. it choked on a batch of cryptic UPI descriptors).
@@ -1073,9 +1335,15 @@ final class AppModel: ObservableObject {
                                               minConfidence: minConf,
                                               includeCredits: true)
             refined = CategoryMopup.assignConcreteToResidualOther(refined)   // "no Other" guarantee
+            if failed > 0 {
+                // Show the REAL reason (e.g. out of credits / bad key), not a
+                // generic "couldn't reach" — retrying a billing error just fails.
+                let reason = apiError ?? "Couldn't reach Claude for \(failed) merchant\(failed == 1 ? "" : "s") — tap ✨ to retry."
+                self.postToast(reason, kind: .progress)
+            }
             guard refined != before else {
-                if manual {
-                    self.postToast("Claude wasn't confident enough to change any category.", kind: .progress)
+                if manual && failed == 0 {
+                    self.postToast("Every merchant is already categorized.", kind: .success)
                 }
                 return
             }

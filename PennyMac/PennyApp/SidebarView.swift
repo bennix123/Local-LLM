@@ -270,6 +270,21 @@ struct SidebarView: View {
                 .accessibilityIdentifier("brain.apiKey.save")
             }
             .padding(.top, 2)
+        } else if PennyBackend.isConfigured {
+            // No personal key, but the hosted proxy categorizes for everyone — show
+            // a calm connected state, not the "add a key" nag. Tapping still lets a
+            // user supply their own key to bypass the proxy.
+            HStack(spacing: 6) {
+                Text("Claude API").font(Theme.mono(9)).foregroundStyle(Theme.dim)
+                Spacer(minLength: 4)
+                Text("connected").font(Theme.mono(9)).foregroundStyle(Theme.limeD)
+                Button { editingAPIKey = true } label: {
+                    Text("use own key").font(Theme.mono(8.5)).foregroundStyle(Theme.dim)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 1)
         } else {
             Button { editingAPIKey = true } label: {
                 Text(MD.inline("🔑 **add Claude API key** — categories need it"))

@@ -17,11 +17,29 @@
 import Foundation
 
 public struct ClaudeCategorization: Sendable, Equatable {
-    public let merchant: String     // the descriptor we asked about
-    public let category: String     // one of `allowedCategories`
+    public let merchant: String     // the descriptor we asked about (raw, for mapping)
+    public let category: String     // the category to apply — one of `allowedCategories`
     public let confidence: Double   // 0…1
-    public init(merchant: String, category: String, confidence: Double) {
+
+    // Merchant-intelligence fields (dynamic/rich mode only; nil in enum-locked
+    // mode and for any caller that doesn't ask for them). `category` above is the
+    // category the caller should APPLY (the app sets it to the specific secondary
+    // when confident); these carry the full reasoning the KB stores for display,
+    // consistency and later inspection.
+    public let cleanMerchant: String?      // normalized name, e.g. "The Craft Beer Co"
+    public let business: String?           // what the merchant does, e.g. "Bar"
+    public let primaryCategory: String?    // broad bucket, e.g. "Food & Drink"
+    public let secondaryCategory: String?  // specific, e.g. "Bar"
+    public let reason: String?             // one-line rationale
+
+    public init(merchant: String, category: String, confidence: Double,
+                cleanMerchant: String? = nil, business: String? = nil,
+                primaryCategory: String? = nil, secondaryCategory: String? = nil,
+                reason: String? = nil) {
         self.merchant = merchant; self.category = category; self.confidence = confidence
+        self.cleanMerchant = cleanMerchant; self.business = business
+        self.primaryCategory = primaryCategory; self.secondaryCategory = secondaryCategory
+        self.reason = reason
     }
 }
 
@@ -43,6 +61,25 @@ public enum ClaudeCategorizerError: Error, LocalizedError {
 
 public final class ClaudeCategorizer {
 
+    /// Where categorization requests go, and how they authenticate.
+    ///
+    /// - `.anthropic` — talk to the Anthropic API directly with the caller's own
+    ///   key in `x-api-key`. This is the developer path (a key from the
+    ///   `ANTHROPIC_API_KEY` env var or the Keychain).
+    /// - `.proxy(url)` — talk to Penny's hosted proxy, which holds the real
+    ///   Anthropic key server-side and forwards the request. The client sends the
+    ///   shared app token (passed as `apiKey`) in `Authorization: Bearer …` so
+    ///   TestFlight builds categorize without every user supplying their own key.
+    public struct Endpoint: Sendable, Equatable {
+        public let url: URL
+        public let usesProxyAuth: Bool
+        public static let anthropic = Endpoint(
+            url: URL(string: "https://api.anthropic.com/v1/messages")!, usesProxyAuth: false)
+        public static func proxy(_ url: URL) -> Endpoint {
+            Endpoint(url: url, usesProxyAuth: true)
+        }
+    }
+
     /// Penny's canonical taxonomy — the seed set offered to the model (and the
     /// closed set in enum-locked mode). Merchant-type buckets first, then money
     /// movement. "Transfers" is for genuine person-to-person/self transfers
@@ -58,6 +95,7 @@ public final class ClaudeCategorizer {
 
     let apiKey: String
     let model: String
+    let endpoint: Endpoint
     let session: URLSession
 
     /// Byte size of the last request body sent to the API. The app reads this to
@@ -68,8 +106,28 @@ public final class ClaudeCategorizer {
     /// (`claude-haiku-4-5`) is far cheaper and plenty capable — pass it explicitly
     /// to switch.
     public init(apiKey: String, model: String = "claude-opus-4-8",
+                endpoint: Endpoint = .anthropic,
                 session: URLSession = .shared) {
-        self.apiKey = apiKey; self.model = model; self.session = session
+        self.apiKey = apiKey; self.model = model
+        self.endpoint = endpoint; self.session = session
+    }
+
+    /// Attach the endpoint's URL, method, and auth to a request. Direct mode sends
+    /// the caller's Anthropic key in `x-api-key`; proxy mode sends the app token as
+    /// a bearer (the proxy injects the real `x-api-key` before forwarding).
+    private func makeRequest(body: [String: Any]) throws -> URLRequest {
+        var req = URLRequest(url: endpoint.url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        if endpoint.usesProxyAuth {
+            if !apiKey.isEmpty { req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        } else {
+            req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 60
+        return req
     }
 
     /// Classify each descriptor into exactly one `allowedCategories` value, with a
@@ -95,14 +153,59 @@ public final class ClaudeCategorizer {
                                   seedCategories: [String] = canonicalCategories,
                                   locationContext: String? = nil)
     async throws -> [ClaudeCategorization] {
-        try await run(descriptions: descriptions, categories: seedCategories,
-                      enumLocked: false, locationContext: locationContext)
+        try await runRich(descriptions: descriptions, locationContext: locationContext)
+    }
+
+    // MARK: - Rich (merchant-first) path
+
+    /// Penny's two-level PRIMARY categories, offered to the model as a guide. The
+    /// model must pick the closest primary AND a more specific `secondary_category`
+    /// (e.g. Food & Drink → Bar; Transport → Bike Rental). Secondary is what the
+    /// app displays — "prefer specific over broad" (spec Step 5).
+    static let primaryCategories = [
+        "Transport", "Food & Drink", "Shopping", "Healthcare", "Entertainment",
+        "Subscriptions", "Travel", "Transfers", "Income", "Government",
+        "Insurance", "Taxes", "Education", "Charity", "Investment",
+        "Utilities", "Fees & Charges", "Other",
+    ]
+
+    /// The merchant-first categorizer: for each descriptor the model NORMALIZES the
+    /// merchant, IDENTIFIES the real company, works out its BUSINESS, and only then
+    /// assigns a primary + specific secondary category with a confidence and a
+    /// one-line reason. Returns one rich `ClaudeCategorization` per input (any the
+    /// model omits are filled as low-confidence "Other").
+    private func runRich(descriptions: [String], locationContext: String?)
+    async throws -> [ClaudeCategorization] {
+        // Proxy mode carries the app token (which may be blank if the proxy is
+        // open); only the direct-to-Anthropic path requires a real key here.
+        guard endpoint.usesProxyAuth || !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
+        let merchants = Array(NSOrderedSet(array: descriptions)) as? [String] ?? descriptions
+        guard !merchants.isEmpty else { return [] }
+
+        let body = richRequestBody(merchants: merchants, locationContext: locationContext)
+        let req = try makeRequest(body: body)
+        lastRequestByteCount = req.httpBody?.count ?? 0
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw ClaudeCategorizerError.badResponse("no HTTP response")
+        }
+        let text = String(data: data, encoding: .utf8) ?? ""
+        guard http.statusCode == 200 else {
+            throw ClaudeCategorizerError.http(status: http.statusCode, body: text)
+        }
+
+        let parsed = try parseRichResults(data: data, merchants: merchants)
+        let byName = Dictionary(parsed.map { ($0.merchant, $0) }, uniquingKeysWith: { a, _ in a })
+        return merchants.map {
+            byName[$0] ?? ClaudeCategorization(merchant: $0, category: "Other", confidence: 0)
+        }
     }
 
     private func run(descriptions: [String], categories: [String], enumLocked: Bool,
                      locationContext: String? = nil)
     async throws -> [ClaudeCategorization] {
-        guard !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
+        guard endpoint.usesProxyAuth || !apiKey.isEmpty else { throw ClaudeCategorizerError.missingKey }
         let merchants = Array(NSOrderedSet(array: descriptions)) as? [String] ?? descriptions
         guard !merchants.isEmpty else { return [] }
 
@@ -112,14 +215,8 @@ public final class ClaudeCategorizer {
 
         let body = requestBody(merchants: merchants, categories: cats,
                                enumLocked: enumLocked, locationContext: locationContext)
-        var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let req = try makeRequest(body: body)
         lastRequestByteCount = req.httpBody?.count ?? 0
-        req.timeoutInterval = 60
 
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else {
@@ -251,5 +348,136 @@ public final class ClaudeCategorizer {
             let cat = (allowed == nil || allowed!.contains(c)) ? c : "Other"
             return ClaudeCategorization(merchant: m, category: cat, confidence: max(0, min(1, conf)))
         }
+    }
+
+    // MARK: - Rich request / response
+
+    private func richRequestBody(merchants: [String], locationContext: String?) -> [String: Any] {
+        let list = merchants.enumerated()
+            .map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+
+        var system = """
+        You classify bank- and card-statement transactions for a personal-finance \
+        app the way Monzo, Revolut and Copilot do: by identifying the REAL merchant \
+        first, never by pattern-matching the raw text. For EACH descriptor follow \
+        this exact reasoning, then output the result:
+
+        1. NORMALIZE — strip payment-processor prefixes (DOJO*, TST-, SQ*, PAYPAL*, \
+        SUMUP*, STRIPE*, SHOPIFY*, POS, PAYMENT*), and remove city names, reference \
+        numbers, terminal IDs, auth codes, country suffixes and company suffixes \
+        (LTD, LIMITED, INC, LLC). "DOJO*THE CRAFT BEER CO LONDON" → "The Craft Beer \
+        Co"; "APPLE.COM/BILL HOLLYHILL" → "Apple"; "AMAZON PRIME*227DM1GO5" → \
+        "Amazon Prime"; "TFL TRAVEL CHARGE TFL.GOV.UK/CP" → "TFL".
+        2. IDENTIFY — determine what company this actually is, using real-world \
+        knowledge. Classify by WHO was paid, never by HOW the money moved: UPI, \
+        IMPS, NEFT, RTGS, cards and wallets are payment methods, not categories. \
+        Read names inside UPI VPA handles too ("BurgerKingIndia@…" → Burger King).
+        3. BUSINESS — state what that merchant actually does (e.g. "Electric bike \
+        rental", "Food delivery", "Cafe", "Bar", "Vending machine payments").
+        4. CATEGORIZE — assign a primary_category from the list below AND the most \
+        SPECIFIC secondary_category that fits the business.
+        5. PREFER SPECIFIC — never return a broad category when a specific one \
+        exists: "Food Delivery" not "Food & Drink"; "Bike Rental" not "Transport"; \
+        "Cafe" not "Food & Drink"; "Bar" not "Entertainment"; "Groceries" not \
+        "Shopping".
+
+        Use real merchant knowledge, not the letters in the text: FOREST is an \
+        electric-bike company (Transport → Bike Rental), NOT a restaurant. LIME is \
+        micromobility (Transport → Scooter Rental). DELIVEROO is food delivery \
+        (Food & Drink → Food Delivery), not a restaurant. PRET A MANGER is a cafe. \
+        THE CRAFT BEER CO is a bar; KINGS ARMS is a pub; NAYAX is vending-machine \
+        payments (Shopping → Vending Machine). "Transfers" is ONLY for money sent to \
+        a person or between your own accounts — a recognizable business is NEVER \
+        "Transfers".
+
+        CONFIDENCE — a known merchant ≈0.99; a clearly identified business ≈0.95; a \
+        strong inference ≈0.85; a weak inference ≈0.60; genuinely unknown below \
+        0.50. Never give high confidence to a merchant you cannot identify.
+
+        PRIMARY CATEGORIES: \(Self.primaryCategories.joined(separator: ", ")).
+
+        Echo each descriptor back verbatim in the `raw` field so it can be matched.
+        """
+        if let locationContext, !locationContext.isEmpty { system += "\n\n" + locationContext }
+
+        let itemSchema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "raw": ["type": "string"],
+                "merchant": ["type": "string"],
+                "business": ["type": "string"],
+                "primary_category": ["type": "string", "enum": Self.primaryCategories],
+                "secondary_category": ["type": "string"],
+                "confidence": ["type": "number"],
+                "reason": ["type": "string"],
+            ],
+            "required": ["raw", "merchant", "business", "primary_category",
+                         "secondary_category", "confidence", "reason"],
+            "additionalProperties": false,
+        ]
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": ["results": ["type": "array", "items": itemSchema]],
+            "required": ["results"],
+            "additionalProperties": false,
+        ]
+        return [
+            "model": model,
+            // ~120 output tokens/merchant (7 fields + a short reason), plus headroom
+            // for a Sonnet reasoning block. A truncated response parse-fails and
+            // silently costs the whole batch, so keep this generous.
+            "max_tokens": max(2048, min(16384, merchants.count * 130 + 1500)),
+            "system": system,
+            "output_config": ["format": ["type": "json_schema", "schema": schema]],
+            "messages": [[
+                "role": "user",
+                "content": "Identify and categorize these \(merchants.count) merchant descriptors:\n\(list)",
+            ]],
+        ]
+    }
+
+    private func parseRichResults(data: Data, merchants: [String])
+    throws -> [ClaudeCategorization] {
+        guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ClaudeCategorizerError.badResponse("top-level not an object")
+        }
+        if let stop = obj["stop_reason"] as? String, stop == "refusal" {
+            throw ClaudeCategorizerError.refused((obj["stop_details"] as? [String: Any])?["category"] as? String ?? "refusal")
+        }
+        guard let content = obj["content"] as? [[String: Any]],
+              let jsonText = content.first(where: { $0["type"] as? String == "text" })?["text"] as? String,
+              let inner = jsonText.data(using: .utf8),
+              let root = try JSONSerialization.jsonObject(with: inner) as? [String: Any],
+              let results = root["results"] as? [[String: Any]] else {
+            throw ClaudeCategorizerError.badResponse("missing content[].text JSON with `results`")
+        }
+        // Match each verdict's echoed `raw` back to the original descriptor
+        // (case/punctuation-insensitive), with a positional fallback when the model
+        // returned exactly one verdict per input.
+        var originals: [String: String] = [:]
+        for d in merchants where originals[Self.matchKey(d)] == nil { originals[Self.matchKey(d)] = d }
+        return results.enumerated().compactMap { i, r in
+            let echoed = (r["raw"] as? String) ?? (r["merchant"] as? String) ?? ""
+            let positional = results.count == merchants.count ? merchants[i] : nil
+            guard let raw = originals[Self.matchKey(echoed)] ?? positional else { return nil }
+            let primary = (r["primary_category"] as? String)?.trimmingCharacters(in: .whitespaces) ?? "Other"
+            let secondary = (r["secondary_category"] as? String)?.trimmingCharacters(in: .whitespaces)
+            let conf = (r["confidence"] as? NSNumber)?.doubleValue ?? 0
+            return ClaudeCategorization(
+                merchant: raw,
+                category: primary,                       // caller decides display (primary vs secondary)
+                confidence: max(0, min(1, conf)),
+                cleanMerchant: (r["merchant"] as? String)?.trimmingCharacters(in: .whitespaces),
+                business: (r["business"] as? String)?.trimmingCharacters(in: .whitespaces),
+                primaryCategory: primary,
+                secondaryCategory: (secondary?.isEmpty == false) ? secondary : nil,
+                reason: (r["reason"] as? String)?.trimmingCharacters(in: .whitespaces))
+        }
+    }
+
+    /// Case/punctuation-insensitive identity for matching the model's echo of a
+    /// descriptor back to the original spelling.
+    static func matchKey(_ s: String) -> String {
+        String(s.lowercased().filter { $0.isLetter || $0.isNumber })
     }
 }

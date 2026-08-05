@@ -165,7 +165,7 @@ struct ChatView: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField(busy ? "Categorizing with Claude…" : "ask penny anything... e.g. why am i broke?", text: $draft)
+                TextField(busy ? "Reading your statement…" : "ask penny anything... e.g. why am i broke?", text: $draft)
                     .textFieldStyle(.plain)
                     .font(Theme.font(13))
                     .foregroundStyle(Theme.ink)   // explicit: never white-on-cream
@@ -179,8 +179,8 @@ struct ChatView: View {
                     .accessibilityIdentifier("chat.input")
 
                 if busy {
-                    // On-device categorization in flight — block input, show a spinner
-                    // where the send button is until every transaction is placed.
+                    // Statement still being read/extracted — nothing to answer over
+                    // yet, so show a spinner where the send button is until it lands.
                     ProgressView().controlSize(.small)
                         .frame(width: 38, height: 38)
                         .accessibilityIdentifier("chat.busy")
@@ -219,9 +219,12 @@ struct ChatView: View {
         .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .top)
     }
 
-    /// On-device statement read / categorization in flight — the chat is blocked
-    /// until Penny has finished placing every transaction.
-    private var busy: Bool { app.isAnalyzing || app.isRecategorizing }
+    /// Statement read / extraction in flight — the chat is blocked only until the
+    /// transactions exist to answer over. Category refinement (`isRecategorizing`)
+    /// is a BACKGROUND pass and deliberately does NOT block the composer: the
+    /// statement is already loaded, so the user can keep chatting while Claude
+    /// works through the merchants (the right panel shows that progress).
+    private var busy: Bool { app.isAnalyzing }
 
     private var canSend: Bool {
         !app.isThinking && !busy && !draft.trimmingCharacters(in: .whitespaces).isEmpty
@@ -427,27 +430,53 @@ private struct MDTable: View {
     let rows: [[String]]
     let aligns: [TextAlignment]
 
+    /// Long ledgers (e.g. 417 rows) are paged: render only the first `pageSize`
+    /// rows as views, then reveal `pageSize` more per tap. This keeps the chat
+    /// responsive — mounting hundreds of GridRows at once is what stalls it.
+    private let pageSize = 50
+    @State private var visibleCount = 50
+
+    private var shown: Int { min(visibleCount, rows.count) }
+
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
-            GridRow {
-                ForEach(headers.indices, id: \.self) { c in
-                    Text(headers[c])
-                        .font(Theme.font(11.5, .heavy))
-                        .foregroundStyle(Theme.ink)
-                        .gridColumnAlignment(aligns[safe: c] == .trailing ? .trailing : .leading)
-                }
-            }
-            Divider().overlay(Theme.line).gridCellColumns(max(headers.count, 1))
-            ForEach(rows.indices, id: \.self) { r in
+        VStack(alignment: .leading, spacing: 9) {
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 7) {
                 GridRow {
                     ForEach(headers.indices, id: \.self) { c in
-                        let value = rows[r][safe: c] ?? ""
-                        Text(value)
-                            .font(Theme.font(11.5))
-                            .foregroundStyle(Theme.ink2)
-                            .monospacedDigit()
+                        Text(headers[c])
+                            .font(Theme.font(11.5, .heavy))
+                            .foregroundStyle(Theme.ink)
+                            .gridColumnAlignment(aligns[safe: c] == .trailing ? .trailing : .leading)
                     }
                 }
+                Divider().overlay(Theme.line).gridCellColumns(max(headers.count, 1))
+                ForEach(Array(rows.prefix(shown).enumerated()), id: \.offset) { _, row in
+                    GridRow {
+                        ForEach(headers.indices, id: \.self) { c in
+                            Text(row[safe: c] ?? "")
+                                .font(Theme.font(11.5))
+                                .foregroundStyle(Theme.ink2)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+            }
+            if rows.count > shown {
+                let next = min(pageSize, rows.count - shown)
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        visibleCount = min(rows.count, visibleCount + pageSize)
+                    }
+                } label: {
+                    Text("Show \(next) more  ·  \(shown) of \(rows.count)")
+                        .font(Theme.font(11.5, .bold))
+                        .foregroundStyle(Theme.ink)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(Theme.card))
+                        .overlay(Capsule().stroke(Theme.ink, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
             }
         }
         .padding(12)

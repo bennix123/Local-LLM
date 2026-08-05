@@ -330,6 +330,23 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertNil(LoadedDoc.detectIssuer(in: "Interbank transfers summary"))
     }
 
+    func testDetectIssuerIndianBanksAndPaytmLetterhead() {
+        // A real Paytm Payments Bank statement: PPBL letterhead up top, and an
+        // Axis IFSC ("UTIB…") + "@sliceaxis" handle down in the transactions. It
+        // must read as Paytm — never "Axis Bank" from the transaction noise.
+        let paytm = """
+            PPBL Noida branch, Skymark One, Sector-98, Noida
+            Account statement for: 06 Jan 2023 to 01 Mar 2023
+            UPI/quadrillion@sliceaxis/UTIB0000100/transfer 12.00
+            """
+        XCTAssertEqual(LoadedDoc.detectIssuer(in: paytm), "Paytm Payments Bank")
+
+        XCTAssertEqual(LoadedDoc.detectIssuer(in: "Axis Bank Ltd\nStatement of account"), "Axis Bank")
+        XCTAssertEqual(LoadedDoc.detectIssuer(in: "HDFC Bank statement"), "HDFC Bank")
+        // A bare Axis IFSC / VPA with no "Axis Bank" letterhead must NOT match.
+        XCTAssertNil(LoadedDoc.detectIssuer(in: "UPI to name@sliceaxis via UTIB0000100"))
+    }
+
     func testLooksLikeBankName() {
         for good in ["HDFC Bank", "Nationwide Building Society", "First Credit Union",
                      "Coastal Banking Group", "Acme Financial"] {
@@ -372,8 +389,9 @@ final class AppModelLogicTests: XCTestCase {
     func testTransactionsMarkdownCapsAt200WithFooter() {
         let many = (1...205).map { txn(date: "2024-01-01", desc: "Txn \($0)", debit: Double($0)) }
         let md = AppModel.transactionsMarkdown(many, currency: "GBP")
-        XCTAssertTrue(md.hasSuffix("_Showing first 200 of 205._"),
-                      "cap footer missing or wrong; got tail: …\(md.suffix(40))")
+        XCTAssertTrue(md.contains("_Showing first 200 of 205."),
+                      "cap footer missing or wrong; got tail: …\(md.suffix(60))")
+        XCTAssertTrue(md.hasSuffix("_"), "footer must be an italic paragraph")
 
         let blocks = MD.parse(md)
         XCTAssertEqual(blocks.count, 2, "expected table + footer paragraph")
