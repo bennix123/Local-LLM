@@ -48,10 +48,23 @@ enum APIKeyStore {
 /// `appToken` to the shared token the proxy checks (see `penny-proxy/`). Leaving
 /// `urlString` empty disables the proxy and restores the old key-only behavior.
 enum PennyBackend {
-    static let urlString = ""            // e.g. "https://penny-proxy.<you>.workers.dev/v1/messages"
-    static let appToken  = ""            // shared token the proxy validates (optional)
+    /// Penny's single hosted backend (see `penny-categories-server/`). Serves the
+    /// central categories API and, if configured server-side, the Anthropic
+    /// categorization proxy — both under this one host.
+    static let host = "https://penny1.thescript.design"
+
+    /// The categorization proxy endpoint. Empty disables the proxy (a developer's
+    /// own `ANTHROPIC_API_KEY`/Keychain key then takes over, as before). Set to
+    /// `host + "/v1/messages"` only once the server has `ANTHROPIC_API_KEY` set.
+    static let urlString = ""            // e.g. host + "/v1/messages"
+    static let appToken  = ""            // shared token the backend validates (optional)
+
+    /// The central categories endpoint — every device fetches the same, always-
+    /// current categorization vocabulary from here (see `CategoryCatalog`).
+    static let categoriesURLString = host + "/v1/categories"
 
     static var proxyURL: URL? { urlString.isEmpty ? nil : URL(string: urlString) }
+    static var categoriesURL: URL? { categoriesURLString.isEmpty ? nil : URL(string: categoriesURLString) }
     static var isConfigured: Bool { proxyURL != nil }
 }
 
@@ -547,6 +560,12 @@ final class AppModel: ObservableObject {
                 self?.importPDF(from: URL(fileURLWithPath: path))
             }
         }
+        // Pull the latest categorization vocabulary from the central categories
+        // API (penny1.thescript.design) so this device shares the same, current
+        // categories as every other. Best-effort and non-blocking: any failure
+        // leaves the previous cache (or the bundled file) in place. The next
+        // import picks up a refreshed catalog; no need to gate launch on it.
+        Task.detached(priority: .utility) { await CategoryCatalog.refresh() }
     }
 
     // Hybrid-RAG retriever, cached per selected-document set (rebuilding embeds

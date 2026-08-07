@@ -1,0 +1,12 @@
+{
+  "name": "penny-categories-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Central categories API for Penny — hosts the merchant map + keyword rules so every device fetches the same, always-current categorization vocabulary over HTTP.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --env-file=.env server.js"
+  }
+}
