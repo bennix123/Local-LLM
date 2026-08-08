@@ -56,8 +56,8 @@ enum PennyBackend {
     /// The categorization proxy endpoint. Empty disables the proxy (a developer's
     /// own `ANTHROPIC_API_KEY`/Keychain key then takes over, as before). Set to
     /// `host + "/v1/messages"` only once the server has `ANTHROPIC_API_KEY` set.
-    static let urlString = ""            // e.g. host + "/v1/messages"
-    static let appToken  = ""            // shared token the backend validates (optional)
+    static let urlString = host + "/v1/messages"
+    static let appToken  = "02395bd2d19b6307e8c58216e9375254c578bae8f2eed4b5e851cfb8de50dcb8"  // must equal APP_TOKEN on the server
 
     /// The central categories endpoint — every device fetches the same, always-
     /// current categorization vocabulary from here (see `CategoryCatalog`).
@@ -1076,6 +1076,13 @@ final class AppModel: ObservableObject {
 
         // The category mop-up runs ON-DEVICE after the import lands (see
         // `refineCategoriesForLoadedStatements`) — nothing leaves the Mac here.
+        switch raw {
+        case .success(let r):
+            PennyLog.shared.log("import",
+                "\(r.name) → \(r.graph.transactions.count) transactions\(r.text.isEmpty ? " (no readable text)" : "")")
+        case .failure(let f):
+            PennyLog.shared.log("import", "ERROR: \(url.lastPathComponent): \(f.message)")
+        }
         return raw
     }
 
@@ -1116,6 +1123,10 @@ final class AppModel: ObservableObject {
             }
         }
         guard !work.isEmpty else { return ([], 0, 0, nil) }
+        let descriptorCount = work.reduce(0) { $0 + $1.chunk.count }
+        let destination = endpoint.usesProxyAuth ? "proxy \(endpoint.url.host ?? "?")" : "api.anthropic.com"
+        PennyLog.shared.log("categorize",
+            "sending \(descriptorCount) descriptors in \(work.count) batch(es) via \(destination)")
 
         // Run batches CONCURRENTLY, bounded, so a 400-merchant statement is a few
         // batches "deep" in wall-clock instead of a dozen sequential Sonnet calls.
@@ -1146,6 +1157,8 @@ final class AppModel: ObservableObject {
                 if next < work.count { submit(work[next]); next += 1 }
             }
         }
+        PennyLog.shared.log("categorize",
+            "→ \(results.count) verdicts, \(failed) failed\(apiError.map { "; error: \($0)" } ?? "")")
         return (results, bytes, failed, apiError)
     }
 
@@ -2138,6 +2151,7 @@ final class AppModel: ObservableObject {
         guard !q.isEmpty, !isThinking else { return }
         errorMessage = nil
         messages.append(ChatMessage(role: .user, content: q))
+        PennyLog.shared.log("chat", "Q: \(q)")
 
         // Deterministic route: if they want the transaction list/table and we've
         // already extracted it, answer straight from the data — complete and correctly
@@ -2156,6 +2170,7 @@ final class AppModel: ObservableObject {
                 : "Here are your \(txns.count) \(noun) (showing the first 200):\n\n"
             let table = Self.transactionsMarkdown(txns, currency: summary.currency, limit: limit)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
+            PennyLog.shared.log("chat", "A (ledger): \(txns.count)-row transaction table")
             return
         }
 
@@ -2165,6 +2180,7 @@ final class AppModel: ObservableObject {
         // figure. Falls through when the figure isn't in the text.
         if let answer = documentMetadataAnswer(q) {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (analytics): \(answer)")
             return
         }
 
@@ -2173,6 +2189,7 @@ final class AppModel: ObservableObject {
         // otherwise answer with one merged, doc-blind figure.
         if let answer = documentContentAnswer(q) {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (analytics): \(answer)")
             return
         }
 
@@ -2180,6 +2197,7 @@ final class AppModel: ObservableObject {
         // debit with attribution, top category, salary totals, high-value filters).
         if let answer = crossDocumentAnswer(q) {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (analytics): \(answer)")
             return
         }
 
@@ -2205,11 +2223,13 @@ final class AppModel: ObservableObject {
            engineAnswer == routerAnswer {
             engineRoutingStats.routed += 1
             messages.append(ChatMessage(role: .assistant, content: engineAnswer, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (analytics): \(engineAnswer)")
             return
         }
         if let routerAnswer {
             engineRoutingStats.fellBack += 1
             messages.append(ChatMessage(role: .assistant, content: routerAnswer, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (analytics): \(routerAnswer)")
             return
         }
         engineRoutingStats.unsupported += 1
@@ -2231,6 +2251,7 @@ final class AppModel: ObservableObject {
         // load, no NLEmbedding, so tests are fast and repeatable.
         if TestMode.modelReady {
             messages[idx].content = "\(TestMode.stubReplyPrefix) · grounded on \(rows.count) rows · \(q)"
+            PennyLog.shared.log("chat", "A (stub): \(messages[idx].content)")
             isThinking = false
             return
         }
@@ -2283,6 +2304,8 @@ final class AppModel: ObservableObject {
                 let partial = messages[idx].content.trimmingCharacters(in: .whitespacesAndNewlines)
                 messages[idx].content = partial.isEmpty ? "_(stopped)_" : partial + "\n\n_(stopped)_"
             }
+            PennyLog.shared.log("chat",
+                "A (mlx): \(messages.indices.contains(idx) ? messages[idx].content : "(no answer)")")
             isThinking = false
             generateTask = nil
         }

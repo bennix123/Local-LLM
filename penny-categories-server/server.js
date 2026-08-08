@@ -28,7 +28,7 @@
 
 import http from "node:http";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -69,6 +69,36 @@ function build(raw) {
   const etag = '"' + createHash("sha256").update(raw).digest("hex").slice(0, 32) + '"';
   const payload = { version: etag.slice(1, 9), etag, categories, merchant_map, category_rules };
   return { raw, etag, payload };
+}
+
+// ── request log ───────────────────────────────────────────────────────────────
+// Every request (and each proxy round-trip, with FULL request/response bodies)
+// is appended as one JSON object per line (JSON Lines — appendable, and each
+// line parses on its own; a single big JSON array would need a rewrite per
+// entry). Timestamps are IST. Pretty-view with:  jq . logs/requests.jsonl
+// Bodies carry users' transaction descriptors/verdicts — keep this file private.
+const LOG_PATH = process.env.LOG_FILE || join(__dirname, "logs", "requests.jsonl");
+try { mkdirSync(dirname(LOG_PATH), { recursive: true }); } catch {}
+
+// ISO-style timestamp pinned to IST (+05:30), matching the app/server Swift logs.
+const istStamp = () =>
+  new Date(Date.now() + 5.5 * 3_600_000).toISOString().replace(/\.\d+Z$/, "+05:30");
+
+// Bodies are embedded as parsed JSON (so the log nests real objects, not escaped
+// strings); non-JSON bodies fall back to the raw text. Unlimited by default —
+// set LOG_BODY_MAX to cap huge bodies, which then log a preview + true length.
+const LOG_BODY_MAX = Number(process.env.LOG_BODY_MAX || 0);
+function bodyField(text) {
+  if (LOG_BODY_MAX > 0 && text.length > LOG_BODY_MAX) {
+    return { truncated: true, length: text.length, preview: text.slice(0, LOG_BODY_MAX) };
+  }
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function logEvent(event) {
+  const line = JSON.stringify({ ts: istStamp(), ...event }) + "\n";
+  process.stdout.write(line);
+  try { appendFileSync(LOG_PATH, line); } catch {}
 }
 
 // ── tiny helpers ──────────────────────────────────────────────────────────────
@@ -115,6 +145,13 @@ const server = http.createServer(async (req, res) => {
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim()
     || req.socket.remoteAddress || "?";
 
+  // One access record per request, whichever branch answers it.
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    logEvent({ type: "http", ip, method: req.method, path: url,
+               status: res.statusCode, ms: Date.now() - startedAt });
+  });
+
   if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
 
   // Health
@@ -154,6 +191,8 @@ const server = http.createServer(async (req, res) => {
     try { writeFileSync(CATEGORIES_PATH, canonical, "utf8"); }
     catch (e) { return sendJSON(res, 500, { error: "write_failed", message: String(e.message || e) }); }
     state = build(canonical);
+    logEvent({ type: "categories_update", ip, version: state.payload.version,
+               categories: state.payload.categories.length });
     return sendJSON(res, 200, { ok: true, version: state.payload.version, categories: state.payload.categories });
   }
 
@@ -164,6 +203,10 @@ const server = http.createServer(async (req, res) => {
     if (!bearerOK(req)) return sendJSON(res, 401, { error: "unauthorized" });
     let body;
     try { body = await readBody(req); } catch (e) { return sendJSON(res, 413, { error: String(e.message || e) }); }
+    const bodyText = body.toString("utf8");
+    let model = "?";
+    try { model = JSON.parse(bodyText).model || "?"; } catch {}
+    const proxyStart = Date.now();
     try {
       const upstream = await fetch(ANTHROPIC_UPSTREAM, {
         method: "POST",
@@ -175,9 +218,15 @@ const server = http.createServer(async (req, res) => {
         body,
       });
       const text = await upstream.text();
+      // One record per round-trip: what the app sent AND what Anthropic answered.
+      logEvent({ type: "proxy", ip, model, status: upstream.status,
+                 ms: Date.now() - proxyStart,
+                 request: bodyField(bodyText), response: bodyField(text) });
       res.writeHead(upstream.status, { "content-type": "application/json", ...CORS });
       return res.end(text);
     } catch (e) {
+      logEvent({ type: "proxy", ip, model, error: String(e.message || e),
+                 ms: Date.now() - proxyStart, request: bodyField(bodyText) });
       return sendJSON(res, 502, { error: "upstream_error", message: String(e.message || e) });
     }
   }
@@ -186,7 +235,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  const n = state.payload.categories.length;
-  console.log(`penny-categories-server listening on :${PORT}  (${n} categories, version ${state.payload.version}` +
-    `${ANTHROPIC_API_KEY ? ", /v1/messages proxy ON" : ""})`);
+  logEvent({ type: "server", msg: "penny-categories-server started", port: PORT,
+             categories: state.payload.categories.length, version: state.payload.version,
+             proxy: Boolean(ANTHROPIC_API_KEY), log: LOG_PATH });
 });

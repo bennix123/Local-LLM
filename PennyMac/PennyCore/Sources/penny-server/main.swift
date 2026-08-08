@@ -110,6 +110,7 @@ actor PennyEngine {
         guard !model.loading && !model.loaded else { return }
         model.loading = true
         model.error = nil
+        ServerLog.shared.log("model", "load started: \(model.id)")
         Task {
             do {
                 _ = try await llm.load(onProgress: { p in
@@ -125,6 +126,8 @@ actor PennyEngine {
     private func finishLoad(ok: Bool, error: String?) {
         model.loading = false; model.loaded = ok; model.error = error
         if ok { model.progress = 1 }
+        ServerLog.shared.log("model", ok ? "load finished: \(model.id)"
+                                         : "ERROR: load failed: \(error ?? "unknown")")
     }
 
     // ---- rendering helpers ----
@@ -265,13 +268,19 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
 
     case ("POST", "/api/reset"):
         await engine.reset()
+        await ServerLog.shared.write("session", "reset — all statements cleared")
         return .json(200, ["ok": true])
 
     case ("POST", "/api/parse"):
         let filename = req.header("X-Filename") ?? "statement.pdf"
-        guard !req.body.isEmpty else { return .json(400, ["error": "empty body"]) }
+        guard !req.body.isEmpty else {
+            await ServerLog.shared.write("parse", "rejected \(filename): empty body")
+            return .json(400, ["error": "empty body"])
+        }
         do {
             let stmt = try await engine.ingest(data: req.body, filename: filename)
+            await ServerLog.shared.write("parse",
+                "\(filename) → \(stmt.rows.count) rows (\(stmt.bankName ?? "unknown bank"), \(stmt.currency))")
             let dash = await dashboardJSON(engine)
             return .json(200, [
                 "ok": true,
@@ -283,37 +292,45 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
                 "dashboard": dash,
             ])
         } catch {
+            await ServerLog.shared.write("parse", "ERROR: \(filename) failed: \(error.localizedDescription)")
             return .json(500, ["error": "parse failed: \(error.localizedDescription)"])
         }
 
     case ("POST", "/api/chat"):
         guard let obj = try? JSONSerialization.jsonObject(with: req.body) as? [String: Any],
               let question = obj["question"] as? String, !question.isEmpty else {
+            await ServerLog.shared.write("chat", "rejected request: missing question")
             return .json(400, ["error": "missing question"])
         }
+        // Short id ties this question to its answer if requests overlap in the log.
+        let chatID = "chat #" + String(UUID().uuidString.prefix(4))
+        await ServerLog.shared.write(chatID, "Q: \(question)")
         if (await engine.mergedRows).isEmpty {
-            return .json(200, ["answer": "Upload a statement first, then ask me about it.",
-                               "engine": "none"])
+            let answer = "Upload a statement first, then ask me about it."
+            await ServerLog.shared.write(chatID, "A (none): \(answer)")
+            return .json(200, ["answer": answer, "engine": "none"])
         }
         // 1) deterministic router
         if let det = await engine.deterministicAnswer(question) {
+            await ServerLog.shared.write(chatID, "A (deterministic): \(det)")
             return .json(200, ["answer": det, "engine": "deterministic"])
         }
         // 2) on-device model fallback — Apple's system model (no download) if the
         //    machine has Apple Intelligence, else the MLX model once it's loaded.
         let model = await engine.model
         guard model.loaded || PennyLLM.systemModelAvailable else {
-            return .json(200, [
-                "answer": "That one needs the on-device model. Click **Load on-device model (MLX)** and try again.",
-                "engine": "needs-model",
-            ])
+            let answer = "That one needs the on-device model. Click **Load on-device model (MLX)** and try again."
+            await ServerLog.shared.write(chatID, "A (needs-model): \(answer)")
+            return .json(200, ["answer": answer, "engine": "needs-model"])
         }
         do {
             let ans = try await engine.mlxAnswer(question)
             // PennyLLM.ask prefers Apple's system model; label the reply accordingly.
             let engineName = (!model.loaded && PennyLLM.systemModelAvailable) ? "apple" : "mlx"
+            await ServerLog.shared.write(chatID, "A (\(engineName)): \(ans)")
             return .json(200, ["answer": ans, "engine": engineName])
         } catch {
+            await ServerLog.shared.write(chatID, "ERROR: on-device model failed: \(error.localizedDescription)")
             return .json(500, ["error": "on-device model failed: \(error.localizedDescription)"])
         }
 
@@ -348,7 +365,7 @@ do {
         await handle(req, engine: engine, indexHTML: indexHTML)
     }
     server.start()
-    FileHandle.standardError.write(Data("🟢 Penny web server on http://127.0.0.1:\(port)  (Swift + MLX, on-device)\n".utf8))
+    ServerLog.shared.log("server", "🟢 Penny web server on http://127.0.0.1:\(port)  (Swift + MLX, on-device)\nlogging to \(ServerLog.shared.fileURL.path)")
     FileHandle.standardError.write(Data("   Open that URL in your browser. Ctrl-C to stop.\n".utf8))
 } catch {
     FileHandle.standardError.write(Data("fatal: could not start server: \(error.localizedDescription)\n".utf8))

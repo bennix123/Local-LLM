@@ -51,6 +51,16 @@ cp .env.example .env        # set APP_TOKEN (and optionally ANTHROPIC_API_KEY)
 
 Or manually: `PORT=8999 node --env-file=.env server.js`.
 
+### Request log
+
+Every request is appended to `logs/requests.jsonl` (override with `LOG_FILE=…`)
+as one JSON object per line, IST timestamps. `type:"http"` records carry
+method/path/status/duration; each proxy round-trip is a single `type:"proxy"`
+record with the model, status, duration, and the **full request and response
+bodies** embedded as JSON (uncapped by default; set `LOG_BODY_MAX` to truncate
+huge bodies). Pretty-view with `jq . logs/requests.jsonl`. Bodies carry users'
+transaction descriptors and categorization verdicts — keep this log private.
+
 ### Stable hostname (penny1.thescript.design)
 
 Use a **named** Cloudflare tunnel (one-time):
