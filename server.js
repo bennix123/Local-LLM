@@ -81,6 +81,18 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
+// Penny MLX web server (tools/memory/penny_server.py) — conversation-aware memory + context-LoRA.
+const PENNY_MLX_URL = process.env.PENNY_MLX_URL || "http://127.0.0.1:8765";
+// Push the app's parsed statement to Penny so Memory mode answers over the UPLOADED document
+// (not the built-in demo). Best-effort: silently no-ops if the Penny server isn't running.
+async function pushToPenny(records, source) {
+  try {
+    await fetch(`${PENNY_MLX_URL}/load`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records, source: source || "uploaded statement", symbol: getCurrencySymbol() }),
+    });
+  } catch { /* Penny server is optional */ }
+}
 
 initDb();
 // Restore the currency detected at upload time (it's runtime-only otherwise).
@@ -227,6 +239,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
       currency: getCurrencyCode(),
     });
     replaceTransactions(records);
+    pushToPenny(records, originalname);   // make Penny Memory mode follow this upload
 
     // Store raw chunks in ChromaDB
     replaceChromaDocument(parsed.chunks, { fileName: originalname });
@@ -908,10 +921,55 @@ function deterministicAnswer(question, meta) {
 
   return null;
 }
+// Clear the conversation memory for a Penny MLX session (the UI "new chat" / reset).
+app.post("/api/penny/reset", async (req, res) => {
+  const session = String(req.body.session || "web");
+  try {
+    await fetch(`${PENNY_MLX_URL}/reset`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session }),
+    });
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false, error: "Penny MLX server not reachable" });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   const message = String(req.body.message || "").trim();
   const forceLLM = !!req.body.forceLLM;
   if (!message) return res.status(400).json({ error: "Empty message." });
+
+  // ── Penny MLX (conversation-aware memory) mode ──
+  // When the UI's Memory toggle is on, forward to the local Penny MLX web server
+  // (entity memory + reference/pronoun resolution + context-LoRA over the Paytm statement).
+  // Additive & guarded — any failure returns a helpful note; /api/chat is never broken.
+  if (req.body.penny) {
+    const session = String(req.body.session || "web");
+    try {
+      const r = await fetch(`${PENNY_MLX_URL}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session, message }),
+      });
+      const data = await r.json();
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Answer": "penny",
+        "X-Penny-Resolved": String(data.resolved || ""),
+      });
+      res.write(String(data.answer || data.error || "(no response)"));
+      return res.end();
+    } catch {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "X-Answer": "penny" });
+      res.write("⚠️ Penny MLX server not reachable. Start it with:\n" +
+                "  .venv-mlx/bin/python tools/memory/penny_server.py\n" +
+                "(see tools/memory/MEMORY_REPORT.md).");
+      return res.end();
+    }
+  }
+
   if (!hasDocument())
     return res
       .status(400)

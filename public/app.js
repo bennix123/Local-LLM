@@ -239,10 +239,15 @@ async function loadData() {
 
 // ---- CHAT (real, streamed, with table rendering) ----
 const CHAT = [];
+// Penny MLX memory mode — conversation-aware answers (entity memory + pronoun resolution +
+// context-LoRA) via the local Penny MLX server, over the Paytm statement.
+let PENNY_MODE = false;
+const PENNY_SESSION = "web-" + Math.random().toString(36).slice(2, 10);
 
 function renderChat(view) {
   view.innerHTML = `<div class="chat-view">
-    <div class="chero"><div class="cav">P</div><div><div class="chero-name">penny</div><div class="chero-status">on-device · ask anything</div></div></div>
+    <div class="chero"><div class="cav">P</div><div style="flex:1"><div class="chero-name">penny</div><div class="chero-status" id="cstatus">on-device · ask anything</div></div>
+      <button class="fun-btn" id="mem-toggle" title="Conversation-aware memory (follow-ups, pronouns) via the Penny MLX server" style="margin-left:auto">🧠 Memory: off</button></div>
     <div class="fun-actions" id="fun"></div>
     <div class="cbody" id="cbody"></div>
     <div class="cinput"><input id="ci" placeholder="Ask about your statement…" autocomplete="off"><button class="send-btn" id="send">→</button></div>
@@ -259,6 +264,22 @@ function renderChat(view) {
   }
   const go = () => { const v = $("ci").value.trim(); if (v) { $("ci").value = ""; sendChat(v); } };
   $("send").onclick = go; $("ci").onkeydown = (e) => { if (e.key === "Enter") go(); };
+
+  const mt = $("mem-toggle");
+  if (mt) {
+    const paint = () => {
+      mt.textContent = "🧠 Memory: " + (PENNY_MODE ? "on" : "off");
+      mt.style.background = PENNY_MODE ? "var(--lime, #c6f24e)" : "";
+      $("cstatus").textContent = PENNY_MODE ? "conversation memory · Paytm statement" : "on-device · ask anything";
+      $("ci").placeholder = PENNY_MODE ? "Ask a follow-up… e.g. 'and the one before it?'" : "Ask about your statement…";
+    };
+    mt.onclick = async () => {
+      PENNY_MODE = !PENNY_MODE;
+      if (PENNY_MODE) { try { await fetch("/api/penny/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: PENNY_SESSION }) }); } catch {} }
+      paint();
+    };
+    paint();
+  }
 }
 
 function renderMessageElement(m, idx) {
@@ -392,7 +413,7 @@ async function sendChat(text, forceLLM = false) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text, forceLLM: forceLLM })
+      body: JSON.stringify({ message: text, forceLLM: forceLLM, penny: PENNY_MODE, session: PENNY_SESSION })
     });
     t.remove();
     

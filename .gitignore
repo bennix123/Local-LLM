@@ -53,3 +53,10 @@ dist/
 .coverage
 htmlcov/
 qodo/
+
+# MLX training artifacts (large; reproducible via tools/mlx/)
+.venv-mlx/
+data/paytm_mlx/adapters/
+data/paytm_mlx_ctx/adapters/
+__pycache__/
+*.pyc

@@ -1,0 +1,5 @@
+# LoRA config for Penny MLX — Paytm statement memorization
+lora_parameters:
+  rank: 16
+  scale: 20.0
+  dropout: 0.0
