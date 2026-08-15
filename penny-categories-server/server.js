@@ -19,12 +19,15 @@
 //                            honours If-None-Match (ETag) → 304
 //   POST /v1/categories    → replace the hosted categories (token-gated); body is
 //                            either a full categories.json or the same payload shape
-//   POST /v1/messages      → OPTIONAL Anthropic proxy passthrough, active only when
-//                            ANTHROPIC_API_KEY is set (folds in the old penny-proxy
-//                            so penny1.thescript.design is Penny's single backend)
+//   POST /v1/messages      → OPTIONAL categorization LLM proxy, active when a
+//                            provider key is set. DEEPSEEK_API_KEY (translated
+//                            to/from the OpenAI dialect) takes precedence, else
+//                            ANTHROPIC_API_KEY is a passthrough — so penny1 stays
+//                            Penny's single backend either way.
 //
 // Run:  PORT=8999 node server.js
 //       (optional) APP_TOKEN=... ANTHROPIC_API_KEY=sk-ant-... node server.js
+//       (optional) DEEPSEEK_API_KEY=sk-... DEEPSEEK_MODEL=deepseek-v4-flash node server.js
 
 import http from "node:http";
 import { createHash } from "node:crypto";
@@ -38,6 +41,13 @@ const PORT = Number(process.env.PORT || 8999);
 const APP_TOKEN = process.env.APP_TOKEN || "";                 // shared token, gates writes (and reads if you want)
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ""; // enables the optional /v1/messages proxy
 const ANTHROPIC_UPSTREAM = "https://api.anthropic.com/v1/messages";
+// DeepSeek can stand in for Anthropic on /v1/messages: when DEEPSEEK_API_KEY is
+// set it takes precedence, and requests are translated Anthropic⇄OpenAI both ways
+// so the app needs no change. Image-bearing requests still fall back to Anthropic.
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+const DEEPSEEK_UPSTREAM = "https://api.deepseek.com/chat/completions";
+const LLM_PROVIDER = DEEPSEEK_API_KEY ? "deepseek" : (ANTHROPIC_API_KEY ? "anthropic" : "none");
 const CATEGORIES_PATH = process.env.CATEGORIES_PATH || join(__dirname, "categories.json");
 const MAX_BODY = 4 * 1024 * 1024;                              // 4 MB request cap
 
@@ -140,6 +150,78 @@ function rateLimited(ip) {
   return (e.count += 1) > LIMIT;
 }
 
+// ── Anthropic ⇄ DeepSeek translation (for the /v1/messages proxy) ──────────────
+// The Penny app speaks the Anthropic Messages dialect (system + output_config
+// json_schema + content[] blocks); DeepSeek speaks the OpenAI chat-completions
+// dialect. These helpers let DeepSeek serve the proxy with no app change: the app
+// still POSTs an Anthropic request and still reads back content[].text JSON.
+
+// Flatten an Anthropic message `content` (a string OR an array of blocks) to text.
+function flattenContent(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.filter((b) => b && b.type === "text" && typeof b.text === "string")
+                  .map((b) => b.text).join("\n");
+  }
+  return "";
+}
+// True if any message carries non-text content (e.g. an image block) — a DeepSeek
+// text model can't handle those, so such requests bounce to Anthropic instead.
+function hasNonTextContent(messages) {
+  return (messages || []).some((m) => Array.isArray(m.content)
+    && m.content.some((b) => b && b.type && b.type !== "text"));
+}
+
+// Anthropic request → DeepSeek (OpenAI) request body.
+function anthropicToDeepSeek(reqObj) {
+  const messages = [];
+  let system = typeof reqObj.system === "string" ? reqObj.system : "";
+  const schema = reqObj?.output_config?.format?.schema;
+  const jsonMode = Boolean(schema) || reqObj?.output_config?.format?.type === "json_schema";
+  // Fold the app's json_schema into the system prompt so DeepSeek emits the exact
+  // { results: [...] } envelope the app parses. JSON mode also *requires* the word
+  // "json" to appear in the prompt — this instruction supplies it.
+  if (schema) {
+    system += (system ? "\n\n" : "") +
+      "Respond with ONLY a single JSON object that validates against this JSON Schema — " +
+      "no markdown, no code fences, no prose before or after:\n" + JSON.stringify(schema);
+  }
+  if (system) messages.push({ role: "system", content: system });
+  for (const m of reqObj.messages || []) {
+    messages.push({ role: m.role === "assistant" ? "assistant" : "user",
+                    content: flattenContent(m.content) });
+  }
+  // Reasoning models spend completion tokens on hidden reasoning before the JSON,
+  // so the app's max_tokens (sized for Anthropic's smaller thinking block) is too
+  // tight and would truncate — add headroom, capped to a safe ceiling.
+  const askedMax = Number(reqObj.max_tokens) || 4096;
+  const body = { model: DEEPSEEK_MODEL, messages,
+                 max_tokens: Math.min(8192, askedMax + 4096) };
+  if (jsonMode) body.response_format = { type: "json_object" };
+  return body;
+}
+
+// DeepSeek (OpenAI) response → the minimal Anthropic Messages shape the app reads:
+// a content[] with one text block carrying the model's JSON string.
+function deepSeekToAnthropic(ds, requestedModel) {
+  const choice = (ds.choices && ds.choices[0]) || {};
+  const text = (choice.message && choice.message.content) || "";
+  const stopMap = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use" };
+  return {
+    id: ds.id || "msg_deepseek",
+    type: "message",
+    role: "assistant",
+    model: ds.model || requestedModel || DEEPSEEK_MODEL,
+    content: [{ type: "text", text }],
+    stop_reason: stopMap[choice.finish_reason] || "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: ds?.usage?.prompt_tokens ?? 0,
+      output_tokens: ds?.usage?.completion_tokens ?? 0,
+    },
+  };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = (req.url || "/").split("?")[0];
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim()
@@ -196,17 +278,57 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { ok: true, version: state.payload.version, categories: state.payload.categories });
   }
 
-  // Optional Anthropic proxy passthrough (only when a key is configured).
+  // Categorization LLM proxy. Served by DeepSeek when DEEPSEEK_API_KEY is set
+  // (translated to/from the OpenAI dialect), else an Anthropic passthrough.
+  // Disabled (404) when neither key is configured.
   if (req.method === "POST" && url === "/v1/messages") {
-    if (!ANTHROPIC_API_KEY) return sendJSON(res, 404, { error: "proxy_disabled" });
+    if (LLM_PROVIDER === "none") return sendJSON(res, 404, { error: "proxy_disabled" });
     if (rateLimited(ip)) return sendJSON(res, 429, { error: "rate_limited" });
     if (!bearerOK(req)) return sendJSON(res, 401, { error: "unauthorized" });
     let body;
     try { body = await readBody(req); } catch (e) { return sendJSON(res, 413, { error: String(e.message || e) }); }
     const bodyText = body.toString("utf8");
-    let model = "?";
-    try { model = JSON.parse(bodyText).model || "?"; } catch {}
+    let reqObj = null;
+    try { reqObj = JSON.parse(bodyText); } catch {}
+    const requestedModel = (reqObj && reqObj.model) || "?";
     const proxyStart = Date.now();
+
+    // DeepSeek path — translate Anthropic→OpenAI and back. Image-bearing requests
+    // fall back to Anthropic when a key for it is available (DeepSeek is text-only).
+    const useDeepSeek = DEEPSEEK_API_KEY && reqObj
+      && !(hasNonTextContent(reqObj.messages) && ANTHROPIC_API_KEY);
+    if (useDeepSeek) {
+      try {
+        const dsBody = anthropicToDeepSeek(reqObj);
+        const upstream = await fetch(DEEPSEEK_UPSTREAM, {
+          method: "POST",
+          headers: { "content-type": "application/json",
+                     "authorization": `Bearer ${DEEPSEEK_API_KEY}` },
+          body: JSON.stringify(dsBody),
+        });
+        const text = await upstream.text();
+        // On success, hand the app an Anthropic-shaped body; on error, pass through.
+        let out = text;
+        if (upstream.ok) {
+          try { out = JSON.stringify(deepSeekToAnthropic(JSON.parse(text), requestedModel)); }
+          catch {}
+        }
+        logEvent({ type: "proxy", provider: "deepseek", ip, model: dsBody.model,
+                   requestedModel, status: upstream.status, ms: Date.now() - proxyStart,
+                   request: bodyField(bodyText), response: bodyField(out) });
+        res.writeHead(upstream.ok ? 200 : upstream.status,
+                      { "content-type": "application/json", ...CORS });
+        return res.end(out);
+      } catch (e) {
+        logEvent({ type: "proxy", provider: "deepseek", ip, model: DEEPSEEK_MODEL,
+                   requestedModel, error: String(e.message || e),
+                   ms: Date.now() - proxyStart, request: bodyField(bodyText) });
+        return sendJSON(res, 502, { error: "upstream_error", message: String(e.message || e) });
+      }
+    }
+
+    // Anthropic passthrough: what the app sent AND what Anthropic answered.
+    if (!ANTHROPIC_API_KEY) return sendJSON(res, 502, { error: "anthropic_unavailable" });
     try {
       const upstream = await fetch(ANTHROPIC_UPSTREAM, {
         method: "POST",
@@ -218,14 +340,14 @@ const server = http.createServer(async (req, res) => {
         body,
       });
       const text = await upstream.text();
-      // One record per round-trip: what the app sent AND what Anthropic answered.
-      logEvent({ type: "proxy", ip, model, status: upstream.status,
-                 ms: Date.now() - proxyStart,
+      logEvent({ type: "proxy", provider: "anthropic", ip, model: requestedModel,
+                 status: upstream.status, ms: Date.now() - proxyStart,
                  request: bodyField(bodyText), response: bodyField(text) });
       res.writeHead(upstream.status, { "content-type": "application/json", ...CORS });
       return res.end(text);
     } catch (e) {
-      logEvent({ type: "proxy", ip, model, error: String(e.message || e),
+      logEvent({ type: "proxy", provider: "anthropic", ip, model: requestedModel,
+                 error: String(e.message || e),
                  ms: Date.now() - proxyStart, request: bodyField(bodyText) });
       return sendJSON(res, 502, { error: "upstream_error", message: String(e.message || e) });
     }
@@ -237,5 +359,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   logEvent({ type: "server", msg: "penny-categories-server started", port: PORT,
              categories: state.payload.categories.length, version: state.payload.version,
-             proxy: Boolean(ANTHROPIC_API_KEY), log: LOG_PATH });
+             proxy: LLM_PROVIDER !== "none", provider: LLM_PROVIDER,
+             model: LLM_PROVIDER === "deepseek" ? DEEPSEEK_MODEL : undefined,
+             log: LOG_PATH });
 });
