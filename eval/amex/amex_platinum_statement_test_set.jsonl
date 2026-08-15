@@ -1,0 +1,215 @@
+{"question":"how much did I spend?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":1,"category":"category"}
+{"question":"how much did I spend in total?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":2,"category":"total"}
+{"question":"what's my total spending?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":3,"category":"total"}
+{"question":"total spent","answer":"£616.32","source":"amex_platinum_statement.pdf","id":4,"category":"total"}
+{"question":"how much have I spent overall?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":5,"category":"category"}
+{"question":"what did I spend altogether?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":6,"category":"category"}
+{"question":"sum of my spending","answer":"£616.32","source":"amex_platinum_statement.pdf","id":7,"category":"category"}
+{"question":"how much money did I spend?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":8,"category":"category"}
+{"question":"my total outgoings","answer":"£616.32","source":"amex_platinum_statement.pdf","id":9,"category":"total"}
+{"question":"how much went out?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":10,"category":"category"}
+{"question":"total debits","answer":"£616.32","source":"amex_platinum_statement.pdf","id":11,"category":"category"}
+{"question":"what are my total expenses?","answer":"£616.32","source":"amex_platinum_statement.pdf","id":12,"category":"total"}
+{"question":"how much money came in?","answer":"£0.00","source":"amex_platinum_statement.pdf","id":13,"category":"income"}
+{"question":"what's my total income?","answer":"£0.00","source":"amex_platinum_statement.pdf","id":14,"category":"income"}
+{"question":"Groceries total","answer":"£7.99","source":"amex_platinum_statement.pdf","id":100,"category":"category"}
+{"question":"how much did i pay for Groceries?","answer":"£7.99","source":"amex_platinum_statement.pdf","id":101,"category":"category"}
+{"question":"how many Groceries transactions?","answer":"1","source":"amex_platinum_statement.pdf","id":102,"category":"count"}
+{"question":"how many times did I spend on Groceries?","answer":"1","source":"amex_platinum_statement.pdf","id":103,"category":"count"}
+{"question":"number of Groceries transactions","answer":"1","source":"amex_platinum_statement.pdf","id":104,"category":"count"}
+{"question":"Groceries transaction count","answer":"1","source":"amex_platinum_statement.pdf","id":105,"category":"count"}
+{"question":"how much did I spend on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":106,"category":"category"}
+{"question":"how much have I spent on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":107,"category":"category"}
+{"question":"what did I spend on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":108,"category":"category"}
+{"question":"total spent on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":109,"category":"total"}
+{"question":"how much on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":110,"category":"category"}
+{"question":"Transport spending","answer":"£103.12","source":"amex_platinum_statement.pdf","id":111,"category":"category"}
+{"question":"my Transport spend","answer":"£103.12","source":"amex_platinum_statement.pdf","id":112,"category":"category"}
+{"question":"how much money did I spend on Transport?","answer":"£103.12","source":"amex_platinum_statement.pdf","id":113,"category":"category"}
+{"question":"spending on Transport","answer":"£103.12","source":"amex_platinum_statement.pdf","id":114,"category":"category"}
+{"question":"how much on Groceries in February 2026?","answer":"£7.99","source":"amex_platinum_statement.pdf","id":200,"category":"month"}
+{"question":"how much did I spend on Transport in February 2026?","answer":"£42.18","source":"amex_platinum_statement.pdf","id":201,"category":"month"}
+{"question":"Transport spending in February 2026","answer":"£42.18","source":"amex_platinum_statement.pdf","id":202,"category":"month"}
+{"question":"what did I spend on Transport in February 2026?","answer":"£42.18","source":"amex_platinum_statement.pdf","id":203,"category":"month"}
+{"question":"how much on Transport in February 2026?","answer":"£42.18","source":"amex_platinum_statement.pdf","id":204,"category":"month"}
+{"question":"how much did I spend on Transport in March 2026?","answer":"£60.94","source":"amex_platinum_statement.pdf","id":205,"category":"month"}
+{"question":"Transport spending in March 2026","answer":"£60.94","source":"amex_platinum_statement.pdf","id":206,"category":"month"}
+{"question":"what did I spend on Transport in March 2026?","answer":"£60.94","source":"amex_platinum_statement.pdf","id":207,"category":"month"}
+{"question":"how much on Transport in March 2026?","answer":"£60.94","source":"amex_platinum_statement.pdf","id":208,"category":"month"}
+{"question":"how much did I spend on Subscriptions in February 2026?","answer":"£2.99","source":"amex_platinum_statement.pdf","id":209,"category":"month"}
+{"question":"Subscriptions spending in February 2026","answer":"£2.99","source":"amex_platinum_statement.pdf","id":210,"category":"month"}
+{"question":"what did I spend on Subscriptions in February 2026?","answer":"£2.99","source":"amex_platinum_statement.pdf","id":211,"category":"month"}
+{"question":"how much on Subscriptions in February 2026?","answer":"£2.99","source":"amex_platinum_statement.pdf","id":212,"category":"month"}
+{"question":"how much did I spend on Subscriptions in March 2026?","answer":"£8.99","source":"amex_platinum_statement.pdf","id":213,"category":"month"}
+{"question":"Subscriptions spending in March 2026","answer":"£8.99","source":"amex_platinum_statement.pdf","id":214,"category":"month"}
+{"question":"how much money went to LOKAL HOUNSLOW?","answer":"£20.00","source":"amex_platinum_statement.pdf","id":300,"category":"category"}
+{"question":"how much did I spend at FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":301,"category":"merchant"}
+{"question":"how much have I spent at FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":302,"category":"merchant"}
+{"question":"total at FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":303,"category":"merchant"}
+{"question":"how much at FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":304,"category":"merchant"}
+{"question":"FOREST LONDON total","answer":"£15.28","source":"amex_platinum_statement.pdf","id":305,"category":"category"}
+{"question":"what did I spend at FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":306,"category":"merchant"}
+{"question":"spending at FOREST LONDON","answer":"£15.28","source":"amex_platinum_statement.pdf","id":307,"category":"merchant"}
+{"question":"how much money went to FOREST LONDON?","answer":"£15.28","source":"amex_platinum_statement.pdf","id":308,"category":"category"}
+{"question":"how much did I spend at TAMESIS DOCK London?","answer":"£14.40","source":"amex_platinum_statement.pdf","id":309,"category":"merchant"}
+{"question":"how much have I spent at TAMESIS DOCK London?","answer":"£14.40","source":"amex_platinum_statement.pdf","id":310,"category":"merchant"}
+{"question":"total at TAMESIS DOCK London?","answer":"£14.40","source":"amex_platinum_statement.pdf","id":311,"category":"merchant"}
+{"question":"how much at TAMESIS DOCK London?","answer":"£14.40","source":"amex_platinum_statement.pdf","id":312,"category":"merchant"}
+{"question":"TAMESIS DOCK London total","answer":"£14.40","source":"amex_platinum_statement.pdf","id":313,"category":"category"}
+{"question":"what did I spend at TAMESIS DOCK London?","answer":"£14.40","source":"amex_platinum_statement.pdf","id":314,"category":"merchant"}
+{"question":"NOW LONDON spending in March 2026","answer":"£34.99","source":"amex_platinum_statement.pdf","id":400,"category":"month"}
+{"question":"how much at NOW LONDON in March 2026?","answer":"£34.99","source":"amex_platinum_statement.pdf","id":401,"category":"merchant"}
+{"question":"how much did I spend at DOJO*BEEHIVE LONDON in February 2026?","answer":"£13.60","source":"amex_platinum_statement.pdf","id":402,"category":"merchant"}
+{"question":"DOJO*BEEHIVE LONDON spending in February 2026","answer":"£13.60","source":"amex_platinum_statement.pdf","id":403,"category":"month"}
+{"question":"how much at DOJO*BEEHIVE LONDON in February 2026?","answer":"£13.60","source":"amex_platinum_statement.pdf","id":404,"category":"merchant"}
+{"question":"how much did I spend at DOJO*BEEHIVE LONDON in March 2026?","answer":"£13.60","source":"amex_platinum_statement.pdf","id":405,"category":"merchant"}
+{"question":"DOJO*BEEHIVE LONDON spending in March 2026","answer":"£13.60","source":"amex_platinum_statement.pdf","id":406,"category":"month"}
+{"question":"how much at DOJO*BEEHIVE LONDON in March 2026?","answer":"£13.60","source":"amex_platinum_statement.pdf","id":407,"category":"merchant"}
+{"question":"how much did I spend at DELIVEROO LONDON in February 2026?","answer":"£23.75","source":"amex_platinum_statement.pdf","id":408,"category":"merchant"}
+{"question":"DELIVEROO LONDON spending in February 2026","answer":"£23.75","source":"amex_platinum_statement.pdf","id":409,"category":"month"}
+{"question":"how much at DELIVEROO LONDON in February 2026?","answer":"£23.75","source":"amex_platinum_statement.pdf","id":410,"category":"merchant"}
+{"question":"how much did I spend at TST-THE KATI ROLL POLA LONDON in March 2026?","answer":"£21.60","source":"amex_platinum_statement.pdf","id":411,"category":"merchant"}
+{"question":"TST-THE KATI ROLL POLA LONDON spending in March 2026","answer":"£21.60","source":"amex_platinum_statement.pdf","id":412,"category":"month"}
+{"question":"how much at TST-THE KATI ROLL POLA LONDON in March 2026?","answer":"£21.60","source":"amex_platinum_statement.pdf","id":413,"category":"merchant"}
+{"question":"how much did I spend at LOKAL HOUNSLOW in March 2026?","answer":"£20.00","source":"amex_platinum_statement.pdf","id":414,"category":"merchant"}
+{"question":"smallest Groceries expense","answer":"£7.99","source":"amex_platinum_statement.pdf","id":500,"category":"smallest"}
+{"question":"cheapest Groceries charge","answer":"£7.99","source":"amex_platinum_statement.pdf","id":501,"category":"smallest"}
+{"question":"average Groceries spend","answer":"£7.99","source":"amex_platinum_statement.pdf","id":502,"category":"average"}
+{"question":"what's my average Groceries transaction?","answer":"£7.99","source":"amex_platinum_statement.pdf","id":503,"category":"average"}
+{"question":"mean Groceries spend","answer":"£7.99","source":"amex_platinum_statement.pdf","id":504,"category":"average"}
+{"question":"what's my biggest Transport expense?","answer":"£8.90","source":"amex_platinum_statement.pdf","id":505,"category":"largest"}
+{"question":"largest Transport charge","answer":"£8.90","source":"amex_platinum_statement.pdf","id":506,"category":"largest"}
+{"question":"most expensive Transport transaction","answer":"£8.90","source":"amex_platinum_statement.pdf","id":507,"category":"largest"}
+{"question":"smallest Transport expense","answer":"£1.00","source":"amex_platinum_statement.pdf","id":508,"category":"smallest"}
+{"question":"cheapest Transport charge","answer":"£1.00","source":"amex_platinum_statement.pdf","id":509,"category":"smallest"}
+{"question":"average Transport spend","answer":"£3.97","source":"amex_platinum_statement.pdf","id":510,"category":"average"}
+{"question":"what's my average Transport transaction?","answer":"£3.97","source":"amex_platinum_statement.pdf","id":511,"category":"average"}
+{"question":"mean Transport spend","answer":"£3.97","source":"amex_platinum_statement.pdf","id":512,"category":"average"}
+{"question":"what's my biggest Subscriptions expense?","answer":"£8.99","source":"amex_platinum_statement.pdf","id":513,"category":"largest"}
+{"question":"largest Subscriptions charge","answer":"£8.99","source":"amex_platinum_statement.pdf","id":514,"category":"largest"}
+{"question":"number of transactions from 15 February to 1 March","answer":"31","source":"amex_platinum_statement.pdf","id":600,"category":"date-range"}
+{"question":"how much did I spend between 15 February and 2 March?","answer":"£394.97","source":"amex_platinum_statement.pdf","id":601,"category":"date-range"}
+{"question":"total spend from 15 February to 2 March","answer":"£394.97","source":"amex_platinum_statement.pdf","id":602,"category":"date-range"}
+{"question":"how much between 15 February and 2 March?","answer":"£394.97","source":"amex_platinum_statement.pdf","id":603,"category":"date-range"}
+{"question":"how many transactions between 15 February and 2 March?","answer":"33","source":"amex_platinum_statement.pdf","id":604,"category":"date-range"}
+{"question":"number of transactions from 15 February to 2 March","answer":"33","source":"amex_platinum_statement.pdf","id":605,"category":"date-range"}
+{"question":"how much did I spend between 15 February and 3 March?","answer":"£410.16","source":"amex_platinum_statement.pdf","id":606,"category":"date-range"}
+{"question":"total spend from 15 February to 3 March","answer":"£410.16","source":"amex_platinum_statement.pdf","id":607,"category":"date-range"}
+{"question":"how much between 15 February and 3 March?","answer":"£410.16","source":"amex_platinum_statement.pdf","id":608,"category":"date-range"}
+{"question":"how many transactions between 15 February and 3 March?","answer":"35","source":"amex_platinum_statement.pdf","id":609,"category":"date-range"}
+{"question":"number of transactions from 15 February to 3 March","answer":"35","source":"amex_platinum_statement.pdf","id":610,"category":"date-range"}
+{"question":"how much did I spend between 15 February and 4 March?","answer":"£419.15","source":"amex_platinum_statement.pdf","id":611,"category":"date-range"}
+{"question":"total spend from 15 February to 4 March","answer":"£419.15","source":"amex_platinum_statement.pdf","id":612,"category":"date-range"}
+{"question":"how much between 15 February and 4 March?","answer":"£419.15","source":"amex_platinum_statement.pdf","id":613,"category":"date-range"}
+{"question":"how many transactions between 15 February and 4 March?","answer":"36","source":"amex_platinum_statement.pdf","id":614,"category":"date-range"}
+{"question":"number of transactions from 16 February to 4 March","answer":"35","source":"amex_platinum_statement.pdf","id":700,"category":"date-range"}
+{"question":"how much did I spend between 16 February and 5 March?","answer":"£503.27","source":"amex_platinum_statement.pdf","id":701,"category":"date-range"}
+{"question":"total spend from 16 February to 5 March","answer":"£503.27","source":"amex_platinum_statement.pdf","id":702,"category":"date-range"}
+{"question":"how much between 16 February and 5 March?","answer":"£503.27","source":"amex_platinum_statement.pdf","id":703,"category":"date-range"}
+{"question":"how many transactions between 16 February and 5 March?","answer":"39","source":"amex_platinum_statement.pdf","id":704,"category":"date-range"}
+{"question":"number of transactions from 16 February to 5 March","answer":"39","source":"amex_platinum_statement.pdf","id":705,"category":"date-range"}
+{"question":"how much did I spend between 16 February and 7 March?","answer":"£512.17","source":"amex_platinum_statement.pdf","id":706,"category":"date-range"}
+{"question":"total spend from 16 February to 7 March","answer":"£512.17","source":"amex_platinum_statement.pdf","id":707,"category":"date-range"}
+{"question":"how much between 16 February and 7 March?","answer":"£512.17","source":"amex_platinum_statement.pdf","id":708,"category":"date-range"}
+{"question":"how many transactions between 16 February and 7 March?","answer":"40","source":"amex_platinum_statement.pdf","id":709,"category":"date-range"}
+{"question":"number of transactions from 16 February to 7 March","answer":"40","source":"amex_platinum_statement.pdf","id":710,"category":"date-range"}
+{"question":"how much did I spend between 16 February and 8 March?","answer":"£556.97","source":"amex_platinum_statement.pdf","id":711,"category":"date-range"}
+{"question":"total spend from 16 February to 8 March","answer":"£556.97","source":"amex_platinum_statement.pdf","id":712,"category":"date-range"}
+{"question":"how much between 16 February and 8 March?","answer":"£556.97","source":"amex_platinum_statement.pdf","id":713,"category":"date-range"}
+{"question":"how many transactions between 16 February and 8 March?","answer":"43","source":"amex_platinum_statement.pdf","id":714,"category":"date-range"}
+{"question":"number of transactions from 17 February to 10 March","answer":"46","source":"amex_platinum_statement.pdf","id":800,"category":"date-range"}
+{"question":"how much did I spend between 17 February and 14 March?","answer":"£510.23","source":"amex_platinum_statement.pdf","id":801,"category":"date-range"}
+{"question":"total spend from 17 February to 14 March","answer":"£510.23","source":"amex_platinum_statement.pdf","id":802,"category":"date-range"}
+{"question":"how much between 17 February and 14 March?","answer":"£510.23","source":"amex_platinum_statement.pdf","id":803,"category":"date-range"}
+{"question":"how many transactions between 17 February and 14 March?","answer":"51","source":"amex_platinum_statement.pdf","id":804,"category":"date-range"}
+{"question":"number of transactions from 17 February to 14 March","answer":"51","source":"amex_platinum_statement.pdf","id":805,"category":"date-range"}
+{"question":"how much did I spend between 18 February and 19 February?","answer":"£75.19","source":"amex_platinum_statement.pdf","id":806,"category":"date-range"}
+{"question":"total spend from 18 February to 19 February","answer":"£75.19","source":"amex_platinum_statement.pdf","id":807,"category":"date-range"}
+{"question":"how much between 18 February and 19 February?","answer":"£75.19","source":"amex_platinum_statement.pdf","id":808,"category":"date-range"}
+{"question":"how many transactions between 18 February and 19 February?","answer":"5","source":"amex_platinum_statement.pdf","id":809,"category":"date-range"}
+{"question":"number of transactions from 18 February to 19 February","answer":"5","source":"amex_platinum_statement.pdf","id":810,"category":"date-range"}
+{"question":"how much did I spend between 18 February and 21 February?","answer":"£80.99","source":"amex_platinum_statement.pdf","id":811,"category":"date-range"}
+{"question":"total spend from 18 February to 21 February","answer":"£80.99","source":"amex_platinum_statement.pdf","id":812,"category":"date-range"}
+{"question":"how much between 18 February and 21 February?","answer":"£80.99","source":"amex_platinum_statement.pdf","id":813,"category":"date-range"}
+{"question":"how many transactions between 18 February and 21 February?","answer":"7","source":"amex_platinum_statement.pdf","id":814,"category":"date-range"}
+{"question":"number of transactions from 19 February to 24 February","answer":"17","source":"amex_platinum_statement.pdf","id":900,"category":"date-range"}
+{"question":"how much did I spend between 19 February and 25 February?","answer":"£98.63","source":"amex_platinum_statement.pdf","id":901,"category":"date-range"}
+{"question":"total spend from 19 February to 25 February","answer":"£98.63","source":"amex_platinum_statement.pdf","id":902,"category":"date-range"}
+{"question":"how much between 19 February and 25 February?","answer":"£98.63","source":"amex_platinum_statement.pdf","id":903,"category":"date-range"}
+{"question":"how many transactions between 19 February and 25 February?","answer":"18","source":"amex_platinum_statement.pdf","id":904,"category":"date-range"}
+{"question":"number of transactions from 19 February to 25 February","answer":"18","source":"amex_platinum_statement.pdf","id":905,"category":"date-range"}
+{"question":"how much did I spend between 19 February and 1 March?","answer":"£102.10","source":"amex_platinum_statement.pdf","id":906,"category":"date-range"}
+{"question":"total spend from 19 February to 1 March","answer":"£102.10","source":"amex_platinum_statement.pdf","id":907,"category":"date-range"}
+{"question":"how much between 19 February and 1 March?","answer":"£102.10","source":"amex_platinum_statement.pdf","id":908,"category":"date-range"}
+{"question":"how many transactions between 19 February and 1 March?","answer":"19","source":"amex_platinum_statement.pdf","id":909,"category":"date-range"}
+{"question":"number of transactions from 19 February to 1 March","answer":"19","source":"amex_platinum_statement.pdf","id":910,"category":"date-range"}
+{"question":"how much did I spend between 19 February and 2 March?","answer":"£107.69","source":"amex_platinum_statement.pdf","id":911,"category":"date-range"}
+{"question":"total spend from 19 February to 2 March","answer":"£107.69","source":"amex_platinum_statement.pdf","id":912,"category":"date-range"}
+{"question":"how much between 19 February and 2 March?","answer":"£107.69","source":"amex_platinum_statement.pdf","id":913,"category":"date-range"}
+{"question":"how many transactions between 19 February and 2 March?","answer":"21","source":"amex_platinum_statement.pdf","id":914,"category":"date-range"}
+{"question":"number of transactions from 21 February to 7 March","answer":"28","source":"amex_platinum_statement.pdf","id":1000,"category":"date-range"}
+{"question":"how much did I spend between 21 February and 8 March?","answer":"£265.99","source":"amex_platinum_statement.pdf","id":1001,"category":"date-range"}
+{"question":"total spend from 21 February to 8 March","answer":"£265.99","source":"amex_platinum_statement.pdf","id":1002,"category":"date-range"}
+{"question":"how much between 21 February and 8 March?","answer":"£265.99","source":"amex_platinum_statement.pdf","id":1003,"category":"date-range"}
+{"question":"how many transactions between 21 February and 8 March?","answer":"31","source":"amex_platinum_statement.pdf","id":1004,"category":"date-range"}
+{"question":"number of transactions from 21 February to 8 March","answer":"31","source":"amex_platinum_statement.pdf","id":1005,"category":"date-range"}
+{"question":"how much did I spend between 21 February and 10 March?","answer":"£306.83","source":"amex_platinum_statement.pdf","id":1006,"category":"date-range"}
+{"question":"total spend from 21 February to 10 March","answer":"£306.83","source":"amex_platinum_statement.pdf","id":1007,"category":"date-range"}
+{"question":"how much between 21 February and 10 March?","answer":"£306.83","source":"amex_platinum_statement.pdf","id":1008,"category":"date-range"}
+{"question":"how many transactions between 21 February and 10 March?","answer":"37","source":"amex_platinum_statement.pdf","id":1009,"category":"date-range"}
+{"question":"number of transactions from 21 February to 10 March","answer":"37","source":"amex_platinum_statement.pdf","id":1010,"category":"date-range"}
+{"question":"how much did I spend between 21 February and 14 March?","answer":"£323.24","source":"amex_platinum_statement.pdf","id":1011,"category":"date-range"}
+{"question":"total spend from 21 February to 14 March","answer":"£323.24","source":"amex_platinum_statement.pdf","id":1012,"category":"date-range"}
+{"question":"how much between 21 February and 14 March?","answer":"£323.24","source":"amex_platinum_statement.pdf","id":1013,"category":"date-range"}
+{"question":"how many transactions between 21 February and 14 March?","answer":"42","source":"amex_platinum_statement.pdf","id":1014,"category":"date-range"}
+{"question":"number of transactions from 23 February to 3 March","answer":"12","source":"amex_platinum_statement.pdf","id":1100,"category":"date-range"}
+{"question":"how much did I spend between 23 February and 4 March?","answer":"£69.77","source":"amex_platinum_statement.pdf","id":1101,"category":"date-range"}
+{"question":"total spend from 23 February to 4 March","answer":"£69.77","source":"amex_platinum_statement.pdf","id":1102,"category":"date-range"}
+{"question":"how much between 23 February and 4 March?","answer":"£69.77","source":"amex_platinum_statement.pdf","id":1103,"category":"date-range"}
+{"question":"how many transactions between 23 February and 4 March?","answer":"13","source":"amex_platinum_statement.pdf","id":1104,"category":"date-range"}
+{"question":"number of transactions from 23 February to 4 March","answer":"13","source":"amex_platinum_statement.pdf","id":1105,"category":"date-range"}
+{"question":"how much did I spend between 23 February and 5 March?","answer":"£155.99","source":"amex_platinum_statement.pdf","id":1106,"category":"date-range"}
+{"question":"total spend from 23 February to 5 March","answer":"£155.99","source":"amex_platinum_statement.pdf","id":1107,"category":"date-range"}
+{"question":"how much between 23 February and 5 March?","answer":"£155.99","source":"amex_platinum_statement.pdf","id":1108,"category":"date-range"}
+{"question":"how many transactions between 23 February and 5 March?","answer":"17","source":"amex_platinum_statement.pdf","id":1109,"category":"date-range"}
+{"question":"number of transactions from 23 February to 5 March","answer":"17","source":"amex_platinum_statement.pdf","id":1110,"category":"date-range"}
+{"question":"how much did I spend between 23 February and 7 March?","answer":"£164.89","source":"amex_platinum_statement.pdf","id":1111,"category":"date-range"}
+{"question":"total spend from 23 February to 7 March","answer":"£164.89","source":"amex_platinum_statement.pdf","id":1112,"category":"date-range"}
+{"question":"how much between 23 February and 7 March?","answer":"£164.89","source":"amex_platinum_statement.pdf","id":1113,"category":"date-range"}
+{"question":"how many transactions between 23 February and 7 March?","answer":"18","source":"amex_platinum_statement.pdf","id":1114,"category":"date-range"}
+{"question":"number of transactions from 25 February to 4 March","answer":"7","source":"amex_platinum_statement.pdf","id":1200,"category":"date-range"}
+{"question":"how much did I spend between 25 February and 5 March?","answer":"£131.65","source":"amex_platinum_statement.pdf","id":1201,"category":"date-range"}
+{"question":"total spend from 25 February to 5 March","answer":"£131.65","source":"amex_platinum_statement.pdf","id":1202,"category":"date-range"}
+{"question":"how much between 25 February and 5 March?","answer":"£131.65","source":"amex_platinum_statement.pdf","id":1203,"category":"date-range"}
+{"question":"how many transactions between 25 February and 5 March?","answer":"11","source":"amex_platinum_statement.pdf","id":1204,"category":"date-range"}
+{"question":"number of transactions from 25 February to 5 March","answer":"11","source":"amex_platinum_statement.pdf","id":1205,"category":"date-range"}
+{"question":"how much did I spend between 25 February and 7 March?","answer":"£140.55","source":"amex_platinum_statement.pdf","id":1206,"category":"date-range"}
+{"question":"total spend from 25 February to 7 March","answer":"£140.55","source":"amex_platinum_statement.pdf","id":1207,"category":"date-range"}
+{"question":"how much between 25 February and 7 March?","answer":"£140.55","source":"amex_platinum_statement.pdf","id":1208,"category":"date-range"}
+{"question":"how many transactions between 25 February and 7 March?","answer":"12","source":"amex_platinum_statement.pdf","id":1209,"category":"date-range"}
+{"question":"number of transactions from 25 February to 7 March","answer":"12","source":"amex_platinum_statement.pdf","id":1210,"category":"date-range"}
+{"question":"how much did I spend between 25 February and 8 March?","answer":"£185.35","source":"amex_platinum_statement.pdf","id":1211,"category":"date-range"}
+{"question":"total spend from 25 February to 8 March","answer":"£185.35","source":"amex_platinum_statement.pdf","id":1212,"category":"date-range"}
+{"question":"how much between 25 February and 8 March?","answer":"£185.35","source":"amex_platinum_statement.pdf","id":1213,"category":"date-range"}
+{"question":"how many transactions between 25 February and 8 March?","answer":"15","source":"amex_platinum_statement.pdf","id":1214,"category":"date-range"}
+{"question":"number of transactions from 2 March to 14 March","answer":"24","source":"amex_platinum_statement.pdf","id":1300,"category":"date-range"}
+{"question":"how much did I spend between 3 March and 4 March?","answer":"£24.18","source":"amex_platinum_statement.pdf","id":1301,"category":"date-range"}
+{"question":"total spend from 3 March to 4 March","answer":"£24.18","source":"amex_platinum_statement.pdf","id":1302,"category":"date-range"}
+{"question":"how much between 3 March and 4 March?","answer":"£24.18","source":"amex_platinum_statement.pdf","id":1303,"category":"date-range"}
+{"question":"how many transactions between 3 March and 4 March?","answer":"3","source":"amex_platinum_statement.pdf","id":1304,"category":"date-range"}
+{"question":"number of transactions from 3 March to 4 March","answer":"3","source":"amex_platinum_statement.pdf","id":1305,"category":"date-range"}
+{"question":"how much did I spend between 3 March and 5 March?","answer":"£110.40","source":"amex_platinum_statement.pdf","id":1306,"category":"date-range"}
+{"question":"total spend from 3 March to 5 March","answer":"£110.40","source":"amex_platinum_statement.pdf","id":1307,"category":"date-range"}
+{"question":"how much between 3 March and 5 March?","answer":"£110.40","source":"amex_platinum_statement.pdf","id":1308,"category":"date-range"}
+{"question":"how many transactions between 3 March and 5 March?","answer":"7","source":"amex_platinum_statement.pdf","id":1309,"category":"date-range"}
+{"question":"number of transactions from 3 March to 5 March","answer":"7","source":"amex_platinum_statement.pdf","id":1310,"category":"date-range"}
+{"question":"how much did I spend between 3 March and 7 March?","answer":"£119.30","source":"amex_platinum_statement.pdf","id":1311,"category":"date-range"}
+{"question":"total spend from 3 March to 7 March","answer":"£119.30","source":"amex_platinum_statement.pdf","id":1312,"category":"date-range"}
+{"question":"how much between 3 March and 7 March?","answer":"£119.30","source":"amex_platinum_statement.pdf","id":1313,"category":"date-range"}
+{"question":"how many transactions between 3 March and 7 March?","answer":"8","source":"amex_platinum_statement.pdf","id":1314,"category":"date-range"}
+{"question":"number of transactions from 8 March to 14 March","answer":"14","source":"amex_platinum_statement.pdf","id":1400,"category":"date-range"}
+{"question":"how much did I spend between 10 March and 14 March?","answer":"£57.25","source":"amex_platinum_statement.pdf","id":1401,"category":"date-range"}
+{"question":"total spend from 10 March to 14 March","answer":"£57.25","source":"amex_platinum_statement.pdf","id":1402,"category":"date-range"}
+{"question":"how much between 10 March and 14 March?","answer":"£57.25","source":"amex_platinum_statement.pdf","id":1403,"category":"date-range"}
+{"question":"how many transactions between 10 March and 14 March?","answer":"11","source":"amex_platinum_statement.pdf","id":1404,"category":"date-range"}
+{"question":"number of transactions from 10 March to 14 March","answer":"11","source":"amex_platinum_statement.pdf","id":1405,"category":"date-range"}
