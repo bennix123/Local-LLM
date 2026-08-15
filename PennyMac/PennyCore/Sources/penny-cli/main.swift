@@ -21,6 +21,7 @@ func take(_ flag: String) -> String? {
 if let m = take("--model") { modelID = m }
 if let p = take("--pdf") { pdfPath = p }
 let issuerMode = args.firstIndex(of: "--issuer").map { args.remove(at: $0); return true } ?? false
+let chatOnly = args.firstIndex(of: "--chat-only").map { args.remove(at: $0); return true } ?? false
 let question = args.first ?? "What is the largest expense in this statement?"
 
 // --issuer: just run the on-device issuer classifier and print the result.
@@ -56,9 +57,28 @@ if let pdfPath {
     print("[pdf] no --pdf given — using built-in sample statement")
 }
 
-print("[mlx] loading \(modelID) (first run downloads the weights) …")
 let llm = PennyLLM(modelID: modelID)
 
+// --chat-only: exercise the app's real chat path — PennyLLM.ask, which prefers
+// Apple's on-device model (no MLX preload, no weights download, no Metal) — and
+// time streaming latency (first-token vs total). This is the faithful end-to-end
+// test of the streaming path without pulling gigabytes of MLX weights.
+if chatOnly {
+    print("\n[Q] \(question)")
+    print("[A] ", terminator: "")
+    let start = Date()
+    var ttft: Double? = nil
+    let answer = try await llm.ask(question: question, statementText: statement, maxTokens: 512) { piece in
+        if ttft == nil { ttft = Date().timeIntervalSince(start) * 1000 }
+        FileHandle.standardOutput.write(Data(piece.utf8))
+    }
+    let total = Date().timeIntervalSince(start) * 1000
+    print(String(format: "\n\n[timing] first-token = %.0f ms · total = %.0f ms · %d chars",
+                 ttft ?? -1, total, answer.count))
+    exit(0)
+}
+
+print("[mlx] loading \(modelID) (first run downloads the weights) …")
 try await llm.load { p in
     FileHandle.standardOutput.write(Data("\r[load] \(Int(p.fraction * 100))%   ".utf8))
 }

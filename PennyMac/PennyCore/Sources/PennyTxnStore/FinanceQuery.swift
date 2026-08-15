@@ -212,7 +212,11 @@ public enum FinanceRouter {
            !matches(low, #"busiest day|biggest spending day|most expensive day"#),
            !matches(low, #"how many (?:pounds|quid|pence|dollars|euros|rupees)"#),
            !matches(low, #"\bversus\b|\bvs\.?\b|compared to"#),
-           !matches(low, #"between\s+£?\s*\d+(?:\.\d+)?\s+and\s+£?\s*\d+"#) {
+           !matches(low, #"between\s+£?\s*\d+(?:\.\d+)?\s+and\s+£?\s*\d+"#),
+           // an amount threshold ("how many transactions over £5") is a filtered
+           // count — defer to the dedicated threshold handler, don't answer the
+           // grand total here.
+           !matches(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least|under|below|less than|cheaper than|no more than|beneath|at most)\s*£?\s*\d"#) {
             let n = sr.count
             // per-week frequency: "how many times a week do I use X"
             if matches(low, #"times (?:a|per) week|(?:a|per) week do i"#), n > 0 {
@@ -432,6 +436,8 @@ public enum FinanceRouter {
         // matching charges, not an itemised list.
         let thresholdWantsSum = matches(low, #"how much|\btotal\b|\bsum\b|added up|all together|altogether|combined|in total"#)
             && !matches(low, #"how many|number of"#)
+        // A "how many / number of" threshold phrasing wants just the count, not a list.
+        let thresholdWantsCount = matches(low, #"\bhow many\b|\bnumber of\b|\bcount\b"#)
 
         // ---- threshold ("transactions over £50", "did I spend above 100") ----
         if let g = firstGroup(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least)\s*£?\s*(\d+(?:\.\d+)?)"#),
@@ -443,6 +449,9 @@ public enum FinanceRouter {
             if thresholdWantsSum {
                 let sum = hits.reduce(0) { $0 + $1.debit }
                 return "**You spent \(money(sum)) across \(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") over \(money(thr))\(scope.label).**"
+            }
+            if thresholdWantsCount {
+                return "**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") over \(money(thr))\(scope.label).**"
             }
             var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") over \(money(thr))\(scope.label):**"]
             for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
@@ -461,6 +470,9 @@ public enum FinanceRouter {
             if thresholdWantsSum {
                 let sum = hits.reduce(0) { $0 + $1.debit }
                 return "**You spent \(money(sum)) across \(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label).**"
+            }
+            if thresholdWantsCount {
+                return "**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label).**"
             }
             var lines = ["**\(grp(hits.count)) transaction\(hits.count == 1 ? "" : "s") under \(money(thr))\(scope.label):**"]
             for h in hits.prefix(10) { lines.append("- \(money(h.debit)) — \(h.descr) (\(h.txnDate))") }
@@ -898,6 +910,31 @@ public enum FinanceRouter {
             if let hit = present.first(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
                 return hit
             }
+        }
+        // partial: a distinctive query word matches a WORD of exactly one present
+        // category name. This resolves an AI-coined multi-word category that the
+        // exact-name and synonym passes miss — "dental" → "Dental Care", "streaming"
+        // → "Streaming Services", "transit" → "Public Transit". Guarded so it can't
+        // over-reach: the word must be ≥4 letters and not a generic connector, it
+        // must identify ONE category (never guess when several share it), and it
+        // must not be a word the user used to name a merchant.
+        let generic: Set<String> = ["care", "services", "service", "other", "general",
+            "misc", "miscellaneous", "expenses", "expense", "payment", "payments",
+            "charge", "charges", "bills", "bill", "spending", "spend", "shop",
+            "shopping", "store", "stuff", "things", "cost", "costs"]
+        let qWords = Set(low.split { !$0.isLetter }.map(String.init))
+            .filter { $0.count >= 4 && !generic.contains($0) }
+        if !qWords.isEmpty {
+            let hits = present.filter { cat in
+                let catWords = Set(cat.lowercased().split { !$0.isLetter }.map(String.init))
+                    .subtracting(generic)
+                let shared = qWords.intersection(catWords)
+                guard !shared.isEmpty else { return false }
+                // don't fire when a shared word is only there because the user named
+                // a merchant ("how much at Care Dental Platinum" is a merchant ask).
+                return !namedMerchants.contains { m in shared.contains(where: m.contains) }
+            }
+            if hits.count == 1 { return hits.first }
         }
         return nil
     }
@@ -1432,7 +1469,7 @@ public enum FinanceRouter {
         // many subscriptions" (a category-count lookup) — both are handled by
         // the scoped catch-alls below, not a request to enumerate the cadence.
         if matches(low, #"subscription|recurr|repeat\w*|regular (?:payment|charge)|standing order|direct debit"#),
-           !matches(low, #"\bhow much\b|\btotal\b|\bspen[dt]\b|\baverage\b|\bhow many\b|\bnumber of\b|\bcount\b|how often|\bbiggest\b|\blargest\b|\bsmallest\b|\bcheapest\b|\bpriciest\b|\bhighest\b|\blowest\b|\bpercent\w*\b|\bshare\b|\bwhat percentage\b|\btypical\b"#) {
+           !matches(low, #"\bhow much\b|\btotal\b|\bspend(?:s|ing)?\b|\bspent\b|\baverage\b|\bhow many\b|\bnumber of\b|\bcount\b|how often|\bbiggest\b|\blargest\b|\bsmallest\b|\bcheapest\b|\bpriciest\b|most expensive|most costly|dearest|\bhighest\b|\blowest\b|\bpercent\w*\b|\bshare\b|\bwhat percentage\b|\btypical\b"#) {
             return recurringAnswer(periodRows, money: money)
         }
 

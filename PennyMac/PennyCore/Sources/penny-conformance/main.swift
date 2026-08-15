@@ -53,7 +53,7 @@ case "dump-rows":
     // Ingests the PDF via the deterministic parser and prints the parsed rows as
     // JSON — the machine-readable input for the pdfplumber cross-validation harness.
     guard args.count >= 3 else { fail("usage: penny-conformance dump-rows <pdf>") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let contractDir = args.count > 3 ? args[3] : base + "/contract"
     let profilesDir = args.count > 4 ? args[4] : base + "/backend/src/services/txn_store/bank_profiles"
     let ingester = try TxnIngester(categoriesJSONPath: contractDir + "/categories.json",
@@ -77,9 +77,9 @@ case "run":
     // usage: penny-conformance run [contractDir] [bankProfilesDir]
     // Defaults resolve relative to the finquery repo layout.
     let contractDir = args.count > 2 ? args[2]
-        : "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery/contract"
+        : "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery/contract"
     let profilesDir = args.count > 3 ? args[3]
-        : "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery/backend/src/services/txn_store/bank_profiles"
+        : "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery/backend/src/services/txn_store/bank_profiles"
     let fixturesDir = contractDir + "/fixtures"
     let categoriesPath = contractDir + "/categories.json"
 
@@ -173,7 +173,7 @@ case "query":
     // usage: penny-conformance query <pdf> "<question>"
     // Ingests the PDF, then answers via the deterministic FinanceRouter (no LLM).
     guard args.count >= 4 else { fail("usage: penny-conformance query <pdf> \"<question>\"") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -192,7 +192,7 @@ case "dump-rows":
     // usage: penny-conformance dump-rows <pdf> [limit]
     // Ingests and prints the parsed canonical rows (date | descr | debit | credit | balance | cat).
     guard args.count >= 3 else { fail("usage: penny-conformance dump-rows <pdf> [limit]") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -211,7 +211,7 @@ case "dump-rows":
 case "rows-json":
     // usage: penny-conformance rows-json <pdf>   -> JSON array for Swift-vs-Python parity
     guard args.count >= 3 else { fail("usage: penny-conformance rows-json <pdf>") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -230,7 +230,7 @@ case "rows-json":
 case "ingest-meta":
     // usage: penny-conformance ingest-meta <pdf> -> {bank, currency, confidence, isCard, closingBalance, rows}
     guard args.count >= 3 else { fail("usage: penny-conformance ingest-meta <pdf>") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -249,7 +249,7 @@ case "retrieve":
     // usage: penny-conformance retrieve <pdf> "<query>" [k]
     // Ingests the PDF, then shows the top-k most relevant rows (hybrid RAG).
     guard args.count >= 4 else { fail("usage: penny-conformance retrieve <pdf> \"<query>\" [k]") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -269,7 +269,7 @@ case "battery":
     // deterministic FinanceRouter. Emits JSONL: {"q":…, "a":…|null}. `a` null means
     // the router deferred (would fall back to the LLM).
     guard args.count >= 4 else { fail("usage: penny-conformance battery <pdf> <questionsFile>") }
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -298,7 +298,7 @@ case "classify":
     // {"merchant":…, "category":…}. Used to measure merchant→category coverage.
     guard args.count >= 3 else { fail("usage: penny-conformance classify <file> [categoriesJSON]") }
     let catPath = args.count > 3 ? args[3]
-        : "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery/contract/categories.json"
+        : "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery/contract/categories.json"
     let cats = try Categories(categoriesJSONPath: catPath)
     let lines = (try String(contentsOfFile: args[2], encoding: .utf8))
         .split(separator: "\n", omittingEmptySubsequences: true)
@@ -318,7 +318,7 @@ case "ai-mopup":
         fail("set ANTHROPIC_API_KEY in the environment")
     }
     let aiModel = args.count > 3 ? args[3] : "claude-opus-4-8"
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(
         categoriesJSONPath: base + "/contract/categories.json",
         bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
@@ -368,7 +368,7 @@ case "extract-ai":
     var pageTexts: [String] = []
     for i in 0..<doc.pageCount { pageTexts.append(doc.page(i)?.text ?? "") }
     // deterministic baseline for comparison
-    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery"
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
     let ingester = try TxnIngester(categoriesJSONPath: base + "/contract/categories.json",
                                    bankProfilesDir: base + "/backend/src/services/txn_store/bank_profiles")
     let det = (try? ingester.ingestPDF(path: args[2]))?.rows.filter { $0.debit > 0 || $0.credit > 0 } ?? []
@@ -388,6 +388,39 @@ case "extract-ai":
                      dr as NSString, cr as NSString, r.category as NSString))
     }
     if out.rows.count > 12 { print("   … \(out.rows.count - 12) more") }
+
+case "emit-expected":
+    // usage: penny-conformance emit-expected <pdf> [contractDir] [profilesDir]
+    // Ingests the PDF exactly as `run` does (parse → DB insert → conformanceRows)
+    // and prints the rows as the *_expected.json array. This is the canonical
+    // fixture generator: its output is byte-shaped like what `run` compares, so a
+    // fixture built from it can't drift from the harness's row projection.
+    guard args.count >= 3 else { fail("usage: penny-conformance emit-expected <pdf> [contractDir] [profilesDir]") }
+    let base = "/Users/shivduttchauhan/Desktop/delulu/Penny/PennyMac/finquery"
+    let contractDir = args.count > 3 ? args[3] : base + "/contract"
+    let profilesDir = args.count > 4 ? args[4]
+        : base + "/backend/src/services/txn_store/bank_profiles"
+    let ingester = try TxnIngester(categoriesJSONPath: contractDir + "/categories.json",
+                                   bankProfilesDir: profilesDir)
+    let dbPath = NSTemporaryDirectory() + "penny_emit_\(getpid()).db"
+    defer { try? FileManager.default.removeItem(atPath: dbPath) }
+    let db = try TxnDB(path: dbPath)
+    let out = try ingester.ingestPDF(path: args[2])
+    let userID = "emit"
+    db.deleteUser(userID: userID)
+    db.insert(rows: out.rows, userID: userID,
+              docName: (args[2] as NSString).lastPathComponent, bankName: out.bankName)
+    let got = db.conformanceRows(userID: userID)
+    let arr: [[String: Any]] = got.map { r in
+        [
+            "date": r.date, "description": r.description,
+            "debit": r.debit, "credit": r.credit,
+            "balance": r.balance as Any? ?? NSNull(),
+            "category": r.category, "bank": r.bank as Any? ?? NSNull(),
+        ]
+    }
+    let data = try JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted, .sortedKeys])
+    print(String(data: data, encoding: .utf8)!)
 
 default:
     fail("unknown subcommand: \(cmd)")

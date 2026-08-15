@@ -166,14 +166,15 @@ public actor PennyLLM {
         // cleanly without double-showing a half-streamed answer. See WWDC26-326.
         if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
             do {
-                let ans = try await AppleFoundationLLM.answer(
-                    question: question, statementText: statementText, maxTokens: maxTokens)
-                onToken(ans)
-                return ans
+                // Streams straight to `onToken` for immediate first-token; returns the
+                // full text. Only throws when nothing streamed, so MLX fallback is safe.
+                return try await AppleFoundationLLM.answer(
+                    question: question, statementText: statementText,
+                    maxTokens: maxTokens, onToken: onToken)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // fall through to the MLX model below
+                // nothing was streamed → fall through to the MLX model below
             }
         }
         let container = try await load()

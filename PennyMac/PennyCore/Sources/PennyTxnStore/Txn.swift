@@ -18,6 +18,16 @@ public struct TxnRow: Equatable, Sendable {
     public var seq: Int
     public var rawCategory: String? = nil   // hint stripped from the description
 
+    // Foreign-exchange detail, when the statement itemizes a foreign spend on the
+    // row (e.g. Amex "Foreign Spend" column + FX detail line). Populated by the
+    // parsers that read it; nil on domestic rows. ModelAssembler maps these into
+    // the canonical `FXInfo` (preferred over description-scraped FX). Defaulted so
+    // every existing TxnRow construction site is unchanged.
+    public var fxForeignAmount: Double? = nil    // amount in the original currency (e.g. 550 ISK)
+    public var fxForeignCurrency: String? = nil  // ISO code or raw name (e.g. "ISK")
+    public var fxRate: Double? = nil             // printed exchange rate, when stated
+    public var fxFee: Double? = nil              // itemized non-sterling / FX fee, when stated
+
     public init(txnDate: String, month: String, year: Int, monthNo: Int, day: Int,
                 descr: String, merchant: String, category: String,
                 debit: Double, credit: Double, balance: Double?,

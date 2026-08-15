@@ -196,10 +196,17 @@ enum AppleFoundationLLM {
 
     // MARK: - Chat
 
-    /// One grounded answer over one statement from the Apple system model.
-    /// Non-streaming: the whole answer returns at once, so a mid-generation failure
-    /// leaves nothing half-shown and PennyLLM can cleanly fall back to MLX.
-    static func answer(question: String, statementText: String, maxTokens: Int) async throws -> String {
+    /// One grounded answer over one statement from the Apple system model, **streamed
+    /// token-by-token** through `onToken` for immediate time-to-first-token, and
+    /// returning the full text. `ResponseStream<String>` yields cumulative snapshots,
+    /// so we forward only the newly-appended suffix each tick.
+    ///
+    /// Fallback contract: it throws ONLY when nothing was emitted (an empty-stream
+    /// failure), so PennyLLM can cleanly fall back to MLX. Once any text has streamed
+    /// it commits to this answer — a mid-stream error returns the partial rather than
+    /// failing, so the UI never double-answers.
+    static func answer(question: String, statementText: String, maxTokens: Int,
+                       onToken: @Sendable (String) -> Void) async throws -> String {
         let clipped = String(statementText.prefix(12_000))
         let prompt = """
             BANK STATEMENT TEXT:
@@ -208,10 +215,20 @@ enum AppleFoundationLLM {
             QUESTION: \(question)
             """
         let session = LanguageModelSession(instructions: PennyLLM.systemPrompt)
-        let response = try await session.respond(
-            to: prompt,
-            options: GenerationOptions(temperature: 0.3, maximumResponseTokens: maxTokens))
-        return response.content
+        let options = GenerationOptions(temperature: 0.3, maximumResponseTokens: maxTokens)
+        var shown = ""
+        do {
+            for try await snapshot in session.streamResponse(to: prompt, options: options) {
+                let full = snapshot.content                    // cumulative text so far
+                guard full.count > shown.count else { continue }
+                onToken(String(full.suffix(full.count - shown.count)))
+                shown = full
+            }
+        } catch {
+            if shown.isEmpty { throw error }                   // nothing streamed → caller falls back to MLX
+            // otherwise keep the partial already shown (never fail after streaming)
+        }
+        return shown
     }
 }
 #endif

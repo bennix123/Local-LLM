@@ -81,6 +81,28 @@ enum UKParsers {
         return t
     }
 
+    /// Map a currency name printed in a statement's foreign-spend block to an ISO
+    /// 4217 code. Passes an already-ISO 3-letter code straight through; returns nil
+    /// for an empty/unknown-shaped input (so the caller stores FX only when it has a
+    /// currency). Unknown multi-word names are upper-cased and returned verbatim
+    /// rather than dropped — the amount is still worth preserving.
+    static func normalizeCurrencyName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.pyStrip(), !trimmed.isEmpty else { return nil }
+        let up = trimmed.pyUpper()
+        if up.count == 3, up.allSatisfy({ $0.isLetter }) { return up }   // already an ISO code
+        let map: [String: String] = [
+            "ICELANDIC KRONA": "ISK", "ICELAND KRONA": "ISK",
+            "US DOLLAR": "USD", "US DOLLARS": "USD", "UNITED STATES DOLLAR": "USD",
+            "EURO": "EUR", "EUROS": "EUR",
+            "POUND": "GBP", "POUNDS": "GBP", "POUND STERLING": "GBP", "POUNDS STERLING": "GBP",
+            "INDIAN RUPEE": "INR", "INDIAN RUPEES": "INR",
+            "JAPANESE YEN": "JPY", "SWISS FRANC": "CHF", "SWISS FRANCS": "CHF",
+            "CANADIAN DOLLAR": "CAD", "AUSTRALIAN DOLLAR": "AUD",
+            "UAE DIRHAM": "AED", "SAUDI RIYAL": "SAR", "OMANI RIAL": "OMR",
+        ]
+        return map[up] ?? up
+    }
+
     // MARK: - Amex-style card statement (positional)
 
     /// American Express prints its transaction table in fixed columns:
@@ -111,10 +133,19 @@ enum UKParsers {
 
         let monthTok = PyRegex("^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
         let dayTok = PyRegex("^\\d{1,2}$")
+        let numTok = PyRegex("^-?[\\d,]+(?:\\.\\d+)?$")   // a bare foreign amount ("550", "1,234.56")
+        let rateRe = PyRegex("exchange rate\\s*([\\d.]+)", ignoreCase: true)
+        let feeRe = PyRegex("transaction fee\\s*([\\d.,]+)", ignoreCase: true)
         let AMOUNT_X = 450.0   // left edge of the amount column
+        let FOREIGN_X = 360.0  // left edge of the "Foreign Spend" column (sits between desc and amount)
         let DESC_MIN = 95.0    // description band starts after the date cells
 
-        struct Amex { var mon: Int; var day: Int; var desc: String; var amount: Double?; var credit: Bool }
+        struct Amex {
+            var mon: Int; var day: Int; var desc: String; var amount: Double?; var credit: Bool
+            // Foreign-spend detail, when the row carries one (e.g. an ISK charge).
+            var fgnAmount: Double? = nil; var fgnCurrency: String? = nil
+            var fxRate: Double? = nil; var fxFee: Double? = nil
+        }
         var txns: [Amex] = []
         var cur: Amex? = nil
 
@@ -141,17 +172,44 @@ enum UKParsers {
                 var amount: Double? = nil
                 for w in ws where w.x0 >= AMOUNT_X && amountRe.match(w.text) != nil { amount = money(w.text) }
                 let hasCR = ws.contains { $0.text.pyUpper() == "CR" }
-                let desc = ws.filter { $0.x0 >= DESC_MIN && $0.x0 < AMOUNT_X && amountRe.match($0.text) == nil }
+                // Description stops at the Foreign-Spend column, so a bare foreign
+                // amount ("550") in that column is never swept into the merchant text.
+                let desc = ws.filter { $0.x0 >= DESC_MIN && $0.x0 < FOREIGN_X && amountRe.match($0.text) == nil }
                              .map(\.text).joined(separator: " ")
+
+                // Foreign-Spend column [FOREIGN_X, AMOUNT_X): the original-currency amount
+                // ("550") and/or its currency name ("ICELANDIC KRONA"). CR and the £
+                // amount sit at/after AMOUNT_X and are excluded by the x-gate.
+                var fgnAmt: Double? = nil, fgnCur: String? = nil
+                for w in ws where w.x0 >= FOREIGN_X && w.x0 < AMOUNT_X {
+                    if numTok.match(w.text) != nil {
+                        fgnAmt = Double(w.text.replacingOccurrences(of: ",", with: ""))
+                    } else if w.text.count >= 3, w.text.allSatisfy({ $0.isLetter }) {
+                        fgnCur = fgnCur.map { $0 + " " + w.text } ?? w.text
+                    }
+                }
+                // FX detail line: "Exchange Rate 163.2047 +Nonsterling Transaction Fee .10"
+                let joined = ws.map(\.text).joined(separator: " ")
+                var fxRate: Double? = nil, fxFee: Double? = nil
+                if let m = rateRe.search(joined), let g = m.group(1) { fxRate = Double(g) }
+                if let m = feeRe.search(joined), let g = m.group(1) {
+                    fxFee = Double(g.hasPrefix(".") ? "0" + g : g)
+                }
 
                 if datePair, let mon = monthNo(left[0].text), let day = Int(left[1].text) {
                     if let c = cur { txns.append(c) }
-                    cur = Amex(mon: mon, day: day, desc: desc, amount: amount, credit: hasCR)
+                    cur = Amex(mon: mon, day: day, desc: desc, amount: amount, credit: hasCR,
+                               fgnAmount: fgnAmt, fgnCurrency: fgnCur, fxRate: fxRate, fxFee: fxFee)
                 } else if cur != nil {
-                    // continuation row: fill the amount/CR, and append detail text only
-                    // BEFORE the amount is locked in (so page footers can't stitch on).
+                    // continuation row: fill the amount/CR and the foreign detail, and
+                    // append detail text only BEFORE the amount is locked in (so page
+                    // footers can't stitch on).
                     if let a = amount, cur!.amount == nil { cur!.amount = a }
                     if hasCR { cur!.credit = true }
+                    if let f = fgnAmt, cur!.fgnAmount == nil { cur!.fgnAmount = f }
+                    if let c = fgnCur, cur!.fgnCurrency == nil { cur!.fgnCurrency = c }
+                    if let r = fxRate, cur!.fxRate == nil { cur!.fxRate = r }
+                    if let f = fxFee, cur!.fxFee == nil { cur!.fxFee = f }
                     if !desc.isEmpty, cur!.amount == nil { cur!.desc = (cur!.desc + " " + desc).pyStrip() }
                 }
             }
@@ -173,10 +231,17 @@ enum UKParsers {
                 (merchant, category) = Classify.barclaysMerchant(desc, isCredit: t.credit, categories: categories)
             }
             seq += 1
-            out.append(TxnRow(txnDate: iso, month: iso.pyPrefix(7), year: yr, monthNo: t.mon, day: t.day,
-                              descr: desc.pyPrefix(200), merchant: merchant, category: category,
-                              debit: t.credit ? 0.0 : amt, credit: t.credit ? amt : 0.0,
-                              balance: nil, currency: "GBP", seq: seq))
+            var row = TxnRow(txnDate: iso, month: iso.pyPrefix(7), year: yr, monthNo: t.mon, day: t.day,
+                             descr: desc.pyPrefix(200), merchant: merchant, category: category,
+                             debit: t.credit ? 0.0 : amt, credit: t.credit ? amt : 0.0,
+                             balance: nil, currency: "GBP", seq: seq)
+            if let fa = t.fgnAmount, let cur = normalizeCurrencyName(t.fgnCurrency) {
+                row.fxForeignAmount = fa
+                row.fxForeignCurrency = cur
+                row.fxRate = t.fxRate
+                row.fxFee = t.fxFee
+            }
+            out.append(row)
         }
 
         return (out, CardStatementSummary(closingBalance: amexClosingBalance(doc), isCard: true))

@@ -14,6 +14,7 @@ import PennyTxnStore
 var pdfPath = "/Users/shivduttchauhan/Desktop/Acct Statement_XX2635_04032025.pdf"
 var maxQuestions = 10_000
 var showFails = 60
+var emitDir: String? = nil   // --emit <dir>: write the grounded Q&A dataset, eval report, and failures
 do {
     var a = Array(CommandLine.arguments.dropFirst())
     func take(_ f: String) -> String? {
@@ -22,6 +23,7 @@ do {
     }
     if let m = take("--max"), let n = Int(m) { maxQuestions = n }
     if let s = take("--show"), let n = Int(s) { showFails = n }
+    if let e = take("--emit") { emitDir = e }
     if let p = a.first(where: { !$0.hasPrefix("-") }) { pdfPath = p }
 }
 
@@ -175,6 +177,73 @@ for m in topMerchants {
     }
 }
 
+// ===== ADVANCED question shapes (harder reasoning; numeric ground truth) =====
+
+// 7) Nth-largest / smallest expense.
+let sortedDebits = debits.map(\.debit).sorted(by: >)
+for (word, idx) in [("2nd", 1), ("second", 1), ("3rd", 2), ("third", 2), ("4th", 3), ("5th", 4)] where idx < sortedDebits.count {
+    for q in ["what's my \(word) largest expense?", "\(word) biggest expense", "\(word) largest transaction"] { add(q, sortedDebits[idx]) }
+}
+if let smallest = debits.map(\.debit).min() {
+    for q in ["what's my smallest expense?", "smallest transaction", "cheapest purchase",
+              "what was my smallest debit?", "lowest single spend"] { add(q, smallest) }
+}
+
+// 8) Largest / smallest / average per category.
+for (cat, _) in byCat {
+    let ds = debits.filter { $0.category == cat }.map(\.debit)
+    guard !ds.isEmpty else { continue }
+    if let mx = ds.max() { for q in ["what's my biggest \(cat) expense?", "largest \(cat) charge", "most expensive \(cat) transaction"] { add(q, mx) } }
+    if let mn = ds.min() { for q in ["smallest \(cat) expense", "cheapest \(cat) charge"] { add(q, mn) } }
+    let avg = ds.reduce(0, +) / Double(ds.count)
+    for q in ["average \(cat) spend", "what's my average \(cat) transaction?", "mean \(cat) spend"] { add(q, avg) }
+}
+
+// 9) Largest per month.
+for m in months {
+    guard let mx = debits.filter({ $0.month == m }).map(\.debit).max() else { continue }
+    let nm = monthName(m)
+    for q in ["what's my biggest expense in \(nm)?", "largest transaction in \(nm)", "most expensive purchase in \(nm)"] { add(q, mx) }
+}
+
+// 10) Overall average transaction.
+if !debits.isEmpty {
+    let avg = totalSpent / Double(debits.count)
+    for q in ["what's my average transaction?", "average spend per transaction", "mean transaction amount", "on average how much do I spend?"] { add(q, avg) }
+}
+
+// 11) Threshold counts.
+for t in [5.0, 10.0, 20.0, 50.0, 100.0] {
+    let n = debits.filter { $0.debit > t }.count
+    guard n > 0 else { continue }
+    for q in ["how many transactions over \(money(t))?", "how many purchases above \(money(t))?",
+              "number of transactions greater than \(money(t))"] { add(q, Double(n), count: true) }
+}
+
+// 12) Date-range totals + counts — the large combinatorial advanced set.
+let distinctDates = Array(Set(rows.map(\.txnDate))).sorted()
+func humanDate(_ iso: String) -> String {
+    let p = iso.split(separator: "-")
+    guard p.count == 3, let mo = Int(p[1]), let d = Int(p[2]) else { return iso }
+    let names = ["", "January", "February", "March", "April", "May", "June",
+                 "July", "August", "September", "October", "November", "December"]
+    return "\(d) \(names[safe: mo] ?? "")"
+}
+for i in 0..<distinctDates.count {
+    for j in (i + 1)..<distinctDates.count {
+        let d1 = distinctDates[i], d2 = distinctDates[j]
+        let sum = debits.filter { $0.txnDate >= d1 && $0.txnDate <= d2 }.reduce(0) { $0 + $1.debit }
+        let cnt = rows.filter { $0.txnDate >= d1 && $0.txnDate <= d2 }.count
+        let h1 = humanDate(d1), h2 = humanDate(d2)
+        if sum > 0 {
+            for q in ["how much did I spend between \(h1) and \(h2)?",
+                      "total spend from \(h1) to \(h2)", "how much between \(h1) and \(h2)?"] { add(q, sum) }
+        }
+        for q in ["how many transactions between \(h1) and \(h2)?",
+                  "number of transactions from \(h1) to \(h2)"] { add(q, Double(cnt), count: true) }
+    }
+}
+
 // Trim to the requested budget.
 if qas.count > maxQuestions { qas = Array(qas.prefix(maxQuestions)) }
 
@@ -206,6 +275,12 @@ var wrongExamples: [String] = []
 
 func kind(of q: String) -> String {
     let l = q.lowercased()
+    // advanced shapes first (they contain words the basic buckets also match)
+    if l.contains("between ") || (l.contains(" from ") && l.contains(" to ")) { return "date-range" }
+    if l.contains("over ") || l.contains("above ") || l.contains("greater than") { return "threshold" }
+    if l.contains("average") || l.contains("mean ") { return "average" }
+    if l.contains("smallest") || l.contains("cheapest") || l.contains("lowest") { return "smallest" }
+    if ["2nd", "3rd", "4th", "5th", "second", "third", "fourth", "fifth"].contains(where: l.contains) { return "nth-largest" }
     if l.contains("how many") || l.contains("count") || l.contains("number of") { return "count" }
     if l.contains(" at ") { return "merchant" }
     if l.contains(" in ") && months.contains(where: { monthName($0).lowercased().split(separator: " ").first.map { l.contains($0) } ?? false }) { return "month" }
@@ -215,21 +290,39 @@ func kind(of q: String) -> String {
     return "category"
 }
 
-for qa in qas {
+// Per-question evaluation records (drives both the console report and --emit artifacts).
+struct EvalRecord {
+    let id: Int; let q: String; let kind: String
+    let expected: Double; let isCount: Bool
+    let groundTruth: String            // the deterministic answer string ("£11.98" / "12")
+    let modelAnswer: String?           // router reply, nil = deferred to the LLM
+    let status: String                 // "correct" | "wrong" | "deferred"
+}
+var records: [EvalRecord] = []
+var passByKind: [String: Int] = [:], totalByKind: [String: Int] = [:]
+
+for (i, qa) in qas.enumerated() {
+    let k = kind(of: qa.q)
+    let gt = qa.count ? String(Int(qa.expected)) : money(qa.expected)
+    totalByKind[k, default: 0] += 1
     guard let ans = FinanceRouter.answer(qa.q, rows: rows, currency: currency, accounts: accounts, money: money) else {
         deferred += 1
+        records.append(EvalRecord(id: i + 1, q: qa.q, kind: k, expected: qa.expected,
+                                  isCount: qa.count, groundTruth: gt, modelAnswer: nil, status: "deferred"))
         continue
     }
     let nums = qa.count ? plainInts(ans) : moneyNumbers(ans)
     if nums.contains(where: { abs($0 - qa.expected) < 0.01 }) {
-        pass += 1
+        pass += 1; passByKind[k, default: 0] += 1
+        records.append(EvalRecord(id: i + 1, q: qa.q, kind: k, expected: qa.expected,
+                                  isCount: qa.count, groundTruth: gt, modelAnswer: ans, status: "correct"))
     } else {
         wrong += 1
-        let k = kind(of: qa.q)
         wrongByKind[k, default: 0] += 1
+        records.append(EvalRecord(id: i + 1, q: qa.q, kind: k, expected: qa.expected,
+                                  isCount: qa.count, groundTruth: gt, modelAnswer: ans, status: "wrong"))
         if wrongExamples.count < showFails {
-            let want = qa.count ? String(Int(qa.expected)) : money(qa.expected)
-            wrongExamples.append("  [\(k)] \(qa.q)\n        expected \(want) | got: \(ans.replacingOccurrences(of: "\n", with: " / "))")
+            wrongExamples.append("  [\(k)] \(qa.q)\n        expected \(gt) | got: \(ans.replacingOccurrences(of: "\n", with: " / "))")
         }
     }
 }
@@ -254,4 +347,78 @@ if !wrongByKind.isEmpty {
     for (k, n) in wrongByKind.sorted(by: { $0.value > $1.value }) { print("    \(k): \(n)") }
     print("\n  sample failures:")
     for e in wrongExamples { print(e) }
+}
+
+// MARK: - Emit deliverable artifacts (--emit <dir>)
+
+if let dir = emitDir {
+    let fm = FileManager.default
+    try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let source = URL(fileURLWithPath: pdfPath).lastPathComponent
+    let stem = URL(fileURLWithPath: pdfPath).deletingPathExtension().lastPathComponent
+        .replacingOccurrences(of: " ", with: "_")
+
+    func write(_ name: String, _ content: String) {
+        let p = (dir as NSString).appendingPathComponent(name)
+        try? content.write(toFile: p, atomically: true, encoding: .utf8)
+        print("  · wrote \(name) (\(content.utf8.count) bytes)")
+    }
+    func jline(_ o: [String: Any]) -> String {
+        (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+
+    // 1) full grounded dataset (JSONL + Markdown). `answer`/`ground_truth` is the
+    //    deterministic figure computed from the parsed rows — the source of truth.
+    var jsonl = "", md = "# \(source) — grounded Q&A dataset (\(records.count) pairs)\n\n"
+    md += "Every answer is computed deterministically from the parsed statement rows "
+    md += "(not model-generated). `category` is the question shape.\n\n"
+    for r in records {
+        jsonl += jline(["id": r.id, "question": r.q, "answer": r.groundTruth,
+                        "category": r.kind, "source": source,
+                        "ground_truth": r.groundTruth, "expected": r.expected, "is_count": r.isCount]) + "\n"
+        md += "## Question \(String(format: "%05d", r.id))\n\n**Q:** \(r.q)\n\n**A:** \(r.groundTruth)  _(\(r.kind))_\n\n---\n\n"
+    }
+    write("\(stem)_qa.jsonl", jsonl)
+    write("\(stem)_qa.md", md)
+
+    // 2) fixed held-out test split — deterministic 15% by id, for tracking accuracy
+    //    across iterations. (Informational: the engine is rule-based, not trained.)
+    let test = records.filter { $0.id % 100 < 15 }
+    write("\(stem)_test_set.jsonl",
+          test.map { jline(["id": $0.id, "question": $0.q, "answer": $0.groundTruth,
+                            "category": $0.kind, "source": source]) }.joined(separator: "\n") + "\n")
+
+    // 3) failures (JSONL + Markdown) — the hardening backlog
+    let fails = records.filter { $0.status == "wrong" }
+    var fjsonl = "", fmd = "# \(source) — failed questions (\(fails.count))\n\n"
+    for r in fails {
+        fjsonl += jline(["question": r.q, "expected_answer": r.groundTruth,
+                         "model_answer": r.modelAnswer ?? "", "category": r.kind,
+                         "error_type": "wrong_\(r.kind)"]) + "\n"
+        fmd += "- **\(r.q)**\n  - expected: \(r.groundTruth)\n  - got: "
+             + "\((r.modelAnswer ?? "").replacingOccurrences(of: "\n", with: " / "))\n  - kind: \(r.kind)\n\n"
+    }
+    write("failed_questions.jsonl", fjsonl.isEmpty ? "" : fjsonl)
+    write("failed_questions.md", fails.isEmpty ? "# \(source) — no failures 🎉\n" : fmd)
+
+    // 4) evaluation report
+    var rep = "# \(source) — Evaluation Report (Penny deterministic engine)\n\n"
+    rep += "- Source: `\(source)` · transactions: \(rows.count) · currency: \(currency) · issuer: \(out.bankName ?? "?")\n"
+    rep += "- Engine: `FinanceRouter` (deterministic, no MLX)\n\n"
+    rep += "| Metric | Value |\n|---|---|\n"
+    rep += "| Total questions | \(qas.count) |\n| Answered | \(answered) |\n| Correct | \(pass) |\n"
+    rep += "| Wrong | \(wrong) |\n| Deferred to on-device LLM | \(deferred) |\n"
+    rep += "| **Accuracy (answered)** | **\(String(format: "%.2f", acc))%** |\n"
+    rep += "| Coverage | \(String(format: "%.1f", Double(answered)/Double(max(1, qas.count))*100))% |\n\n"
+    rep += "## Accuracy by category\n\n| Category | Correct | Total | Accuracy |\n|---|--:|--:|--:|\n"
+    for k in totalByKind.keys.sorted() {
+        let c = passByKind[k] ?? 0, t = totalByKind[k] ?? 0
+        rep += "| \(k) | \(c) | \(t) | \(String(format: "%.1f", t > 0 ? Double(c)/Double(t)*100 : 0))% |\n"
+    }
+    let weakest = totalByKind.keys.map { k -> (String, Double) in
+        let c = passByKind[k] ?? 0, t = totalByKind[k] ?? 0
+        return (k, t > 0 ? Double(c)/Double(t)*100 : 0)
+    }.sorted { $0.1 < $1.1 }.prefix(3).map { "\($0.0) (\(String(format: "%.1f", $0.1))%)" }
+    rep += "\n**Weakest categories:** \(weakest.isEmpty ? "none" : weakest.joined(separator: ", "))\n"
+    write("evaluation_report.md", rep)
 }

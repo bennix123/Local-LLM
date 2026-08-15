@@ -2159,18 +2159,49 @@ final class AppModel: ObservableObject {
         // (which truncates rows and garbles columns).
         let txns = selectedTransactions()
         if wantsTransactionTable(q), !txns.isEmpty {
+            let l = q.lowercased()
+            // If the question names a category we actually hold — by its full name
+            // ("…of Dental Care") or just one distinctive word ("a dental table") —
+            // narrow the ledger to it rather than dumping every row. We tokenise on
+            // whole words (so "barclays" can't hit a "Bar" category), score each
+            // category by shared words plus a bonus for a verbatim multi-word phrase,
+            // and pick the best (longest name breaks ties, so "Fast Food" beats "Food").
+            func tokens(_ s: String) -> Set<String> {
+                Set(String(s.lowercased().map { $0.isLetter || $0.isNumber ? $0 : " " })
+                    .split(separator: " ").map(String.init).filter { $0.count >= 3 })
+            }
+            let queryTokens = tokens(l)
+            let distinctCategories = Set(txns.compactMap(\.category)).filter { !$0.isEmpty }
+            var scored: [(name: String, score: Int)] = []
+            for cat in distinctCategories {
+                let shared = tokens(cat).intersection(queryTokens).count
+                let phrase = (cat.contains(" ") && l.contains(cat.lowercased())) ? 5 : 0
+                let total = shared + phrase
+                if total > 0 { scored.append((name: cat, score: total)) }
+            }
+            let best = scored.max {
+                $0.score != $1.score ? $0.score < $1.score : $0.name.count < $1.name.count
+            }
+            let matchedCategory = best?.name
+            let rows: [PennyCore.Transaction]
+            if let cat = matchedCategory {
+                rows = txns.filter { $0.category?.caseInsensitiveCompare(cat) == .orderedSame }
+            } else {
+                rows = txns
+            }
+
             // Show every row when the user explicitly asks for the whole ledger;
             // otherwise cap at 200 (with a note on how to see the rest).
-            let l = q.lowercased()
             let wantsAll = ["all", "full", "every", "complete", "entire", "whole"].contains { l.contains($0) }
             let limit: Int? = wantsAll ? nil : 200
-            let noun = txns.count == 1 ? "transaction" : "transactions"
-            let header = (wantsAll || txns.count <= 200)
-                ? "Here \(txns.count == 1 ? "is" : "are") all \(txns.count) \(noun) on record:\n\n"
-                : "Here are your \(txns.count) \(noun) (showing the first 200):\n\n"
-            let table = Self.transactionsMarkdown(txns, currency: summary.currency, limit: limit)
+            let noun = rows.count == 1 ? "transaction" : "transactions"
+            let scope = matchedCategory.map { " \($0)" } ?? ""
+            let header = (wantsAll || rows.count <= 200)
+                ? "Here \(rows.count == 1 ? "is" : "are") all \(rows.count)\(scope) \(noun) on record:\n\n"
+                : "Here are your \(rows.count)\(scope) \(noun) (showing the first 200):\n\n"
+            let table = Self.transactionsMarkdown(rows, currency: summary.currency, limit: limit)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
-            PennyLog.shared.log("chat", "A (ledger): \(txns.count)-row transaction table")
+            PennyLog.shared.log("chat", "A (ledger): \(rows.count)-row transaction table\(matchedCategory.map { " [\($0)]" } ?? "")")
             return
         }
 
@@ -2285,9 +2316,12 @@ final class AppModel: ObservableObject {
                 grounding = facts + "\n\n" + grounding
             }
             do {
-                // Generous cap so long outputs (e.g. a full transaction table) aren't
-                // truncated mid-row; short answers still stop early at end-of-text.
-                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 4096) { [weak self] piece in
+                // Concise cap keeps generation fast: chat answers here are advisory
+                // prose (transaction tables are served deterministically by the LEDGER
+                // path, never the model), and short answers still stop early at
+                // end-of-text — so 512 rarely truncates a real answer but bounds the
+                // worst-case latency instead of letting it run to thousands of tokens.
+                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 512) { [weak self] piece in
                     Task { @MainActor in
                         guard let self, self.messages.indices.contains(idx) else { return }
                         self.messages[idx].content += piece

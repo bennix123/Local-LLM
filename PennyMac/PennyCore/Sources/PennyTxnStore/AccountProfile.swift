@@ -6,6 +6,7 @@ import Foundation
 enum AccountProfile {
     static let fastTrack: [(PyRegex, String)] = [
         (PyRegex("punjab national bank|pnb", ignoreCase: true), "Punjab National Bank"),
+        (PyRegex("american express", ignoreCase: true), "American Express"),
         (PyRegex("barclays", ignoreCase: true), "Barclays Bank"),
         (PyRegex("hdfc bank", ignoreCase: true), "HDFC Bank"),
         (PyRegex("state bank of india|sbi\\b", ignoreCase: true), "State Bank of India"),

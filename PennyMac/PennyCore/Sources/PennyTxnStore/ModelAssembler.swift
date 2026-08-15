@@ -118,10 +118,24 @@ public enum ModelAssembler {
             enrichment: enrichment)
     }
 
-    /// Best-effort parsed FX from the row's description (Task 0.5). Only kept when
-    /// the original currency actually differs from the account's — otherwise a
-    /// same-currency amount in the text isn't "foreign".
+    /// Parsed FX for a row. Prefers the structured foreign-spend detail a parser
+    /// captured off the statement's own FX column/line (e.g. Amex "Foreign Spend"
+    /// + "Exchange Rate … Transaction Fee"); falls back to a best-effort scrape of
+    /// the description text (Task 0.5). Either way it is kept only when the original
+    /// currency actually differs from the account's — a same-currency amount isn't
+    /// "foreign".
     private static func parsedFX(_ row: TxnRow, accountCurrency: Currency) -> FXInfo? {
+        if let amt = row.fxForeignAmount, let code = row.fxForeignCurrency {
+            let currency = Currency(code)
+            if currency != accountCurrency {
+                return FXInfo(
+                    originalAmount: Money(decimal: DecimalBridge.decimal(amt)),
+                    originalCurrency: currency,
+                    rate: row.fxRate.map { DecimalBridge.decimal($0) },
+                    fee: row.fxFee.map { Money(decimal: DecimalBridge.decimal($0)) },
+                    country: nil)
+            }
+        }
         guard let fx = TransactionFXParser.fx(from: row.descr),
               fx.originalCurrency != accountCurrency else { return nil }
         return fx

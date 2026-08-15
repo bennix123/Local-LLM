@@ -791,6 +791,31 @@ final class FinanceRouterDisambiguationTests: XCTestCase {
         XCTAssertEqual(ask("how much did i spend at pure gym", rows), "**You spent £57.98 at Pure Gym** across 2 transactions.")
     }
 
+    // A single-word query must resolve an AI-coined MULTI-WORD category present in
+    // the data — "dental" → the "Dental Care" category (BOTH dental charges) —
+    // instead of falling to a merchant word-match that finds only one row.
+    // Real reported bug: "how much on dental" gave £82 / 1 txn while "dental care"
+    // gave the correct £182 / 2 txns.
+    func testSingleWordResolvesDynamicMultiWordCategory() {
+        let rows = [
+            row("CAREDENTALPLATINUM.COM CRAWLEY", merchant: "CAREDENTALPLATINUM.COM CRAWLEY", category: "Dental Care", 100.00, 1),
+            row("CARE DENTAL PLATINUM LONDON", merchant: "CARE DENTAL PLATINUM LONDON", category: "Dental Care", 82.00, 2),
+            row("TFL TRAVEL CHARGE", merchant: "TFL", category: "Public Transit", 5.80, 3),
+            row("DELIVEROO LONDON", merchant: "Deliveroo", category: "Fast Food", 11.56, 4),
+        ]
+        let a = answerOrFail("how much did i expense in the dental", rows)
+        XCTAssertTrue(a.contains("£182.00"),
+                      "single-word 'dental' must scope the Dental Care category (£182), got: \(a)")
+        // the full category name already worked — must still work
+        XCTAssertTrue(answerOrFail("how much did i expense in the dental care", rows).contains("£182.00"))
+        // a distinctive word from another multi-word category resolves it too
+        XCTAssertTrue(answerOrFail("how much on transit", rows).contains("£5.80"),
+                      "'transit' → Public Transit")
+        // naming a full merchant still scopes to the merchant, not the category
+        XCTAssertEqual(ask("how much at deliveroo", rows),
+                       "**You spent £11.56 at Deliveroo** across 1 transaction.")
+    }
+
     // "biggest / smallest Subscriptions charge" is a category superlative, NOT a
     // request for the recurring-cadence list.
     func testCategorySuperlativeNotRecurringList() {

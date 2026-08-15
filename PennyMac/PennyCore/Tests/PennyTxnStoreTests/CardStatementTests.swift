@@ -36,18 +36,25 @@ final class CardStatementTests: XCTestCase {
     }
 
     func testExistingFixturesNeverDetectAsCards() throws {
-        // The entire conformance corpus is bank statements; a regression here
-        // would corrupt real users' figures. (Amex is the only card layout and
-        // it has its own dedicated parser, not this detector.)
+        // Every bank-account fixture must read as a bank account; a regression here
+        // would corrupt real users' figures. The Amex Platinum statement is the one
+        // genuine credit-card layout in the corpus — it routes to its own dedicated
+        // parser (`.ukLayout` → parseAmexCard) and is legitimately `isCard`, so it is
+        // asserted separately rather than swept up by this bank-account guard.
         let fm = FileManager.default
         let ingester = try TestPaths.makeIngester()
         let pdfs = try fm.contentsOfDirectory(atPath: TestPaths.fixturesDir.path)
             .filter { $0.hasSuffix(".pdf") }.sorted()
         XCTAssertFalse(pdfs.isEmpty)
-        for pdf in pdfs {
+        let knownCards: Set<String> = ["amex_platinum_statement.pdf"]
+        for pdf in pdfs where !knownCards.contains(pdf) {
             let out = try ingester.ingestPDF(path: TestPaths.fixturesDir.appendingPathComponent(pdf).path)
             XCTAssertFalse(out.isCard, "\(pdf) wrongly detected as a credit card statement")
         }
+        // the one genuine card layout must still be recognised as a card
+        let amex = try ingester.ingestPDF(
+            path: TestPaths.fixturesDir.appendingPathComponent("amex_platinum_statement.pdf").path)
+        XCTAssertTrue(amex.isCard, "the Amex Platinum statement is a credit-card statement")
     }
 
     // MARK: - stated owed amount

@@ -1,0 +1,497 @@
+[
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Payments",
+    "credit" : 1211.8399999999999,
+    "date" : "2026-02-24",
+    "debit" : 0,
+    "description" : "PAYMENT RECEIVED - THANK YOU"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-15",
+    "debit" : 2.1000000000000001,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Healthcare",
+    "credit" : 0,
+    "date" : "2026-02-16",
+    "debit" : 100,
+    "description" : "CAREDENTALPLATINUM.COM CRAWLEY"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-16",
+    "debit" : 2.9900000000000002,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-16",
+    "debit" : 1,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Healthcare",
+    "credit" : 0,
+    "date" : "2026-02-17",
+    "debit" : 82,
+    "description" : "CARE DENTAL PLATINUM LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-17",
+    "debit" : 13.6,
+    "description" : "DOJO*BEEHIVE LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-17",
+    "debit" : 7.2999999999999998,
+    "description" : "PRET A MANGER London"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-17",
+    "debit" : 8.9000000000000004,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-18",
+    "debit" : 14.9,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-18",
+    "debit" : 40.700000000000003,
+    "description" : "TST-BKC - SOHO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Groceries",
+    "credit" : 0,
+    "date" : "2026-02-18",
+    "debit" : 7.9900000000000002,
+    "description" : "LONDIS LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-18",
+    "debit" : 5.7999999999999998,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-19",
+    "debit" : 5.7999999999999998,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-21",
+    "debit" : 2.8999999999999999,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-21",
+    "debit" : 2.8999999999999999,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Other",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 6.5,
+    "description" : "Latymers - Hammersmith London"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 7.25,
+    "description" : "DOJO*THE CRAFT BEER CO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Other",
+    "credit" : 0,
+    "date" : "2026-02-22",
+    "debit" : 0.5,
+    "description" : "NAYAXAU*DATATEK PAYMENT LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-23",
+    "debit" : 11.56,
+    "description" : "DELIVEROO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-23",
+    "debit" : 1,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-23",
+    "debit" : 2.9900000000000002,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Subscriptions",
+    "credit" : 0,
+    "date" : "2026-02-24",
+    "debit" : 2.9900000000000002,
+    "description" : "AD FREE FOR PRIMEVIDEO 353-12477661"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-02-24",
+    "debit" : 5.7999999999999998,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-02-25",
+    "debit" : 12.19,
+    "description" : "DELIVEROO LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Other",
+    "credit" : 0,
+    "date" : "2026-03-01",
+    "debit" : 3.4700000000000002,
+    "description" : "TEYA*LITLI DUBLINER FRA REYKJAVIK"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-02",
+    "debit" : 2.6000000000000001,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-02",
+    "debit" : 2.9900000000000002,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Shopping",
+    "credit" : 0,
+    "date" : "2026-03-03",
+    "debit" : 8.9900000000000002,
+    "description" : "APPLE.COM\/BILL HOLLYHILL"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-03",
+    "debit" : 6.2000000000000002,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Subscriptions",
+    "credit" : 0,
+    "date" : "2026-03-04",
+    "debit" : 8.9900000000000002,
+    "description" : "AMAZON PRIME*227DM1GO5 AMZN.CO.UK\/PM"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Other",
+    "credit" : 0,
+    "date" : "2026-03-05",
+    "debit" : 34.990000000000002,
+    "description" : "NOW LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-03-05",
+    "debit" : 21.600000000000001,
+    "description" : "TST-THE KATI ROLL POLA LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-05",
+    "debit" : 6.2000000000000002,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-03-05",
+    "debit" : 23.43,
+    "description" : "3500728 Kings Arms Oxfo Westminster"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-07",
+    "debit" : 8.9000000000000004,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-08",
+    "debit" : 4.7999999999999998,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-03-08",
+    "debit" : 20,
+    "description" : "LOKAL HOUNSLOW"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Other",
+    "credit" : 0,
+    "date" : "2026-03-08",
+    "debit" : 20,
+    "description" : "Unit 6 281-287 High Str HOUNSLOW"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 13.6,
+    "description" : "DOJO*BEEHIVE LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 6.9900000000000002,
+    "description" : "LIME*PASS DXIZ LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 1,
+    "description" : "LIME*RIDE DXIZ LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 3.1000000000000001,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Food & Dining",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 14.4,
+    "description" : "TAMESIS DOCK London"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-10",
+    "debit" : 1.75,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-14",
+    "debit" : 6.9900000000000002,
+    "description" : "LIME*PASS DXIZ LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-14",
+    "debit" : 3.3599999999999999,
+    "description" : "LIME*RIDE DXIZ LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-14",
+    "debit" : 1.75,
+    "description" : "TFL TRAVEL CHARGE TFL.GOV.UK\/CP"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-14",
+    "debit" : 1.3200000000000001,
+    "description" : "FOREST LONDON"
+  },
+  {
+    "balance" : null,
+    "bank" : "American Express",
+    "category" : "Transport",
+    "credit" : 0,
+    "date" : "2026-03-14",
+    "debit" : 2.9900000000000002,
+    "description" : "FOREST LONDON"
+  }
+]

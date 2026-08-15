@@ -6,7 +6,7 @@
 // debit, credit, balance (including SQL-NULL balances), category and bank label,
 // using the identical comparison semantics as the runner (NSNumber.doubleValue
 // coercion, missing debit/credit → 0, NSNull bank → nil, exact Double equality,
-// no rounding). An inventory test pins the 22-fixture contract so deleting a
+// no rounding). An inventory test pins the fixture contract so deleting a
 // fixture — or dropping a new one in untested — fails loudly instead of silently.
 
 import XCTest
@@ -29,6 +29,7 @@ final class ConformanceContractTests: XCTestCase {
         "Nationwide_Demo_Statement",
         "Starling_Demo_Statement",
         "Statement 05-MAR-26 AC 73519392  06053808 barckley",
+        "amex_platinum_statement",
         "boi_dummy_statement",
         "chase_dummy_statement",
         "lloyds_dummy_statement",
@@ -47,11 +48,11 @@ final class ConformanceContractTests: XCTestCase {
 
     private static let barclaysStem = "Statement 05-MAR-26 AC 73519392  06053808 barckley"
 
-    /// All 22 fixture pairs must exist — guards against fixtures being deleted
+    /// All fixture pairs must exist — guards against fixtures being deleted
     /// or renamed silently (which would shrink the contract without any failure).
-    func testAll22ExpectedFixturesPresent() {
-        XCTAssertEqual(Self.fixtureStems.count, 22,
-                       "the contract is defined as exactly 22 fixtures; the hardcoded list drifted")
+    func testAllExpectedFixturesPresent() {
+        XCTAssertEqual(Self.fixtureStems.count, 23,
+                       "the contract is defined as exactly 23 fixtures; the hardcoded list drifted")
         let fm = FileManager.default
         for stem in Self.fixtureStems {
             let pdf = TestPaths.fixturesDir.appendingPathComponent(stem + ".pdf").path
@@ -87,6 +88,7 @@ final class ConformanceContractTests: XCTestCase {
     func testNationwideDemoStatementConforms()      { runConformance(stem: "Nationwide_Demo_Statement") }
     func testStarlingDemoStatementConforms()        { runConformance(stem: "Starling_Demo_Statement") }
     func testBarclaysStatementConforms()            { runConformance(stem: Self.barclaysStem) }
+    func testAmexPlatinumStatementConforms()        { runConformance(stem: "amex_platinum_statement") }
     func testBOIDummyStatementConforms()            { runConformance(stem: "boi_dummy_statement") }
     func testChaseDummyStatementConforms()          { runConformance(stem: "chase_dummy_statement") }
     func testLloydsDummyStatementConforms()         { runConformance(stem: "lloyds_dummy_statement") }
