@@ -49,6 +49,35 @@ public struct Transaction: Sendable, Codable, Equatable {
     }
 }
 
+/// Header-level facts read off a statement by the model — the fields that vary
+/// too much in layout for a fixed label parser (Amex "Prepared for", Barclays,
+/// Monzo, Indian banks each print them differently). Values are the raw strings
+/// as printed; the app validates/normalizes them (dates via `CalendarDate`, names
+/// title-cased) before display, and never trusts an unparseable one. Both the
+/// Apple and MLX engines return this shape, so callers are engine-agnostic.
+public struct StatementFacts: Sendable, Codable, Equatable {
+    /// The person the statement is prepared for / the account holder, or nil.
+    public var cardholder: String?
+    /// The statement (closing) date as printed — NOT a due date or a txn date, or nil.
+    public var statementDate: String?
+    public init(cardholder: String? = nil, statementDate: String? = nil) {
+        self.cardholder = cardholder
+        self.statementDate = statementDate
+    }
+    enum CodingKeys: String, CodingKey { case cardholder, statementDate }
+    /// Lenient decode: absent/blank/"null"-string fields become nil.
+    public init(from decoder: Swift.Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func field(_ k: CodingKeys) -> String? {
+            guard let s = try? c.decode(String.self, forKey: k) else { return nil }
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (t.isEmpty || t.caseInsensitiveCompare("null") == .orderedSame) ? nil : t
+        }
+        cardholder = field(.cardholder)
+        statementDate = field(.statementDate)
+    }
+}
+
 /// One on-device category verdict for a merchant descriptor, from
 /// `PennyLLM.categorizeMerchants`. `category` may be a brand-new name the model
 /// coined (dynamic taxonomy) — not just one of the seeds it was shown.
@@ -88,18 +117,23 @@ public actor PennyLLM {
     public static let sliceModelID = "mlx-community/Llama-3.2-3B-Instruct-4bit"
 
     /// Grounding rules distilled from finquery/scripts/test_server/prompts.py.
+    ///
+    /// Chat-only prompt: the model answers questions in prose. It must NOT build
+    /// transaction tables — those are rendered deterministically by the app's
+    /// LEDGER path, never the model. Telling a small model to emit a "| Date |
+    /// Description |" grid here made it start a table for *any* prompt (even
+    /// "roast me" or a greeting) and then degenerate into runaway whitespace.
     public static let systemPrompt = """
         You are Penny, an offline personal-finance assistant. Answer the user's question \
-        using ONLY the bank-statement text provided. Quote amounts exactly as they appear \
-        in the text; never invent, guess, round or calculate numbers that are not written \
-        there. If the answer is not in the statement, say so plainly. Be concise, warm and \
-        plain-English. No headings, no 'Answer:' prefix.
+        using ONLY the bank-statement text and figures provided. Quote amounts exactly as \
+        they appear; never invent, guess, round or recalculate numbers that are not written \
+        there. If the answer isn't in the data, say so plainly.
 
-        When the user asks for transactions, a list, or "table" data, reply with a clean \
-        GitHub-flavored Markdown table: pipe "|" separated columns with a "---" header \
-        separator row, and one transaction per row. Prefer concise columns such as Date, \
-        Description, Debit, Credit, Balance. NEVER output comma-separated values, and do \
-        not dump raw reference numbers, cheque numbers or branch codes unless explicitly asked.
+        Reply in a few short sentences of warm, plain English — like a friend texting back. \
+        No headings, no 'Answer:' prefix. Do NOT output a table or a "| Date | Description |" \
+        grid, and do not list transactions row by row — those are shown elsewhere in the app. \
+        For advice, opinions or a "roast", be specific: name the actual merchants and amounts \
+        from the figures provided and keep it to one short, punchy paragraph.
         """
 
     /// Download/load progress, richer than a bare fraction so the UI can show
@@ -187,7 +221,12 @@ public actor PennyLLM {
             QUESTION: \(question)
             """
 
-        let parameters = GenerateParameters(maxTokens: maxTokens, temperature: 0.3, topP: 0.9)
+        // repetitionPenalty is the safety net: without it a small model that slips
+        // into a degenerate pattern (e.g. padding a markdown column with spaces) will
+        // repeat it until it burns every one of `maxTokens`, which looks like the app
+        // hanging mid-answer. 1.15 over a 40-token window breaks those loops cheaply.
+        let parameters = GenerateParameters(maxTokens: maxTokens, temperature: 0.3, topP: 0.9,
+                                            repetitionPenalty: 1.15, repetitionContextSize: 40)
 
         return try await container.perform { context in
             let input = try await context.processor.prepare(
@@ -287,6 +326,46 @@ public actor PennyLLM {
             return output
         }
         return Self.cleanIssuer(raw)
+    }
+
+    /// Read header-level facts (cardholder, statement date) off a statement,
+    /// on-device. Like `detectIssuer`, this generalizes past the deterministic
+    /// label parser's fixed patterns to ANY statement layout the model can read —
+    /// the app calls it only when the label parser couldn't find the field. Apple's
+    /// system model (validated `@Generable`) first; the MLX model (JSON) otherwise.
+    /// Deterministic (temp 0) and small. All fields may be nil ("not printed").
+    public func extractStatementFacts(from statementText: String) async throws -> StatementFacts {
+        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+            do { return try await AppleFoundationLLM.extractFacts(from: statementText) }
+            catch is CancellationError { throw CancellationError() }
+            catch { /* fall through to the MLX model below */ }
+        }
+        let container = try await load()
+        let head = String(statementText.prefix(2_500))
+        let system = """
+            You read header facts off a bank or credit-card statement. Output ONLY a \
+            JSON object (no prose, no markdown fences) with exactly these keys: \
+            "cardholder" (the full name the statement is prepared for / the account \
+            holder, exactly as printed) and "statementDate" (the statement or closing \
+            date printed in the header — NOT the payment due date and NOT a transaction \
+            date, exactly as printed). Use an empty string "" for any field the header \
+            does not clearly show. Do not guess.
+            """
+        let user = "STATEMENT (header text):\n\(head)\n\nReturn the JSON object now."
+        let parameters = GenerateParameters(maxTokens: 128, temperature: 0, topP: 1.0)
+        let raw = try await container.perform { context in
+            let input = try await context.processor.prepare(
+                input: UserInput(chat: [.system(system), .user(user)])
+            )
+            var output = ""
+            let stream = try MLXLMCommon.generate(input: input, parameters: parameters, context: context)
+            for await generation in stream {
+                if Task.isCancelled { break }
+                if case .chunk(let piece) = generation { output += piece }
+            }
+            return output
+        }
+        return Self.parseFacts(from: raw)
     }
 
     /// Categorize merchant descriptors ON-DEVICE with a dynamic taxonomy: the model
@@ -436,6 +515,18 @@ public actor PennyLLM {
         if s.isEmpty || s.caseInsensitiveCompare("UNKNOWN") == .orderedSame { return nil }
         if s.count > 40 { return nil }   // the model rambled — not a name
         return s
+    }
+
+    /// Pull the JSON object out of the model's reply (it may wrap it in prose/fences)
+    /// and decode it into `StatementFacts`, tolerating malformed output (returns an
+    /// all-nil value rather than throwing).
+    static func parseFacts(from raw: String) -> StatementFacts {
+        guard let start = raw.firstIndex(of: "{"),
+              let end = raw.lastIndex(of: "}"), start < end,
+              let data = String(raw[start...end]).data(using: .utf8) else {
+            return StatementFacts()
+        }
+        return (try? JSONDecoder().decode(StatementFacts.self, from: data)) ?? StatementFacts()
     }
 
     /// Pull the JSON array out of the model's reply (it may wrap it in prose/fences) and

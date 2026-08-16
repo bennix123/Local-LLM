@@ -487,6 +487,124 @@ final class AppModelLogicTests: XCTestCase {
                       "singular verb/noun expected; got: \(m.messages.last?.content.prefix(60) ?? "")")
     }
 
+    private func modelWithDatedTxns() -> AppModel {
+        let m = freshModel()
+        m.loadForTesting([makeDoc(name: "bank.pdf",
+                          txns: [txn(date: "2026-02-24", desc: "FEB",   debit: 10),
+                                 txn(date: "2026-03-10", desc: "MAR-A", debit: 20),
+                                 txn(date: "2026-03-20", desc: "MAR-B", debit: 30),
+                                 txn(date: "2026-04-05", desc: "APR",   debit: 40),
+                                 txn(date: "2026-05-01", desc: "MAY",   debit: 50)],
+                          rows: [row(1, date: "2026-02-24", desc: "FEB",   debit: 10),
+                                 row(2, date: "2026-03-10", desc: "MAR-A", debit: 20),
+                                 row(3, date: "2026-03-20", desc: "MAR-B", debit: 30),
+                                 row(4, date: "2026-04-05", desc: "APR",   debit: 40),
+                                 row(5, date: "2026-05-01", desc: "MAY",   debit: 50)],
+                          currency: "GBP")])
+        m.recomputeSummary()
+        return m
+    }
+
+    func testSendTableWithDateRangeFiltersRows() {
+        let m = modelWithDatedTxns()
+        m.send("generate table from 2026-03-05 to 2026-04-05")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        // MAR-A, MAR-B, and APR (end date is inclusive); FEB and MAY excluded.
+        XCTAssertTrue(reply?.content.hasPrefix(
+            "Here are all 3 transactions from 2026-03-05 to 2026-04-05:") == true,
+            "range header/count wrong; got: \(reply?.content.prefix(80) ?? "")")
+        let blocks = MD.parse(reply?.content ?? "")
+        XCTAssertEqual(mdTable(blocks.last)?.rows.count, 3, "only in-range rows appear")
+    }
+
+    func testSendTableWithReversedRangeStillWorks() {
+        let m = modelWithDatedTxns()
+        m.send("show all transactions between 2026-04-05 and 2026-03-05")
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here are all 3 transactions from 2026-03-05 to 2026-04-05:") == true,
+            "reversed range should sort ascending; got: \(m.messages.last?.content.prefix(80) ?? "")")
+    }
+
+    func testSendTableWithTypoedLeadingZeroDay() {
+        // Real user input: "…to 2026-03-010" (fat-fingered extra zero → the 10th).
+        // Must parse as 2026-03-05…2026-03-10, NOT fall through to a whole-year dump.
+        let m = modelWithDatedTxns()
+        m.send("generate table from 2026-03-05 to 2026-03-010")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        // Window 03-05…03-10 catches only MAR-A (03-10); MAR-B is 03-20, outside it.
+        XCTAssertTrue(reply?.content.hasPrefix(
+            "Here is all 1 transaction from 2026-03-05 to 2026-03-10:") == true,
+            "leading-zero typo should still parse the range; got: \(reply?.content.prefix(90) ?? "")")
+        XCTAssertEqual(mdTable(MD.parse(reply?.content ?? "").last)?.rows.count, 1)
+    }
+
+    func testSendTableWithEmptyDateRangeSaysSo() {
+        let m = modelWithDatedTxns()
+        m.send("generate table from 2026-06-01 to 2026-06-30")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertEqual(reply?.content, "No transactions from 2026-06-01 to 2026-06-30.")
+    }
+
+    func testSendTableWithNamedMonth() {
+        let m = modelWithDatedTxns()
+        m.send("generate table for March")
+        // MAR-A and MAR-B; year inferred from the data (2026).
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here are all 2 transactions in March 2026:") == true,
+            "named-month scope wrong; got: \(m.messages.last?.content.prefix(80) ?? "")")
+        XCTAssertEqual(mdTable(MD.parse(m.messages.last?.content ?? "").last)?.rows.count, 2)
+    }
+
+    func testSendTableWithNamedMonthAndExplicitYear() {
+        let m = modelWithDatedTxns()
+        m.send("show all transactions in February 2026")
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here is all 1 transaction in February 2026:") == true,
+            "explicit-year month scope wrong; got: \(m.messages.last?.content.prefix(80) ?? "")")
+    }
+
+    func testSendTableLastMonthAnchorsToData() {
+        let m = modelWithDatedTxns()   // months present: Feb, Mar, Apr, May 2026
+        m.send("show all transactions last month")   // latest is May → "last" = April
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here is all 1 transaction last month (April 2026):") == true,
+            "last-month should anchor to the data's second-latest month; got: \(m.messages.last?.content.prefix(90) ?? "")")
+    }
+
+    func testSendTableLastNDays() {
+        let m = modelWithDatedTxns()   // max date is 2026-05-01
+        m.send("show all transactions in the last 30 days")
+        // Window is 2026-04-02…2026-05-01 → APR (04-05) and MAY (05-01).
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here are all 2 transactions in the last 30 days:") == true,
+            "rolling-day window wrong; got: \(m.messages.last?.content.prefix(80) ?? "")")
+    }
+
+    func testSendTableThisYear() {
+        let m = modelWithDatedTxns()
+        m.send("show all transactions this year")   // maxYear = 2026 → all five rows
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here are all 5 transactions in 2026:") == true,
+            "year window wrong; got: \(m.messages.last?.content.prefix(80) ?? "")")
+    }
+
+    func testSendTableEmptyNamedMonthSaysSo() {
+        let m = modelWithDatedTxns()
+        m.send("generate table for January")   // no January rows in the data
+        XCTAssertEqual(m.messages.last?.content, "No transactions in January 2026.")
+    }
+
+    func testSendTableWithoutRangeUnaffected() {
+        let m = modelWithDatedTxns()
+        m.send("show me all transactions in a table")
+        XCTAssertTrue(m.messages.last?.content.hasPrefix(
+            "Here are all 5 transactions on record:") == true,
+            "no-range path must keep 'on record' wording; got: \(m.messages.last?.content.prefix(80) ?? "")")
+    }
+
     func testSendCountQuestionRoutesToAnalyticsNotLedger() {
         let m = modelWithThreeTxns()
         m.send("how many transactions do I have?")
@@ -631,6 +749,65 @@ final class AppModelLogicTests: XCTestCase {
                        "‘available credit limit’ = the SECOND column, not the £16,100 total limit")
         XCTAssertEqual(m.documentMetadataAnswer("what's the credit limit on Amex?"),
                        "**American Express credit limit: £16,100.00.**")
+    }
+
+    func testDocumentMetadataAnswersAmexStatementDateAndCardholder() {
+        let m = freshModel()
+        // Real Amex "Platinum Card" header — no "Statement date:" label; the name and
+        // date live on the "Prepared for … Date" value row + the "received by" line.
+        m.loadForTesting([makeDoc(name: "Sample_Statement_amex.pdf",
+                          text: "The Platinum Card\nStatement of Account\n"
+                              + "Prepared for Membership Number Date\n"
+                              + "PIYUSH MISHRA xxxx-xxxxxx-01001 15/03/26\n"
+                              + "Statement includes payments and charges received by 15 March 2026\n",
+                          currency: "GBP", detectedIssuer: "American Express")])
+        XCTAssertEqual(m.documentMetadataAnswer("What is the statement date?"),
+                       "**American Express statement date: 15 March 2026.**",
+                       "must read 15 March (not the LLM's off-by-one 14th)")
+        XCTAssertEqual(m.documentMetadataAnswer("Who is the statement prepared for?"),
+                       "**The American Express statement is prepared for Piyush Mishra.**",
+                       "must extract the cardholder name, not answer 'you'")
+        // The statement-period query must NOT be captured by the statement-date case.
+        XCTAssertNil(m.documentMetadataAnswer("what is the statement period?"),
+                     "period query has no declared period here → defers, not a date answer")
+    }
+
+    func testHeaderFactAnswerFormatsAndRejects() {
+        let doc = makeDoc(name: "amex.pdf", text: "x", currency: "GBP",
+                          detectedIssuer: "American Express")
+        // Statement date: a well-formed value is parsed + formatted; anything the
+        // date parser rejects becomes nil (an honest miss, never a wrong answer).
+        XCTAssertEqual(
+            AppModel.headerFactAnswer(.statementDate,
+                facts: .init(cardholder: nil, statementDate: "15/03/26"), doc: doc),
+            "**American Express statement date: 15 March 2026.**")
+        XCTAssertNil(AppModel.headerFactAnswer(.statementDate,
+                facts: .init(statementDate: "sometime in spring"), doc: doc),
+            "an unparseable date must not become a wrong answer")
+        XCTAssertNil(AppModel.headerFactAnswer(.statementDate, facts: .init(), doc: doc))
+        // Cardholder: an ALL-CAPS name is title-cased; a junk blob is rejected.
+        XCTAssertEqual(
+            AppModel.headerFactAnswer(.cardholder, facts: .init(cardholder: "PIYUSH MISHRA"), doc: doc),
+            "**The American Express statement is prepared for Piyush Mishra.**")
+        XCTAssertNil(
+            AppModel.headerFactAnswer(.cardholder,
+                facts: .init(cardholder: "xxxx-xxxxxx-01001 15/03/26"), doc: doc),
+            "a membership-number blob is not a name")
+        XCTAssertNil(AppModel.headerFactAnswer(.cardholder, facts: .init(cardholder: ""), doc: doc))
+    }
+
+    func testDynamicHeaderFactRequestRouting() {
+        let m = freshModel()
+        // Header with NO recognisable labels → the deterministic parser can't answer,
+        // so these questions are the ones that route to the dynamic model fallback.
+        m.loadForTesting([makeDoc(name: "bank.pdf", text: "Some Bank\nno labelled fields here",
+                          currency: "GBP")])
+        XCTAssertEqual(m.dynamicHeaderFactRequest("what is the statement date?")?.field, .statementDate)
+        XCTAssertEqual(m.dynamicHeaderFactRequest("who is the statement prepared for?")?.field, .cardholder)
+        XCTAssertNil(m.dynamicHeaderFactRequest("how much did I spend on food?"),
+                     "non-metadata questions don't route to the dynamic fallback")
+        XCTAssertNil(m.dynamicHeaderFactRequest("what is the statement period?"),
+                     "‘period’ is not a statement-date request")
     }
 
     func testCreditSummaryColumnarParse() {

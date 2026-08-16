@@ -54,6 +54,21 @@ final class StatementMetadataParserTests: XCTestCase {
                        CalendarDate(year: 2026, month: 7, day: 1))
     }
 
+    func testAmexStatementDateAndHolder() {
+        // Real Amex "Platinum Card" header layout (no "Statement date:" label).
+        let header = """
+        Prepared for Membership Number Date
+        PIYUSH MISHRA xxxx-xxxxxx-01001 15/03/26
+        Account Summary
+        Statement includes payments and charges received by 15 March 2026
+        """
+        let m = StatementMetadataParser.parse(text: header)
+        XCTAssertEqual(m.statementDate, CalendarDate(year: 2026, month: 3, day: 15),
+                       "Amex closing date should be read as 15 March 2026")
+        XCTAssertEqual(m.holder, "PIYUSH MISHRA",
+                       "Amex 'Prepared for' name should be captured before the membership mask")
+    }
+
     // MARK: account details
 
     func testAccountDetails() {

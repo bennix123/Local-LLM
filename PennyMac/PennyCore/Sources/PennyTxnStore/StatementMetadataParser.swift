@@ -141,6 +141,11 @@ public enum StatementMetadataParser {
                 #"date\s+of\s+statement[:\s]+"# + "(\(d))",
                 #"statement\s+issued[:\s]+"# + "(\(d))",
                 #"\bissued[:\s]+"# + "(\(d))",
+                // Amex prints no "Statement date:" label; its closing date is the one
+                // charges are "received by", then repeated as DD/MM/YY on the header
+                // value row under the "Prepared for … Date" columns.
+                #"charges\s+received\s+by\s+"# + "(\(d))",
+                #"prepared\s+for\b[\s\S]{0,80}?(\d{1,2}/\d{1,2}/\d{2,4})"#,
             ]
             for p in patterns {
                 if let g = firstGroup(text, p), let date = parseDate(g) { return date }
@@ -174,6 +179,15 @@ public enum StatementMetadataParser {
             if let g = firstGroup(text, #"account\s+holder[:\s]+([A-Z][A-Za-z.'\- ]{2,40})"#) {
                 let name = g.trimmingCharacters(in: .whitespaces)
                 return name.isEmpty ? nil : name
+            }
+            // Amex "Prepared for" header: the name sits on the value row immediately
+            // before the masked membership number
+            // ("PIYUSH MISHRA  xxxx-xxxxxx-01001  15/03/26"). Anchored on that mask/
+            // number boundary so it can't run past the name — still conservative.
+            if let g = firstGroup(text,
+                #"prepared\s+for(?:\s+membership\s+number)?(?:\s+date)?\s+([A-Za-z][A-Za-z.'\- ]{1,40}?)\s+(?:[x*]{2,}[- ]?[x*\d]|\d)"#) {
+                let name = g.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { return name }
             }
             return nil
         }
@@ -221,6 +235,8 @@ public enum StatementMetadataParser {
 
     /// The statement period (public convenience for AppModel delegation).
     public static func statementPeriod(in text: String) -> CalendarDateRange? { Dates.period(text) }
+    public static func statementDate(in text: String) -> CalendarDate? { Dates.statementDate(text) }
+    public static func holder(in text: String) -> String? { AccountDetails.holder(text) }
 
     // MARK: - Date parsing helpers
 
@@ -236,8 +252,9 @@ public enum StatementMetadataParser {
     private static let dateExpr =
         #"(?:\d{1,2}\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{2,4}|\d{4}-\d{2}-\d{2})"#
 
-    /// Parse one date token into a `CalendarDate`, or nil.
-    static func parseDate(_ s: String) -> CalendarDate? {
+    /// Parse one date token into a `CalendarDate`, or nil. Public so callers can
+    /// validate a model-extracted date string (accepts only a bare, well-formed date).
+    public static func parseDate(_ s: String) -> CalendarDate? {
         let t = s.trimmingCharacters(in: .whitespaces)
         // ISO: 2026-06-15
         if let g = firstThreeGroups(t, #"^(\d{4})-(\d{2})-(\d{2})$"#),

@@ -573,6 +573,12 @@ final class AppModel: ObservableObject {
     private var retriever: TxnRetriever?
     private var retrieverKey = ""
 
+    /// Per-statement header facts extracted by the model on demand (cardholder,
+    /// statement date), keyed by `LoadedDoc.id` — cached so repeat metadata
+    /// questions about the same statement don't re-run the model. See
+    /// `answerHeaderFactDynamically`.
+    private var statementFactsCache: [String: PennyCore.StatementFacts] = [:]
+
     var catalog: [PennyLLM.CatalogEntry] { PennyLLM.catalog }
 
     var modelDisplayName: String {
@@ -1670,6 +1676,151 @@ final class AppModel: ObservableObject {
         return dataWord && listWord
     }
 
+    /// A comparable `YYYYMMDD` key from an ISO-ish date string ("2026-03-05",
+    /// "2026/3/5"), or nil when it isn't a Y-M-D date. Numeric (not lexical) so
+    /// non-zero-padded components still order correctly.
+    static func isoDateKey(_ s: String) -> Int? {
+        let parts = s.split(whereSeparator: { $0 == "-" || $0 == "/" })
+        guard parts.count == 3,
+              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+        return y * 10_000 + m * 100 + d
+    }
+
+    // Month vocabulary for the natural-language date parser (mirrors the finance
+    // router's table so phrasing behaves identically on the ledger path).
+    private static let tableMonthNames: [(String, Int)] = [
+        ("january", 1), ("jan", 1), ("february", 2), ("feb", 2), ("march", 3), ("mar", 3),
+        ("april", 4), ("apr", 4), ("may", 5), ("june", 6), ("jun", 6), ("july", 7), ("jul", 7),
+        ("august", 8), ("aug", 8), ("september", 9), ("sep", 9), ("sept", 9), ("october", 10),
+        ("oct", 10), ("november", 11), ("nov", 11), ("december", 12), ("dec", 12)]
+    private static let tableMonthFull = ["", "January", "February", "March", "April", "May",
+        "June", "July", "August", "September", "October", "November", "December"]
+    private static func monthTitle(_ m: Int) -> String {
+        (1...12).contains(m) ? tableMonthFull[m] : "\(m)"
+    }
+
+    /// True when `pattern` matches anywhere in `s` (regex convenience).
+    private static func rx(_ s: String, _ pattern: String) -> Bool {
+        s.range(of: pattern, options: .regularExpression) != nil
+    }
+    /// The first capture group of `pattern` in `s`, or nil.
+    private static func rxGroup(_ s: String, _ pattern: String) -> String? {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let ns = s as NSString
+        guard let m = re.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges > 1 else { return nil }
+        return ns.substring(with: m.range(at: 1))
+    }
+    /// Add `n` days to an ISO "YYYY-MM-DD" date, returning ISO. Fixed UTC
+    /// gregorian calendar so there's no timezone drift across the arithmetic.
+    private static func addDaysISO(_ iso: String, _ n: Int) -> String {
+        let parts = iso.split(separator: "-")
+        guard parts.count == 3, let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2])
+        else { return iso }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC") ?? .current
+        var comps = DateComponents(); comps.year = y; comps.month = m; comps.day = d
+        guard let base = cal.date(from: comps),
+              let moved = cal.date(byAdding: .day, value: n, to: base) else { return iso }
+        let e = cal.dateComponents([.year, .month, .day], from: moved)
+        return String(format: "%04d-%02d-%02d", e.year ?? y, e.month ?? m, e.day ?? d)
+    }
+
+    /// The inclusive date window a table request names, as `YYYYMMDD` keys plus a
+    /// header label. Handles both explicit dates and natural language, all anchored
+    /// to the loaded statement data (there's no wall-clock "now" for a statement):
+    ///   • two ISO dates      — "from 2026-03-05 to 2026-04-05", "between … and …"
+    ///   • a named month      — "in March", "March 2026", "for February"
+    ///   • this/last month    — the latest / second-latest month in the data
+    ///   • this/last year, a bare year — "this year", "in 2025", "2026"
+    ///   • rolling windows    — "last 7 days", "first 10 days", "last/this/first week"
+    /// Returns nil when no date language is present, so a plain "show all
+    /// transactions" still lists the whole ledger.
+    private func tableDateRange(_ q: String, txns: [PennyCore.Transaction])
+            -> (startKey: Int, endKey: Int, label: String)? {
+        let low = q.lowercased()
+
+        // ---- two explicit ISO dates (highest precedence) -------------------
+        // `0*` tolerates fat-fingered leading zeros ("2026-03-010" → the 10th) so a
+        // typo'd day doesn't silently drop the whole range.
+        if let re = try? NSRegularExpression(pattern: #"\b(\d{4})[-/]0*(\d{1,2})[-/]0*(\d{1,2})\b"#) {
+            let ns = q as NSString
+            let ms = re.matches(in: q, range: NSRange(location: 0, length: ns.length))
+            if ms.count >= 2 {
+                func parts(_ m: NSTextCheckingResult) -> (key: Int, text: String) {
+                    let y = Int(ns.substring(with: m.range(at: 1)))!
+                    let mo = Int(ns.substring(with: m.range(at: 2)))!
+                    let d = Int(ns.substring(with: m.range(at: 3)))!
+                    return (y * 10_000 + mo * 100 + d, String(format: "%04d-%02d-%02d", y, mo, d))
+                }
+                let a = parts(ms[0]), b = parts(ms[1])
+                let (lo, hi) = a.key <= b.key ? (a, b) : (b, a)
+                return (lo.key, hi.key, " from \(lo.text) to \(hi.text)")
+            }
+        }
+
+        // Anchors from the loaded data.
+        let keys = txns.compactMap { Self.isoDateKey($0.date) }.sorted()
+        guard let minKey = keys.first, let maxKey = keys.last else { return nil }
+        func iso(_ k: Int) -> String { String(format: "%04d-%02d-%02d", k / 10_000, (k / 100) % 100, k % 100) }
+        func key(_ s: String) -> Int { Self.isoDateKey(s) ?? 0 }
+        func month(_ y: Int, _ m: Int) -> (Int, Int) { (y * 10_000 + m * 100 + 1, y * 10_000 + m * 100 + 31) }
+        func year(_ y: Int) -> (Int, Int) { (y * 10_000 + 101, y * 10_000 + 1231) }
+        // Distinct year*100+month present in the data, ascending.
+        let ym = Array(Set(keys.map { ($0 / 10_000) * 100 + ($0 / 100) % 100 })).sorted()
+        let maxYear = keys.map { $0 / 10_000 }.max()!
+        // A standalone year ("in 2026"), NOT the year inside a date token like
+        // "2026-03-05" — otherwise a partially-unparseable date range would fall
+        // through and be misread as a whole-year window.
+        let explicitYear = Self.rxGroup(low, #"(?<![-/\d])((?:19|20)\d\d)(?![-/]\d)"#).flatMap(Int.init)
+
+        // ---- rolling day windows -------------------------------------------
+        if let g = Self.rxGroup(low, #"(?:last|past|previous)\s+(\d{1,3})\s+days?"#),
+           let n = Int(g), n > 0 {
+            return (key(Self.addDaysISO(iso(maxKey), -(n - 1))), maxKey, " in the last \(n) days")
+        }
+        if let g = Self.rxGroup(low, #"first\s+(\d{1,3})\s+days?"#), let n = Int(g), n > 0 {
+            return (minKey, key(Self.addDaysISO(iso(minKey), n - 1)), " in the first \(n) days")
+        }
+        // ---- week windows (7 days off the data's edges) --------------------
+        if Self.rx(low, #"\b(?:last|past|previous|this|current)\s+week\b"#) {
+            return (key(Self.addDaysISO(iso(maxKey), -6)), maxKey, " in the last week")
+        }
+        if Self.rx(low, #"\bfirst\s+week\b"#) {
+            return (minKey, key(Self.addDaysISO(iso(minKey), 6)), " in the first week")
+        }
+
+        // ---- this / last month (anchored to the data's months) -------------
+        if Self.rx(low, #"\b(?:this|current)\s+month\b"#), let last = ym.last {
+            let (y, m) = (last / 100, last % 100); let w = month(y, m)
+            return (w.0, w.1, " this month (\(Self.monthTitle(m)) \(y))")
+        }
+        if Self.rx(low, #"\b(?:last|previous)\s+month\b"#), !ym.isEmpty {
+            let t = ym.count >= 2 ? ym[ym.count - 2] : ym[ym.count - 1]
+            let (y, m) = (t / 100, t % 100); let w = month(y, m)
+            return (w.0, w.1, " last month (\(Self.monthTitle(m)) \(y))")
+        }
+
+        // ---- a named month ("in March", "March 2026") ----------------------
+        for (name, no) in Self.tableMonthNames where Self.rx(low, #"\b"# + name + #"\b"#) {
+            // "may" is also a modal verb — only treat it as the month with clear context.
+            if name == "may",
+               !Self.rx(low, #"\b(?:in|during|for|of|through|this|last|next)\s+may\b|\bmay\s+(?:20\d\d|month)\b"#) {
+                continue
+            }
+            let y = explicitYear ?? keys.filter { ($0 / 100) % 100 == no }.map { $0 / 10_000 }.max() ?? maxYear
+            let w = month(y, no)
+            return (w.0, w.1, " in \(Self.monthTitle(no)) \(y)")
+        }
+
+        // ---- this / last year, then a bare year ----------------------------
+        if Self.rx(low, #"\b(?:this|current)\s+year\b"#) { let w = year(maxYear); return (w.0, w.1, " in \(maxYear)") }
+        if Self.rx(low, #"\b(?:last|previous)\s+year\b"#) { let w = year(maxYear - 1); return (w.0, w.1, " in \(maxYear - 1)") }
+        if let y = explicitYear { let w = year(y); return (w.0, w.1, " in \(y)") }
+
+        return nil
+    }
+
     /// Build a Markdown table from the extracted transactions. `limit` caps the
     /// rows rendered (nil = every row); the caller passes nil when the user asks
     /// for "all"/"full"/"every" so the whole ledger is shown.
@@ -1744,6 +1895,110 @@ final class AppModel: ObservableObject {
     /// the question isn't a metadata lookup, no single statement is identified,
     /// or the figure isn't in the text (so the caller can fall through to the
     /// header-grounded model instead of a wrong deterministic guess).
+    // Intent regexes shared by the deterministic answer (`documentMetadataAnswer`)
+    // and the dynamic LLM fallback (`dynamicHeaderFactRequest`), so both agree on
+    // exactly which questions are header-metadata questions.
+    static let statementDateIntent =
+        #"statement\s+date|date\s+of\s+(?:the\s+)?statement|statement\s+issued|issue\s+date|when\s+(?:was|is)\s+(?:this|the)\s+statement\s+(?:issued|dated|from)|what\s+date\s+is\s+(?:this|the)\s+statement"#
+    static let cardholderIntent =
+        #"prepared\s+for|card\s?holder|account\s+holder|whose\s+(?:statement|account|card)|who(?:'?s| is| does).{0,40}(?:statement|account|card|belong|name)|name\s+on\s+(?:the\s+)?(?:statement|account|card)"#
+
+    /// Display form of a header name: title-case an ALL-CAPS name ("PIYUSH MISHRA"
+    /// → "Piyush Mishra"); leave an already-mixed-case one ("R Tester") untouched.
+    static func displayName(forHolder name: String) -> String {
+        name == name.uppercased() ? name.capitalized : name
+    }
+
+    /// The header field a question asks for that the deterministic parser can supply
+    /// dynamically via the model, paired with the statement it refers to — or nil
+    /// when the question isn't one of these, or no single statement is identified.
+    /// Callers reach this ONLY after `documentMetadataAnswer` returned nil, i.e. the
+    /// label parser couldn't find the field, so the model generalizes to any layout.
+    enum HeaderFact { case statementDate, cardholder }
+    func dynamicHeaderFactRequest(_ question: String) -> (field: HeaderFact, doc: LoadedDoc)? {
+        let low = question.lowercased()
+        guard let doc = namedDoc(for: question)
+                ?? (selectedDocs().count == 1 ? selectedDocs().first : nil) else { return nil }
+        if low.range(of: Self.statementDateIntent, options: .regularExpression) != nil,
+           low.range(of: #"period|date\s+range"#, options: .regularExpression) == nil {
+            return (.statementDate, doc)
+        }
+        if low.range(of: Self.cardholderIntent, options: .regularExpression) != nil {
+            return (.cardholder, doc)
+        }
+        return nil
+    }
+
+    /// Read a header fact off the statement with the on-device model (Apple system
+    /// model → MLX), validate it, and post the answer — the dynamic path that works
+    /// for any layout the deterministic label parser doesn't recognise. Extraction
+    /// is cached per statement so repeat questions don't re-run the model. Posts a
+    /// graceful "couldn't find it" note when the model can't read the field either.
+    func answerHeaderFactDynamically(_ question: String, field: HeaderFact, doc: LoadedDoc) {
+        messages.append(ChatMessage(role: .assistant, content: "", engine: "ANALYTICS"))
+        let idx = messages.count - 1
+        isThinking = true
+
+        // UI-test stub: no model in tests — emit a deterministic marker so the
+        // routing is exercisable without loading weights.
+        if TestMode.modelReady {
+            messages[idx].content = "\(TestMode.stubReplyPrefix) · header-fact · \(question)"
+            isThinking = false
+            return
+        }
+
+        let cached = statementFactsCache[doc.id]
+        generateTask = Task {
+            let facts: PennyCore.StatementFacts
+            if let cached {
+                facts = cached
+            } else {
+                do { facts = try await llm.extractStatementFacts(from: doc.text) }
+                catch is CancellationError { await MainActor.run { self.isThinking = false }; return }
+                catch {
+                    await MainActor.run {
+                        guard self.messages.indices.contains(idx) else { return }
+                        self.messages[idx].content =
+                            "Sorry — I couldn't read that off the \(doc.displayName) statement."
+                        self.isThinking = false
+                    }
+                    return
+                }
+            }
+            await MainActor.run {
+                self.statementFactsCache[doc.id] = facts
+                guard self.messages.indices.contains(idx) else { return }
+                let answer = Self.headerFactAnswer(field, facts: facts, doc: doc)
+                self.messages[idx].content = answer
+                    ?? "I couldn't find the \(field == .statementDate ? "statement date" : "cardholder name") on the \(doc.displayName) statement."
+                PennyLog.shared.log("chat", "A (analytics·dynamic): \(self.messages[idx].content)")
+                self.isThinking = false
+            }
+        }
+    }
+
+    /// Format a validated header fact into the answer, or nil when the model's value
+    /// is missing/unusable (a date that doesn't parse, an empty name) — so a bad
+    /// extraction becomes an honest "couldn't find it", never a wrong answer.
+    static func headerFactAnswer(_ field: HeaderFact, facts: PennyCore.StatementFacts,
+                                 doc: LoadedDoc) -> String? {
+        switch field {
+        case .statementDate:
+            guard let raw = facts.statementDate,
+                  let date = StatementMetadataParser.parseDate(raw) else { return nil }
+            return "**\(doc.displayName) statement date: \(formatCalendarDate(date)).**"
+        case .cardholder:
+            guard let raw = facts.cardholder else { return nil }
+            let name = raw.trimmingCharacters(in: .whitespaces)
+            // Guard against a junk extraction: a real name is letters/spaces, 2+ words
+            // or a distinctive single token, and not absurdly long.
+            guard name.count >= 3, name.count <= 40,
+                  name.range(of: #"^[\p{L}][\p{L}.'\- ]+$"#, options: .regularExpression) != nil
+            else { return nil }
+            return "**The \(doc.displayName) statement is prepared for \(displayName(forHolder: name)).**"
+        }
+    }
+
     func documentMetadataAnswer(_ question: String) -> String? {
         let low = question.lowercased()
 
@@ -1755,6 +2010,26 @@ final class AppModel: ObservableObject {
            let doc = namedDoc(for: question) ?? (selectedDocs().count == 1 ? selectedDocs().first : nil),
            let period = StatementMetadataParser.statementPeriod(in: doc.text) {
             return "**\(doc.displayName) statement period: \(Self.formatCalendarDate(period.start)) – \(Self.formatCalendarDate(period.end)).**"
+        }
+
+        // Statement date — read from the header (Amex prints it as the "…received by"
+        // closing date / the DD/MM/YY value row, with no "Statement date:" label), so
+        // the LLM can't misread it (it answered "2026-03-14" for a 15 March statement).
+        // Guarded against "period"/"date range" queries, which the block above owns.
+        if low.range(of: Self.statementDateIntent, options: .regularExpression) != nil,
+           low.range(of: #"period|date\s+range"#, options: .regularExpression) == nil,
+           let doc = namedDoc(for: question) ?? (selectedDocs().count == 1 ? selectedDocs().first : nil),
+           let date = StatementMetadataParser.statementDate(in: doc.text) {
+            return "**\(doc.displayName) statement date: \(Self.formatCalendarDate(date)).**"
+        }
+
+        // Cardholder / "prepared for" — the name printed in the header, read straight
+        // from the statement (the LLM generic-ified it to "you"). nil when no name is
+        // confidently present, so non-Amex layouts fall through to the model unchanged.
+        if low.range(of: Self.cardholderIntent, options: .regularExpression) != nil,
+           let doc = namedDoc(for: question) ?? (selectedDocs().count == 1 ? selectedDocs().first : nil),
+           let name = StatementMetadataParser.holder(in: doc.text) {
+            return "**The \(doc.displayName) statement is prepared for \(Self.displayName(forHolder: name)).**"
         }
 
         // Each field: an intent regex (does the question ask for it?) paired with the
@@ -2183,25 +2458,102 @@ final class AppModel: ObservableObject {
                 $0.score != $1.score ? $0.score < $1.score : $0.name.count < $1.name.count
             }
             let matchedCategory = best?.name
-            let rows: [PennyCore.Transaction]
-            if let cat = matchedCategory {
-                rows = txns.filter { $0.category?.caseInsensitiveCompare(cat) == .orderedSame }
-            } else {
-                rows = txns
+
+            // Resolve any date window first ("from 2026-03-05 to 2026-04-05", "in
+            // March", "last month", "last 7 days") so its words don't leak into the
+            // merchant match below, and so the range narrows whatever scope we pick.
+            let range = tableDateRange(q, txns: txns)
+
+            // No category named? Try a merchant/description filter, so "table of this
+            // TFL TRAVEL CHARGE TFL.GOV.UK/CP" narrows to those rows instead of dumping
+            // everything. Strip command/filler words first — a bare "show all
+            // transactions" then leaves nothing to filter on and still shows the lot.
+            // Date vocabulary is stripped too so "table for March" can't merchant-match.
+            let stopwords: Set<String> = [
+                "table", "tables", "list", "show", "give", "see", "view", "display",
+                "generate", "create", "make", "want", "please", "the", "this", "that",
+                "for", "and", "with", "all", "full", "every", "complete", "entire",
+                "whole", "transaction", "transactions", "ledger", "entries", "entry",
+                "data", "statement", "statements", "record", "records",
+                // date words (so "in March", "last month", "last 7 days" don't merchant-match)
+                "last", "past", "previous", "current", "next", "recent", "since", "after",
+                "before", "until", "during", "between", "from", "day", "days", "week",
+                "weeks", "month", "months", "year", "years", "first", "january", "jan",
+                "february", "feb", "march", "mar", "april", "apr", "may", "june", "jun",
+                "july", "jul", "august", "aug", "september", "sep", "sept", "october",
+                "oct", "november", "nov", "december", "dec"]
+            // Also drop pure-number tokens (years/day counts) from merchant matching.
+            let filterTokens = queryTokens.subtracting(stopwords).filter { Int($0) == nil }
+            var matchedMerchant: String?
+            var merchantRows: [PennyCore.Transaction] = []
+            if matchedCategory == nil, !filterTokens.isEmpty {
+                var bestScore = 0
+                var bestShared: Set<String> = []
+                for t in txns {
+                    let shared = tokens(t.description).intersection(filterTokens)
+                    if shared.count > bestScore { bestScore = shared.count; bestShared = shared }
+                }
+                // Guard against filtering on one short, incidental word: need either
+                // two matching words or one distinctive (5+ char) one.
+                let qualifies = bestScore >= 2 || bestShared.contains { $0.count >= 5 }
+                if bestScore >= 1, qualifies {
+                    merchantRows = txns.filter {
+                        tokens($0.description).intersection(filterTokens).count == bestScore
+                    }
+                    if let first = merchantRows.first {
+                        matchedMerchant = first.description.count > 40
+                            ? String(first.description.prefix(39)) + "…" : first.description
+                    }
+                }
             }
 
-            // Show every row when the user explicitly asks for the whole ledger;
-            // otherwise cap at 200 (with a note on how to see the rest).
-            let wantsAll = ["all", "full", "every", "complete", "entire", "whole"].contains { l.contains($0) }
+            var rows: [PennyCore.Transaction]
+            let scopeLabel: String?
+            if let cat = matchedCategory {
+                rows = txns.filter { $0.category?.caseInsensitiveCompare(cat) == .orderedSame }
+                scopeLabel = cat
+            } else if matchedMerchant != nil, !merchantRows.isEmpty {
+                rows = merchantRows
+                scopeLabel = matchedMerchant
+            } else {
+                rows = txns
+                scopeLabel = nil
+            }
+
+            // Narrow to the requested date window, on top of any category/merchant
+            // scope. Without this the range was silently ignored and the whole ledger
+            // was dumped (`range` was resolved above, before merchant matching).
+            if let range = range {
+                rows = rows.filter {
+                    guard let key = Self.isoDateKey($0.date) else { return false }
+                    return key >= range.startKey && key <= range.endKey
+                }
+            }
+
+            let scope = scopeLabel.map { " \($0)" } ?? ""
+
+            // No rows in the window — say so plainly rather than an empty table.
+            if let range = range, rows.isEmpty {
+                let msg = "No\(scope) transactions\(range.label)."
+                messages.append(ChatMessage(role: .assistant, content: msg, engine: "LEDGER"))
+                PennyLog.shared.log("chat", "A (ledger): 0-row transaction table [\(range.label.trimmingCharacters(in: .whitespaces))]")
+                return
+            }
+
+            // Show every row when the user explicitly asks for the whole ledger, or
+            // when a date range is given (those windows are small); otherwise cap at
+            // 200 (with a note on how to see the rest).
+            let wantsAll = range != nil
+                || ["all", "full", "every", "complete", "entire", "whole"].contains { l.contains($0) }
             let limit: Int? = wantsAll ? nil : 200
             let noun = rows.count == 1 ? "transaction" : "transactions"
-            let scope = matchedCategory.map { " \($0)" } ?? ""
+            let rangeSuffix = range?.label ?? " on record"
             let header = (wantsAll || rows.count <= 200)
-                ? "Here \(rows.count == 1 ? "is" : "are") all \(rows.count)\(scope) \(noun) on record:\n\n"
-                : "Here are your \(rows.count)\(scope) \(noun) (showing the first 200):\n\n"
+                ? "Here \(rows.count == 1 ? "is" : "are") all \(rows.count)\(scope) \(noun)\(rangeSuffix):\n\n"
+                : "Here are your \(rows.count)\(scope) \(noun)\(rangeSuffix) (showing the first 200):\n\n"
             let table = Self.transactionsMarkdown(rows, currency: summary.currency, limit: limit)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
-            PennyLog.shared.log("chat", "A (ledger): \(rows.count)-row transaction table\(matchedCategory.map { " [\($0)]" } ?? "")")
+            PennyLog.shared.log("chat", "A (ledger): \(rows.count)-row transaction table\(scopeLabel.map { " [\($0)]" } ?? "")\(range.map { " [\($0.label.trimmingCharacters(in: .whitespaces))]" } ?? "")")
             return
         }
 
@@ -2212,6 +2564,15 @@ final class AppModel: ObservableObject {
         if let answer = documentMetadataAnswer(q) {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
             PennyLog.shared.log("chat", "A (analytics): \(answer)")
+            return
+        }
+
+        // Dynamic header-metadata fallback: the deterministic label parser above
+        // couldn't find the statement date / cardholder for THIS layout, so read it
+        // off the header with the on-device model (works on any statement), validated
+        // before it's shown. Runs async and posts when ready.
+        if let req = dynamicHeaderFactRequest(q) {
+            answerHeaderFactDynamically(q, field: req.field, doc: req.doc)
             return
         }
 

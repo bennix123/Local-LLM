@@ -187,6 +187,18 @@ public final class PyRegex {
         self.rx = try! NSRegularExpression(pattern: icu, options: opts)
     }
 
+    /// Non-trapping compile for patterns built from EXTERNAL/untrusted data — e.g.
+    /// the server-provided categories vocabulary, where a single malformed token
+    /// must skip that one rule, not crash the whole app. (The trapping `init` above
+    /// stays for the hardcoded parser patterns, where an invalid pattern is a bug.)
+    public static func safe(_ pattern: String, ignoreCase: Bool = false) -> PyRegex? {
+        let icu = pattern.replacingOccurrences(of: "(?P<", with: "(?<")
+        var opts: NSRegularExpression.Options = []
+        if ignoreCase { opts.insert(.caseInsensitive) }
+        guard (try? NSRegularExpression(pattern: icu, options: opts)) != nil else { return nil }
+        return PyRegex(pattern, ignoreCase: ignoreCase)   // just verified it compiles
+    }
+
     /// re.search — first match anywhere.
     public func search(_ s: String) -> Match? {
         let ns = NSRange(s.startIndex..., in: s)

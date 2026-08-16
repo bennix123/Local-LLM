@@ -138,6 +138,45 @@ enum AppleFoundationLLM {
         return PennyLLM.cleanIssuer(response.content)
     }
 
+    // MARK: - Header facts (structured output)
+
+    /// The header facts the model reads off a statement. Empty strings mean "not
+    /// printed" — mapped to nil in `extractFacts`. `@Generable` so the framework
+    /// validates the shape (no JSON to truncate), same as `Verdict`.
+    @Generable
+    struct Facts: Equatable {
+        @Guide(description: "The full name of the person the statement is prepared for, or the account holder, exactly as printed on the statement. Empty string if the header does not clearly show a name.")
+        let cardholder: String
+        @Guide(description: "The statement date or closing date printed in the statement header, exactly as printed. This is NOT the payment due date and NOT a transaction date. Empty string if the header does not clearly show one.")
+        let statementDate: String
+    }
+
+    /// Read header facts (cardholder, statement date) off a statement on-device,
+    /// generalizing to any layout. Mirrors `PennyLLM.extractStatementFacts`' contract
+    /// (blank fields → nil). Returns raw strings; the app validates/normalizes them.
+    static func extractFacts(from statementText: String) async throws -> StatementFacts {
+        let head = String(statementText.prefix(2_500))
+        let instructions = """
+            You read header facts off a bank or credit-card statement — the name it \
+            is prepared for and the statement (closing) date. Copy values EXACTLY as \
+            printed. Never return the payment due date or a transaction date as the \
+            statement date. If the header does not clearly show a field, return an \
+            empty string for it. Do not guess.
+            """
+        let prompt = "STATEMENT (header text):\n\(head)"
+        let session = LanguageModelSession(instructions: instructions)
+        let response = try await session.respond(
+            to: prompt,
+            generating: Facts.self,
+            options: GenerationOptions(temperature: 0))
+        func clean(_ s: String) -> String? {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (t.isEmpty || t.caseInsensitiveCompare("null") == .orderedSame) ? nil : t
+        }
+        return StatementFacts(cardholder: clean(response.content.cardholder),
+                              statementDate: clean(response.content.statementDate))
+    }
+
     // MARK: - Structured transaction extraction
 
     /// One extracted row. All amounts are strings ("" when absent) so guided
