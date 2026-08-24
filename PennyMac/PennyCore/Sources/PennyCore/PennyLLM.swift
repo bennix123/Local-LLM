@@ -164,42 +164,117 @@ public actor PennyLLM {
 
     /// Load (downloading the weights on first use) and cache the model.
     /// The Swift twin of ensure_loaded() in the reference.
+    ///
+    /// Progress: the Hub's snapshot `Progress` only credits whole COMPLETED files,
+    /// so a single 1.7–4.5 GB weights file reports ~0% for the entire download and
+    /// then snaps to 100% — which reads as a hang and makes users quit (killing the
+    /// download, which has no resume). The Hub total is accurate though, so we pair
+    /// it with the bytes actually on disk (cache blobs + URLSession's in-flight
+    /// CFNetworkDownload temp files) and report whichever is further along.
     @discardableResult
     public func load(onProgress: (@Sendable (LoadProgress) -> Void)? = nil) async throws -> ModelContainer {
         if let container { return container }
         let configuration = ModelConfiguration(id: modelID)
-        // Downloads from HuggingFace on first use, then loads onto the GPU (Metal).
-        // The Hub reports a Foundation `Progress` ~every 100ms; forward the byte
-        // counts too so the UI can render smooth, honest download progress.
+        let hub = HubReported()
+        let watcher: Task<Void, Never>? = onProgress.map { report in
+            let repo = modelID
+            return Task.detached {
+                while !Task.isCancelled {
+                    let total = await hub.total
+                    if total > 0 {
+                        let disk = PennyLLM.bytesOnDisk(repo: repo)
+                        let completed = max(await hub.completed, disk)
+                        report(LoadProgress(
+                            fraction: min(0.999, Double(completed) / Double(total)),
+                            completedBytes: min(completed, total),
+                            totalBytes: total
+                        ))
+                    }
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+        }
+        defer { watcher?.cancel() }
         let container = try await #huggingFaceLoadModelContainer(
             configuration: configuration,
             progressHandler: { p in
-                onProgress?(LoadProgress(
-                    fraction: p.fractionCompleted,
-                    completedBytes: p.completedUnitCount,
-                    totalBytes: p.totalUnitCount
-                ))
+                Task { await hub.update(completed: p.completedUnitCount, total: p.totalUnitCount) }
             }
         )
         self.container = container
+        onProgress?(LoadProgress(fraction: 1, completedBytes: await hub.total, totalBytes: await hub.total))
         return container
+    }
+
+    /// Last byte counts the Hub reported — its total is trustworthy, its completed
+    /// count only moves when a whole file finishes.
+    private actor HubReported {
+        var completed: Int64 = 0
+        var total: Int64 = 0
+        func update(completed: Int64, total: Int64) {
+            self.completed = max(self.completed, completed)
+            if total > 0 { self.total = total }
+        }
+    }
+
+    /// Bytes of this repo already on disk plus any in-flight download temp files.
+    /// Checks every cache location swift-huggingface may use (HF_HUB_CACHE, HF_HOME,
+    /// ~/.cache/huggingface/hub, and the sandbox/caches fallback). Only temp files
+    /// touched in the last minute count — abandoned CFNetworkDownload_*.tmp files
+    /// from earlier killed attempts would otherwise inflate the number.
+    static func bytesOnDisk(repo: String) -> Int64 {
+        let fm = FileManager.default
+        let escaped = "models--" + repo.replacingOccurrences(of: "/", with: "--")
+        let env = ProcessInfo.processInfo.environment
+        var hubDirs: [URL] = []
+        if let p = env["HF_HUB_CACHE"] { hubDirs.append(URL(fileURLWithPath: p)) }
+        if let p = env["HF_HOME"] { hubDirs.append(URL(fileURLWithPath: p).appendingPathComponent("hub")) }
+        hubDirs.append(fm.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub"))
+        if let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            hubDirs.append(caches.appendingPathComponent("huggingface/hub"))
+        }
+        var total: Int64 = 0
+        for dir in hubDirs {
+            let repoDir = dir.appendingPathComponent(escaped)
+            guard let en = fm.enumerator(at: repoDir, includingPropertiesForKeys: [.fileSizeKey]) else { continue }
+            for case let u as URL in en {
+                total += Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+        }
+        let tmp = fm.temporaryDirectory
+        if let items = try? fm.contentsOfDirectory(at: tmp, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
+            for u in items where u.lastPathComponent.hasPrefix("CFNetworkDownload") {
+                let vals = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                guard let mtime = vals?.contentModificationDate, Date().timeIntervalSince(mtime) < 60 else { continue }
+                total += Int64(vals?.fileSize ?? 0)
+            }
+        }
+        return total
     }
 
     /// One grounded question over one statement, streamed token-by-token.
     /// The Swift twin of stream() in the reference (temp 0.3 / top-p 0.9).
     /// The slice deliberately has NO RAG yet — the whole doc is stuffed into context.
+    ///
+    /// `onEngine` reports which engine is actually answering ("apple" or "mlx") the
+    /// moment that path is entered; if Apple fails and MLX takes over, it fires
+    /// again — the last value is the engine that produced the returned text.
     @discardableResult
     public func ask(
         question: String,
         statementText: String,
         maxTokens: Int = 600,
+        onEngine: (@Sendable (String) -> Void)? = nil,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> String {
-        // Apple's on-device system model first (no download); MLX is the fallback.
-        // Non-streaming, so a failure emits nothing and the MLX path can take over
-        // cleanly without double-showing a half-streamed answer. See WWDC26-326.
-        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        // An explicitly loaded MLX model answers: the user picked and downloaded it,
+        // so it must not be silently bypassed. Apple's on-device system model covers
+        // the no-download case, with MLX as the fallback on an Apple failure.
+        // Apple's path is non-streaming-on-failure: it only throws when nothing
+        // streamed, so the MLX fallback never double-shows a half-streamed answer.
+        if container == nil, #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
             do {
+                onEngine?("apple")
                 // Streams straight to `onToken` for immediate first-token; returns the
                 // full text. Only throws when nothing streamed, so MLX fallback is safe.
                 return try await AppleFoundationLLM.answer(
@@ -211,6 +286,7 @@ public actor PennyLLM {
                 // nothing was streamed → fall through to the MLX model below
             }
         }
+        onEngine?("mlx")
         let container = try await load()
 
         let clipped = String(statementText.prefix(12_000))

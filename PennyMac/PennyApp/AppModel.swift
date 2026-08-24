@@ -605,7 +605,7 @@ final class AppModel: ObservableObject {
             var done = Set<String>()
             for id in ids {
                 let total = AppModel.catalogBytes(id)
-                if total > 0, DownloadMeter.bytesOnDisk(repo: id) >= Int64(Double(total) * 0.95) {
+                if total > 0, DownloadMeter.bytesOnDisk(repo: id, includeTemps: false) >= Int64(Double(total) * 0.95) {
                     done.insert(id)
                 }
             }
@@ -648,11 +648,19 @@ final class AppModel: ObservableObject {
 
     func chooseModel(_ id: String) {
         guard id != selectedModelID else { return }
+        // Cancel any in-flight load of the previous choice: without this, the old
+        // download keeps running invisibly (phase was reset to .idle) and races the
+        // new one for the temp dir and the progress meter.
+        loadTask?.cancel()
+        loadTask = nil
         selectedModelID = id
         modelPhase = .idle
         resetLoadTelemetry()
         llm = PennyLLM(modelID: id)
     }
+
+    /// The in-flight `loadAndContinue` task, so switching models can cancel it.
+    private var loadTask: Task<Void, Never>?
 
     private func resetLoadTelemetry() {
         loadStatus = ""
@@ -685,7 +693,7 @@ final class AppModel: ObservableObject {
         modelPhase = .loading(0)
         loadStatus = "connecting…"
         startProgressTimer()
-        Task {
+        loadTask = Task {
             do {
                 try await llm.load { [weak self] p in
                     // Use the Hub only for the accurate TOTAL byte count.
@@ -2682,7 +2690,15 @@ final class AppModel: ObservableObject {
                 // path, never the model), and short answers still stop early at
                 // end-of-text — so 512 rarely truncates a real answer but bounds the
                 // worst-case latency instead of letting it run to thousands of tokens.
-                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 512) { [weak self] piece in
+                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 512, onEngine: { [weak self] engine in
+                    // The badge reflects the engine that ACTUALLY answered — Apple's
+                    // system model and MLX are both possible here (finding: bubbles
+                    // said "MLX" while Apple Intelligence did the answering).
+                    Task { @MainActor in
+                        guard let self, self.messages.indices.contains(idx) else { return }
+                        self.messages[idx].engine = engine == "apple" ? "APPLE" : "MLX"
+                    }
+                }) { [weak self] piece in
                     Task { @MainActor in
                         guard let self, self.messages.indices.contains(idx) else { return }
                         self.messages[idx].content += piece
@@ -2809,7 +2825,10 @@ final class AppModel: ObservableObject {
 /// until the very end. Real on-disk bytes give a smooth, truthful percentage.
 enum DownloadMeter {
     /// `repo` is a HuggingFace id like "mlx-community/Llama-3.1-8B-Instruct-4bit".
-    static func bytesOnDisk(repo: String) -> Int64 {
+    /// `includeTemps: false` counts only completed cache files — required when
+    /// deciding "downloaded ✓", where an in-flight (or orphaned) temp of a
+    /// DIFFERENT model would otherwise mark this one as present.
+    static func bytesOnDisk(repo: String, includeTemps: Bool = true) -> Int64 {
         let fm = FileManager.default
         var total: Int64 = 0
 
@@ -2821,7 +2840,7 @@ enum DownloadMeter {
         }
 
         // 2) In-flight downloads: URLSession streams to CFNetworkDownload_*.tmp in tmp.
-        total += tempDownloadBytes(fm: fm)
+        if includeTemps { total += tempDownloadBytes(fm: fm) }
         return total
     }
 
@@ -2839,10 +2858,15 @@ enum DownloadMeter {
     private static func tempDownloadBytes(fm: FileManager) -> Int64 {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
         guard let items = try? fm.contentsOfDirectory(
-            at: tmp, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+            at: tmp, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) else { return 0 }
         var total: Int64 = 0
         for u in items where u.lastPathComponent.hasPrefix("CFNetworkDownload") {
-            total += Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            // Only temps still being written to count: orphans from killed attempts
+            // (gigabytes of them accumulate) would freeze the meter at a bogus number.
+            let vals = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            guard let mtime = vals?.contentModificationDate,
+                  Date().timeIntervalSince(mtime) < 60 else { continue }
+            total += Int64(vals?.fileSize ?? 0)
         }
         return total
     }
