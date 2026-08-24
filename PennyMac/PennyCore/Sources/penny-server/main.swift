@@ -74,8 +74,11 @@ actor PennyEngine {
     /// Parse an uploaded statement (bytes + filename) through the deterministic pipeline.
     func ingest(data: Data, filename: String) throws -> Statement {
         let ext = (filename as NSString).pathExtension.lowercased()
-        guard ext == "pdf" || ext == "csv" else {
-            throw IngestUserError(message: "“.\(ext)” files aren't supported — Penny reads PDF and CSV statements. Export the file as CSV or PDF and try again.")
+        guard ["pdf", "csv", "xlsx"].contains(ext) else {
+            let hint = ext == "xls"
+                ? "That's the pre-2007 Excel format — re-save it as .xlsx or .csv and try again."
+                : "Export the file as PDF, CSV or XLSX and try again."
+            throw IngestUserError(message: "“.\(ext)” files aren't supported — Penny reads PDF, CSV and Excel (.xlsx) statements. \(hint)")
         }
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + "-" + filename)
@@ -84,9 +87,11 @@ actor PennyEngine {
 
         let out: IngestOutput
         do {
-            out = (ext == "csv")
-                ? try ingester.ingestCSV(path: tmp.path)
-                : try ingester.ingestPDF(path: tmp.path)
+            switch ext {
+            case "csv":  out = try ingester.ingestCSV(path: tmp.path)
+            case "xlsx": out = try ingester.ingestXLSX(path: tmp.path)
+            default:     out = try ingester.ingestPDF(path: tmp.path)
+            }
         } catch {
             throw IngestUserError(message: "Couldn't read “\(filename)” — it doesn't look like a readable \(ext.uppercased()) file. If it came from your bank, try re-downloading it.")
         }

@@ -47,6 +47,16 @@ enum DeterministicIngest {
                         sourceName: url.lastPathComponent, statementText: statementText)
     }
 
+    /// Parse an Excel (.xlsx) export at `url` — the workbook's first
+    /// transaction-bearing sheet through the same canonical pipeline as CSV.
+    /// (No raw statement text exists for a workbook; chat grounding comes from
+    /// the parsed rows via the retriever.)
+    static func ingest(xlsxAt url: URL) throws -> Result {
+        let ingester = try makeIngester()
+        return toResult(try ingester.ingestXLSX(path: url.path),
+                        sourceName: url.lastPathComponent, statementText: "")
+    }
+
     private static func toResult(_ out: IngestOutput, sourceName: String, statementText: String) -> Result {
         // Translate the parser output into the canonical model, filling header
         // metadata parsed from the statement text.

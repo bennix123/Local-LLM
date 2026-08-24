@@ -231,4 +231,10 @@ public final class TxnIngester {
     public func ingestCSV(path: String) throws -> IngestOutput {
         try CSVIngest.ingest(path: path, categories: categories)
     }
+
+    /// Parse an Excel (.xlsx) export: the workbook's first transaction-bearing
+    /// sheet flows through the same header-discovery pipeline as CSV.
+    public func ingestXLSX(path: String) throws -> IngestOutput {
+        try XLSXIngest.ingest(path: path, categories: categories)
+    }
 }

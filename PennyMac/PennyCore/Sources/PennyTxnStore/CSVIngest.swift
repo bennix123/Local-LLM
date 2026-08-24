@@ -221,8 +221,17 @@ enum CSVIngest {
     }
 
     static func ingest(text: String, categories: Categories) -> IngestOutput {
-        let records = parseRecords(text)
+        ingest(records: parseRecords(text), categories: categories, rawText: text)
+    }
 
+    /// Shared core: a pre-parsed cell matrix (CSV records or XLSX sheet rows) →
+    /// transactions. Everything downstream of raw-text parsing lives here so
+    /// Excel ingestion inherits header discovery, date-order inference, currency
+    /// sniffing and categorization unchanged. `rawText` feeds the free-text
+    /// passes (currency symbol sniffing, card-statement detection); when absent
+    /// (XLSX) it's synthesized by joining the cells.
+    static func ingest(records: [[String]], categories: Categories, rawText: String? = nil) -> IngestOutput {
+        let text = rawText ?? records.map { $0.joined(separator: " ") }.joined(separator: "\n")
         // Header discovery: the first row that maps a date column and at least
         // one money column. Real exports put branding/summary lines above it.
         var headerIdx: Int? = nil

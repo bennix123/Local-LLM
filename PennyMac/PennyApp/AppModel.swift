@@ -862,8 +862,17 @@ final class AppModel: ObservableObject {
     /// After each batch the graph is refreshed (the UI reacts to `@Published graph/
     /// docs/summary`) and a toast is posted. A batch that fails is retried on its
     /// own — the others are unaffected — and if it still fails the run continues.
+    /// Most files accepted in one import — parsing is serial, so an unbounded
+    /// selection would lock the UI in "importing" for the whole set.
+    static let maxImportBatch = 10
+
     func importStatements(from urls: [URL], kind: String? = nil) {
         guard !isImporting, !urls.isEmpty else { return }
+        var urls = urls
+        if urls.count > Self.maxImportBatch {
+            errorMessage = "Importing the first \(Self.maxImportBatch) of \(urls.count) files — add the rest in a second batch."
+            urls = Array(urls.prefix(Self.maxImportBatch))
+        }
         // A lone file keeps the simple single-file path (no batching overhead).
         if urls.count == 1 { importPDF(from: urls[0], kind: kind); return }
 
@@ -1054,10 +1063,16 @@ final class AppModel: ObservableObject {
                 // PDFs, the raw file contents for CSVs — already plain text);
                 // the deterministic parser produces the transactions/figures.
                 // Both read the same scoped file.
-                let isCSV = url.pathExtension.lowercased() == "csv"
+                let ext = url.pathExtension.lowercased()
+                let isCSV = ext == "csv"
                 let text: String
                 let parsed: DeterministicIngest.Result
-                if isCSV {
+                if ext == "xlsx" {
+                    // A workbook has no raw text; the parsed rows are the grounding.
+                    text = ""
+                    parsed = (try? DeterministicIngest.ingest(xlsxAt: url))
+                        ?? DeterministicIngest.Result()
+                } else if isCSV {
                     let data = try Data(contentsOf: url)
                     text = String(data: data, encoding: .utf8)
                         ?? String(data: data, encoding: .isoLatin1) ?? ""

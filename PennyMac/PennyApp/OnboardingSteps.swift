@@ -535,7 +535,7 @@ struct UploadStep: View {
         }
         .background(Theme.bg)
         .fileImporter(isPresented: $showImporter,
-                      allowedContentTypes: [.pdf, .commaSeparatedText],
+                      allowedContentTypes: [.pdf, .commaSeparatedText, UTType(filenameExtension: "xlsx") ?? .spreadsheet],
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 // Progressive batch import — shows the first months fast and keeps

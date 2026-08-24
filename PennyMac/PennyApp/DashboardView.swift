@@ -25,8 +25,9 @@ struct DashboardView: View {
         }
         .background(Theme.bg)
         .fileImporter(isPresented: $showingImporter,
-                      allowedContentTypes: [.pdf, .commaSeparatedText]) { result in
-            if case .success(let url) = result { app.importPDF(from: url) }
+                      allowedContentTypes: [.pdf, .commaSeparatedText, UTType(filenameExtension: "xlsx") ?? .spreadsheet],
+                      allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { app.importStatements(from: urls) }
         }
         .overlay {
             if app.isImporting {
