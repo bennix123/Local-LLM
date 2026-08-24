@@ -7,10 +7,11 @@ import XCTest
 
 final class MerchantCategorizationCoverageTests: XCTestCase {
 
-    /// Uses the contract categories.json (same file the app bundles / the CLI reads).
+    /// Uses the contract categories.json (same file the app bundles / the CLI
+    /// reads), resolved via TestPaths so the suite passes on every machine —
+    /// the previous hardcoded absolute path only existed on one dev's Mac.
     private func cats() throws -> Categories {
-        let path = "/Users/shivduttchauhan/Desktop/delulu/Penny/finquery/contract/categories.json"
-        return try Categories(categoriesJSONPath: path)
+        try Categories(categoriesJSONPath: TestPaths.categoriesJSON.path)
     }
 
     /// (merchant, expected category) — a cross-section of the 500-entry training
