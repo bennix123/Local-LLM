@@ -14,6 +14,12 @@ import PennyTxnStore
 
 // MARK: - Session model
 
+/// User-facing ingest failures — `localizedDescription` is shown verbatim in the UI.
+struct IngestUserError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 struct Statement {
     let name: String
     let bankName: String?
@@ -68,14 +74,25 @@ actor PennyEngine {
     /// Parse an uploaded statement (bytes + filename) through the deterministic pipeline.
     func ingest(data: Data, filename: String) throws -> Statement {
         let ext = (filename as NSString).pathExtension.lowercased()
+        guard ext == "pdf" || ext == "csv" else {
+            throw IngestUserError(message: "“.\(ext)” files aren't supported — Penny reads PDF and CSV statements. Export the file as CSV or PDF and try again.")
+        }
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + "-" + filename)
         try data.write(to: tmp)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        let out: IngestOutput = (ext == "csv")
-            ? try ingester.ingestCSV(path: tmp.path)
-            : try ingester.ingestPDF(path: tmp.path)
+        let out: IngestOutput
+        do {
+            out = (ext == "csv")
+                ? try ingester.ingestCSV(path: tmp.path)
+                : try ingester.ingestPDF(path: tmp.path)
+        } catch {
+            throw IngestUserError(message: "Couldn't read “\(filename)” — it doesn't look like a readable \(ext.uppercased()) file. If it came from your bank, try re-downloading it.")
+        }
+        guard !out.rows.isEmpty else {
+            throw IngestUserError(message: "No transactions found in “\(filename)”. Is it a bank or card statement? Scanned (image-only) PDFs aren't supported yet.")
+        }
 
         let stmt = Statement(name: filename,
                              bankName: out.bankName,
@@ -89,25 +106,61 @@ actor PennyEngine {
 
     // ---- chat ----
 
+    /// Every currency present across the loaded statements (row currency, falling
+    /// back to the statement's). More than one means aggregates mix currencies.
+    var loadedCurrencies: [String] {
+        var set = Set<String>()
+        for s in statements {
+            for r in s.rows { set.insert(r.currency.isEmpty ? s.currency : r.currency) }
+        }
+        return set.sorted()
+    }
+
     /// Deterministic answer first (FinanceRouter); nil means "defer to MLX".
     func deterministicAnswer(_ question: String) -> String? {
         let rows = mergedRows
         guard !rows.isEmpty else { return nil }
         let fmt = moneyFormatter(primaryCurrency)
-        return FinanceRouter.answer(question, rows: rows, currency: primaryCurrency,
-                                    accounts: accounts, money: fmt)
+        guard var answer = FinanceRouter.answer(question, rows: rows, currency: primaryCurrency,
+                                                accounts: accounts, money: fmt) else { return nil }
+        let currencies = loadedCurrencies
+        if currencies.count > 1 {
+            answer += "\n\n⚠️ Your statements use different currencies (\(currencies.joined(separator: ", "))) — combined figures mix them. For exact numbers, load one currency at a time."
+        }
+        return answer
     }
 
-    /// On-device MLX answer, grounded in a compact text rendering of the rows.
-    func mlxAnswer(_ question: String) async throws -> String {
+    /// On-device answer, grounded in a compact text rendering of the rows.
+    /// Returns the text plus the engine that actually produced it ("apple"/"mlx") —
+    /// previously the caller guessed from loaded-state and badged Apple answers as MLX.
+    func mlxAnswer(_ question: String) async throws -> (answer: String, engine: String) {
         let text = statementDigest()
-        return try await llm.ask(question: question, statementText: text, onToken: { _ in })
+        final class EngineBox: @unchecked Sendable { var name = "mlx" }
+        let box = EngineBox()
+        let answer = try await llm.ask(question: question, statementText: text,
+                                       onEngine: { box.name = $0 }, onToken: { _ in })
+        return (answer, box.name)
     }
 
     // ---- model ----
 
+    /// Plain `swift build` can't compile MLX's Metal shaders; initializing MLX then
+    /// aborts the whole process from C++ (uncatchable — the server just dies mid-
+    /// request). Detect the missing metallib up front and fail with instructions.
+    private static func metallibMissingMessage() -> String? {
+        guard let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() else { return nil }
+        let lib = exeDir.appendingPathComponent("mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib")
+        if FileManager.default.fileExists(atPath: lib.path) { return nil }
+        return "MLX Metal shader library missing next to the binary. Launch via run-penny-web.sh (it installs it), or build the Xcode app once and copy mlx-swift_Cmlx.bundle into .build/debug/."
+    }
+
     func startModelLoad() {
         guard !model.loading && !model.loaded else { return }
+        if let missing = Self.metallibMissingMessage() {
+            model.error = missing
+            ServerLog.shared.log("model", "ERROR: \(missing)")
+            return
+        }
         model.loading = true
         model.error = nil
         ServerLog.shared.log("model", "load started: \(model.id)")
@@ -134,7 +187,9 @@ actor PennyEngine {
 
     /// Compact text table of every row — the grounding the MLX model reads.
     private func statementDigest() -> String {
-        var lines = ["Date | Description | Debit | Credit | Balance | Category"]
+        // Without the currency line the model guesses (usually "$") — wrong for ₹/£/€ statements.
+        var lines = ["All amounts are in \(loadedCurrencies.joined(separator: " and ")) (\(currencySymbol(primaryCurrency))).",
+                     "Date | Description | Debit | Credit | Balance | Category"]
         for r in mergedRows.prefix(400) {
             let debit = r.debit == 0 ? "" : String(format: "%.2f", r.debit)
             let credit = r.credit == 0 ? "" : String(format: "%.2f", r.credit)
@@ -208,6 +263,21 @@ func dashboardJSON(_ engine: PennyEngine) async -> [String: Any] {
     let topMerchants = byMerchant.sorted { $0.value > $1.value }.prefix(8)
         .map { ["merchant": $0.key, "amount": $0.value] as [String: Any] }
 
+    // Per-currency totals: summing £ and € into one figure is meaningless, so when
+    // statements mix currencies the UI shows one figure per currency instead.
+    var curSpent: [String: Double] = [:], curIncome: [String: Double] = [:]
+    for r in rows {
+        let c = r.currency.isEmpty ? currency : r.currency
+        if r.debit > 0 { curSpent[c, default: 0] += r.debit }
+        if r.credit > 0 && r.category != "Payments" { curIncome[c, default: 0] += r.credit }
+    }
+    let byCurrency = Set(curSpent.keys).union(curIncome.keys).sorted()
+        .map { c -> [String: Any] in
+            let spent = curSpent[c] ?? 0, income = curIncome[c] ?? 0
+            return ["currency": c, "symbol": currencySymbol(c),
+                    "spent": spent, "income": income, "net": income - spent]
+        }
+
     return [
         "currency": currency,
         "symbol": currencySymbol(currency),
@@ -215,6 +285,7 @@ func dashboardJSON(_ engine: PennyEngine) async -> [String: Any] {
             "spent": totalSpent, "income": totalIncome,
             "net": totalIncome - totalSpent, "count": rows.count,
         ],
+        "byCurrency": byCurrency,
         "statements": statements.map {
             [
                 "name": $0.name, "bank": $0.bankName as Any? ?? NSNull(),
@@ -291,6 +362,9 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
                 ] as [String: Any],
                 "dashboard": dash,
             ])
+        } catch let error as IngestUserError {
+            await ServerLog.shared.write("parse", "rejected \(filename): \(error.message)")
+            return .json(400, ["error": error.message])
         } catch {
             await ServerLog.shared.write("parse", "ERROR: \(filename) failed: \(error.localizedDescription)")
             return .json(500, ["error": "parse failed: \(error.localizedDescription)"])
@@ -324,9 +398,7 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
             return .json(200, ["answer": answer, "engine": "needs-model"])
         }
         do {
-            let ans = try await engine.mlxAnswer(question)
-            // PennyLLM.ask prefers Apple's system model; label the reply accordingly.
-            let engineName = (!model.loaded && PennyLLM.systemModelAvailable) ? "apple" : "mlx"
+            let (ans, engineName) = try await engine.mlxAnswer(question)
             await ServerLog.shared.write(chatID, "A (\(engineName)): \(ans)")
             return .json(200, ["answer": ans, "engine": engineName])
         } catch {

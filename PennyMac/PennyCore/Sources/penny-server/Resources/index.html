@@ -225,7 +225,11 @@ async function api(path, opts) {
 
 // ---------- money ----------
 let SYM = '£';
-const fmt = n => SYM + (n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2});
+const SYMS = {GBP:'£', INR:'₹', EUR:'€', USD:'$'};
+// fmt(n) uses the dashboard's primary currency; fmt(n, code) pins a specific one
+// so mixed-currency sessions don't render € rows with a £ sign.
+const sym = c => SYMS[(c||'').toUpperCase()] || (c ? c + ' ' : SYM);
+const fmt = (n, c) => (c ? sym(c) : SYM) + (n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2});
 
 // ---------- model ----------
 async function refreshModel() {
@@ -240,7 +244,9 @@ async function refreshModel() {
     btn.disabled = true; btn.textContent = 'Loading…';
     pw.style.display='block'; pf.style.width = (m.progress*100)+'%';
     msg.textContent = 'Downloading + loading weights on-device (first run only)…';
-    setTimeout(refreshModel, 800);
+    // Single poll chain — refreshModel is also called from init and the load
+    // button, which would otherwise stack duplicate timers.
+    clearTimeout(refreshModel._t); refreshModel._t = setTimeout(refreshModel, 800);
   } else if (m.systemAvailable) {
     // Apple's on-device system model (FoundationModels) is ready — chat works with
     // zero download. The MLX button stays as an optional fallback engine.
@@ -272,7 +278,7 @@ async function upload(f) {
     body: buf
   });
   drop.querySelector('div:nth-child(2)').innerHTML = '<strong>Drop a PDF or CSV</strong> — or click to choose';
-  if (res.error) { alert('Parse failed: ' + res.error); return; }
+  if (res.error) { alert(res.error); return; }
   render(res.dashboard);
 }
 
@@ -286,33 +292,35 @@ function render(d) {
 
   // statements
   $('#stmtList').innerHTML = (d.statements||[]).map(s =>
-    `<span class="pill">${s.name} · ${s.count} txns${s.isCard?' · card':''}</span>`).join('');
+    `<span class="pill">${esc(s.name)} · ${s.count} txns${s.isCard?' · card':''}</span>`).join('');
 
-  // tiles
-  const t = d.totals;
+  // tiles — one figure per currency when statements mix them (£ + € is not a sum)
+  const t = d.totals, bc = d.byCurrency || [], multi = bc.length > 1;
+  const tileVal = key => multi ? bc.map(c => fmt(c[key], c.currency)).join(' · ') : fmt(t[key]);
   $('#tiles').innerHTML = `
-    <div class="tile"><div class="k">Spent</div><div class="v down">${fmt(t.spent)}</div></div>
-    <div class="tile"><div class="k">Income</div><div class="v up">${fmt(t.income)}</div></div>
-    <div class="tile"><div class="k">Net</div><div class="v ${t.net>=0?'up':'down'}">${fmt(t.net)}</div></div>
-    <div class="tile"><div class="k">Transactions</div><div class="v">${t.count.toLocaleString()}</div></div>`;
+    <div class="tile"><div class="k">Spent</div><div class="v down">${tileVal('spent')}</div></div>
+    <div class="tile"><div class="k">Income</div><div class="v up">${tileVal('income')}</div></div>
+    <div class="tile"><div class="k">Net</div><div class="v ${multi?'':(t.net>=0?'up':'down')}">${tileVal('net')}</div></div>
+    <div class="tile"><div class="k">Transactions</div><div class="v">${t.count.toLocaleString()}</div></div>` +
+    (multi ? `<div class="muted" style="grid-column:1/-1">⚠ Statements in ${bc.map(c=>c.currency).join(', ')} are loaded — the charts below combine currencies.</div>` : '');
 
   // category bars
   const cats = d.categories||[], maxC = Math.max(1, ...cats.map(c=>c.amount));
   $('#cats').innerHTML = cats.slice(0,10).map(c =>
-    `<div class="bar"><div class="lab">${c.category}</div><div class="track"><div class="fill" style="width:${c.amount/maxC*100}%"></div></div><div class="amt">${fmt(c.amount)}</div></div>`).join('') || '<div class="muted">No spending.</div>';
+    `<div class="bar"><div class="lab">${esc(c.category)}</div><div class="track"><div class="fill" style="width:${c.amount/maxC*100}%"></div></div><div class="amt">${fmt(c.amount)}</div></div>`).join('') || '<div class="muted">No spending.</div>';
 
   // merchants
   const ms = d.topMerchants||[], maxM = Math.max(1, ...ms.map(m=>m.amount));
   $('#merch').innerHTML = ms.map(m =>
-    `<div class="bar"><div class="lab">${m.merchant}</div><div class="track"><div class="fill" style="width:${m.amount/maxM*100}%"></div></div><div class="amt">${fmt(m.amount)}</div></div>`).join('') || '<div class="muted">—</div>';
+    `<div class="bar"><div class="lab">${esc(m.merchant)}</div><div class="track"><div class="fill" style="width:${m.amount/maxM*100}%"></div></div><div class="amt">${fmt(m.amount)}</div></div>`).join('') || '<div class="muted">—</div>';
 
   // transactions
   const tx = d.transactions||[];
   $('#txnCount').textContent = tx.length + ' shown';
   $('#txnBody').innerHTML = tx.slice().reverse().map(r => `
-    <tr><td>${r.date}</td><td>${esc(r.description)}</td><td><span class="pill">${r.category}</span></td>
-    <td class="num">${r.debit?fmt(r.debit):''}</td><td class="num">${r.credit?fmt(r.credit):''}</td>
-    <td class="num">${r.balance!=null?fmt(r.balance):''}</td></tr>`).join('');
+    <tr><td>${r.date}</td><td>${esc(r.description)}</td><td><span class="pill">${esc(r.category)}</span></td>
+    <td class="num">${r.debit?fmt(r.debit, r.currency):''}</td><td class="num">${r.credit?fmt(r.credit, r.currency):''}</td>
+    <td class="num">${r.balance!=null?fmt(r.balance, r.currency):''}</td></tr>`).join('');
 }
 const esc = s => (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
