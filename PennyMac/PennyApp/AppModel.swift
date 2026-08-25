@@ -509,6 +509,10 @@ final class AppModel: ObservableObject {
     /// main actor). Held as a handle so tests can await — or cancel — it.
     private(set) var restoreTask: Task<Void, Never>?
 
+    /// B4 — the question before the current one; feeds the router's elliptical
+    /// scope carry ("and in July?" inherits the groceries scope it didn't restate).
+    private var previousUserQuestion: String?
+
     /// Frees the MLX container under system memory pressure — the weights stay
     /// on disk, so the next model question transparently reloads. Without this
     /// the model squats on ~2 GB of wired GPU memory for the app's lifetime
@@ -2483,6 +2487,12 @@ final class AppModel: ObservableObject {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !isThinking else { return }
         errorMessage = nil
+        // B4: resolve elliptical follow-ups against the last RESOLVED question;
+        // the router and the model grounding see the resolved form, the chat
+        // shows what the user typed.
+        let resolvedQ = FinanceRouter.resolveFollowUp(q, previous: previousUserQuestion,
+                                                      rows: selectedRows())
+        previousUserQuestion = resolvedQ
         messages.append(ChatMessage(role: .user, content: q))
         PennyLog.shared.log("chat", "Q: \(q)")
 
@@ -2662,13 +2672,18 @@ final class AppModel: ObservableObject {
                                          isCard: $0.isCard)
         }
         let money: (Double) -> String = { Money.format($0, currency: cur) }
-        let routerAnswer = FinanceRouter.answer(q, rows: selectedRows(), currency: cur,
+        let routerAnswer = FinanceRouter.answer(resolvedQ, rows: selectedRows(), currency: cur,
                                                 accounts: accounts, money: money)
 
         // Phase 1.1 — route through the Query Engine (LegacyQueryBridge → QueryEngine).
         // We adopt the engine's answer ONLY when it exactly reconciles with the router
         // (runtime parity guard): the engine can prove parity or fall back, never change
         // a reply. Unsupported intents (bridge returns nil) fall back automatically.
+        //
+        // C2: DEBUG-only. In release the parity guard means every question paid for
+        // TWO engines with the second result discarded — parity belongs to tests and
+        // dev builds, not the user's hot path.
+        #if DEBUG
         if let engineAnswer = EngineRouter.answer(for: q, graph: selectedGraph(), money: money),
            engineAnswer == routerAnswer {
             engineRoutingStats.routed += 1
@@ -2676,6 +2691,7 @@ final class AppModel: ObservableObject {
             PennyLog.shared.log("chat", "A (analytics): \(engineAnswer)")
             return
         }
+        #endif
         if let routerAnswer {
             engineRoutingStats.fellBack += 1
             messages.append(ChatMessage(role: .assistant, content: routerAnswer, engine: "ANALYTICS"))
@@ -2719,7 +2735,7 @@ final class AppModel: ObservableObject {
                     retriever = retr
                     retrieverKey = key
                 }
-                let hits = retr.topK(q, k: 14)
+                let hits = retr.topK(resolvedQ, k: 14)
                 if !hits.isEmpty {
                     grounding = Self.retrievalContext(hits, currency: summary.currency)
                 }
@@ -2734,13 +2750,22 @@ final class AppModel: ObservableObject {
             if !facts.isEmpty {
                 grounding = facts + "\n\n" + grounding
             }
+            // B4: recent exchanges, so "why is that so high?" has a referent.
+            let turns = await MainActor.run { [weak self] in
+                (self?.messages.suffix(6) ?? []).filter { !$0.content.isEmpty }
+                    .map { "\($0.role == .user ? "User" : "Penny"): \(String($0.content.prefix(300)))" }
+            }
+            if turns.count > 1 {
+                grounding = "RECENT CONVERSATION:\n" + turns.dropLast().joined(separator: "\n")
+                    + "\n\n" + grounding
+            }
             do {
                 // Concise cap keeps generation fast: chat answers here are advisory
                 // prose (transaction tables are served deterministically by the LEDGER
                 // path, never the model), and short answers still stop early at
                 // end-of-text — so 512 rarely truncates a real answer but bounds the
                 // worst-case latency instead of letting it run to thousands of tokens.
-                _ = try await llm.ask(question: q, statementText: grounding, maxTokens: 512, onEngine: { [weak self] engine in
+                _ = try await llm.ask(question: resolvedQ, statementText: grounding, maxTokens: 512, onEngine: { [weak self] engine in
                     // The badge reflects the engine that ACTUALLY answered — Apple's
                     // system model and MLX are both possible here (finding: bubbles
                     // said "MLX" while Apple Intelligence did the answering).

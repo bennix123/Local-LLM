@@ -44,6 +44,10 @@ final class IOSModel: ObservableObject {
     // MARK: onboarding
     @AppStorage("penny.ios.onboarded") var onboarded = false
 
+    /// B4 — the last RESOLVED question (fragments expanded), so follow-up
+    /// chains stay anchored to a stem that still carries an intent.
+    private var lastResolvedQuestion: String?
+
     private let llm = PennyLLM()
     private var ingester: TxnIngester?
 
@@ -218,6 +222,13 @@ final class IOSModel: ObservableObject {
     func send(_ question: String) {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !isThinking else { return }
+        // B4: resolve elliptical follow-ups against the last RESOLVED question,
+        // then route/ground/remember the resolved form (the raw fragment still
+        // shows in the chat). Resolving against raw fragments would chain
+        // "and in July?" → "what about transport?" onto an intent-less stem.
+        let resolvedQ = FinanceRouter.resolveFollowUp(q, previous: lastResolvedQuestion,
+                                                      rows: mergedRows)
+        lastResolvedQuestion = resolvedQ
         messages.append(IOSChatMsg(role: .user, text: q))
 
         guard hasData else {
@@ -234,8 +245,9 @@ final class IOSModel: ObservableObject {
                                          currency: $0.currency)
         }
         // Mixed currencies come back as one answer per currency from the router.
-        if let det = FinanceRouter.answer(q, rows: rows, currency: cur,
-                                          accounts: accounts, money: { self.money($0, cur) }) {
+        if let det = FinanceRouter.answer(resolvedQ, rows: rows, currency: cur,
+                                          accounts: accounts,
+                                          money: { self.money($0, cur) }) {
             messages.append(IOSChatMsg(role: .penny, text: det, engine: "swift engine"))
             return
         }
@@ -254,7 +266,7 @@ final class IOSModel: ObservableObject {
         messages.append(IOSChatMsg(role: .penny, text: "", engine: nil))
         Task {
             do {
-                _ = try await llm.ask(question: q, statementText: digest(for: q),
+                _ = try await llm.ask(question: resolvedQ, statementText: digest(for: resolvedQ),
                                       maxTokens: 512,
                                       allowMLXFallback: false,   // iOS is Apple-only — never download weights
                                       onEngine: { [weak self] engine in
@@ -290,6 +302,14 @@ final class IOSModel: ObservableObject {
         let scopeName = scopeLabel.isEmpty ? "all transactions" : scopeLabel
 
         var lines = ["All amounts are in \(primaryCurrency) (\(Self.symbol(primaryCurrency)))."]
+        // B4: the last few exchanges, so "why is that so high?" has a referent.
+        let turns = messages.suffix(7).filter { !$0.text.isEmpty }
+        if turns.count > 1 {
+            lines.append("RECENT CONVERSATION:")
+            for m in turns.dropLast() {   // the current question rides separately
+                lines.append("\(m.role == .user ? "User" : "Penny"): \(String(m.text.prefix(300)))")
+            }
+        }
         lines.append("EXACT FIGURES (computed, trust these over any sum you attempt): "
             + "\(scopeName): spent \(money(spent)), received \(money(income)), \(rows.count) transactions shown.")
         if total > rows.count {

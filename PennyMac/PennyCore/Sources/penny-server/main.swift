@@ -72,7 +72,30 @@ actor PennyEngine {
                                isCard: $0.isCard, currency: $0.currency) }
     }
 
-    func reset() { statements.removeAll() }
+    func reset() {
+        statements.removeAll()
+        chatHistory.removeAll()
+    }
+
+    // ---- conversation memory (B4) ----
+
+    /// Recent Q&A turns: the last user question feeds the router's elliptical
+    /// scope carry ("and in July?"), and the last few exchanges ground the
+    /// model so "why is that so high?" has a referent.
+    private(set) var chatHistory: [(question: String, answer: String)] = []
+
+    func recordChat(question: String, answer: String) {
+        chatHistory.append((question, answer))
+        if chatHistory.count > 3 { chatHistory.removeFirst(chatHistory.count - 3) }
+    }
+
+    /// Resolve an elliptical follow-up against the last RESOLVED question —
+    /// resolving at the boundary (and recording the resolved form) keeps a
+    /// chain of fragments ("…groceries in June?" → "and in July?" → "what
+    /// about transport?") anchored to a stem that still has an intent.
+    func resolveQuestion(_ q: String) -> String {
+        FinanceRouter.resolveFollowUp(q, previous: chatHistory.last?.question, rows: mergedRows)
+    }
 
     /// Parse an uploaded statement (bytes + filename) through the deterministic pipeline.
     func ingest(data: Data, filename: String) throws -> Statement {
@@ -138,8 +161,10 @@ actor PennyEngine {
     func deterministicAnswer(_ question: String) -> String? {
         let rows = mergedRows
         guard !rows.isEmpty else { return nil }
+        // Caller passes an already-resolved question (see resolveQuestion).
         return FinanceRouter.answer(question, rows: rows, currency: primaryCurrency,
-                                    accounts: accounts, money: moneyFormatter(primaryCurrency))
+                                    accounts: accounts,
+                                    money: moneyFormatter(primaryCurrency))
     }
 
     /// On-device answer, grounded in a compact text rendering of the rows.
@@ -210,6 +235,14 @@ actor PennyEngine {
         let scopeName = scopeLabel.isEmpty ? "all transactions" : scopeLabel
 
         var lines = ["All amounts are in \(loadedCurrencies.joined(separator: " and ")) (\(currencySymbol(primaryCurrency)))."]
+        // B4: recent exchanges, so "why is that so high?" has a referent.
+        if !chatHistory.isEmpty {
+            lines.append("RECENT CONVERSATION:")
+            for turn in chatHistory {
+                lines.append("User: \(turn.question)")
+                lines.append("Penny: \(String(turn.answer.prefix(300)))")
+            }
+        }
         lines.append("EXACT FIGURES (computed, trust these over any sum you attempt): "
             + "\(scopeName): spent \(fmt(spent)), received \(fmt(income)), \(rows.count) transactions shown.")
         if total > rows.count {
@@ -411,8 +444,15 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
             await ServerLog.shared.write(chatID, "A (none): \(answer)")
             return .json(200, ["answer": answer, "engine": "none"])
         }
+        // B4: resolve elliptical follow-ups ONCE here; everything downstream
+        // (router, model grounding, history) sees the resolved question.
+        let resolved = await engine.resolveQuestion(question)
+        if resolved != question {
+            await ServerLog.shared.write(chatID, "resolved follow-up → \(resolved)")
+        }
         // 1) deterministic router
-        if let det = await engine.deterministicAnswer(question) {
+        if let det = await engine.deterministicAnswer(resolved) {
+            await engine.recordChat(question: resolved, answer: det)
             await ServerLog.shared.write(chatID, "A (deterministic): \(det)")
             return .json(200, ["answer": det, "engine": "deterministic"])
         }
@@ -425,7 +465,8 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
             return .json(200, ["answer": answer, "engine": "needs-model"])
         }
         do {
-            let (ans, engineName) = try await engine.mlxAnswer(question)
+            let (ans, engineName) = try await engine.mlxAnswer(resolved)
+            await engine.recordChat(question: resolved, answer: ans)
             await ServerLog.shared.write(chatID, "A (\(engineName)): \(ans)")
             return .json(200, ["answer": ans, "engine": engineName])
         } catch {

@@ -43,7 +43,10 @@ public enum FinanceRouter {
                               rows: [TxnRow],
                               currency: String,
                               accounts: [AccountBalance] = [],
+                              previousQuestion: String? = nil,
                               money: (Double) -> String) -> String? {
+        // B4 — elliptical follow-ups inherit the previous question's scope.
+        let question = carryScope(into: question, from: previousQuestion, rows: rows)
         let codes = Set(rows.map { $0.currency.isEmpty ? currency : $0.currency })
         if codes.count > 1 {
             return multiCurrencyAnswer(question, rows: rows,
@@ -51,6 +54,63 @@ public enum FinanceRouter {
         }
         return answerSingleCurrency(question, rows: rows, currency: currency,
                                     accounts: accounts, money: money)
+    }
+
+    /// B4 — conversation scope carry. "And in July?" / "what about transport?" /
+    /// "same for Zara?" are answered as humans mean them: whatever dimension the
+    /// follow-up DIDN'T restate (entity or period) is inherited from the previous
+    /// question, and an intent-less fragment reuses the previous question's
+    /// intent wholesale. Carry only fires on explicit follow-up markers or a
+    /// short fragment — a complete question is never contaminated by history.
+    ///
+    /// Callers should resolve ONCE at the boundary and record the RESOLVED
+    /// question as history — recording the raw fragment makes the next
+    /// follow-up inherit from an intent-less stem. Idempotent for resolved
+    /// questions (a complete question passes through untouched).
+    public static func resolveFollowUp(_ question: String, previous: String?,
+                                       rows: [TxnRow]) -> String {
+        carryScope(into: question, from: previous, rows: rows)
+    }
+
+    static func carryScope(into question: String, from previous: String?,
+                           rows: [TxnRow]) -> String {
+        guard let previous, !previous.isEmpty, !rows.isEmpty else { return question }
+        let low = question.lowercased()
+        let hasMarker = matches(low, #"^\s*(?:and|what about|how about|what abt|same for|also|now|ok(?:ay)?,?\s+and)\b"#)
+        let wordCount = low.split(whereSeparator: { $0.isWhitespace }).count
+        guard hasMarker || wordCount <= 3 else { return question }
+
+        let newScope = parseScope(low, rows: rows)
+        let prevScope = parseScope(previous.lowercased(), rows: rows)
+        let restatesEntity = newScope.hasCategory || newScope.hasMerchant || newScope.unmatchedTarget != nil
+        let restatesPeriod = newScope.hasPeriod || newScope.dayISO != nil
+        guard restatesEntity || restatesPeriod else { return question }   // nothing scoped — not a follow-up we understand
+
+        let intentPattern = #"how much|how many|\btotal\b|spen[dt]|biggest|largest|smallest|average|\bavg\b|median|\bcount\b|\blist\b|balance|income|receiv|refund|percent|compare|breakdown"#
+        var effective: String
+        if matches(low, intentPattern) {
+            effective = question
+        } else {
+            // Intent-less fragment ("and in July?"): reuse the previous question,
+            // with the dimension the fragment replaces stripped out of it.
+            var stem = previous.lowercased()
+            if restatesPeriod, let p = prevScope.periodText {
+                stem = stem.replacingOccurrences(of: p.lowercased(), with: " ")
+            }
+            if restatesEntity, let e = prevScope.entity {
+                stem = stem.replacingOccurrences(of: e.lowercased(), with: " ")
+            }
+            let fragment = low.replacingOccurrences(
+                of: #"^\s*(?:and|what about|how about|what abt|same for|also|now|ok(?:ay)?,?\s+and)\b"#,
+                with: "", options: .regularExpression)
+            effective = stem + " " + fragment
+        }
+        // Inherit whatever the fragment did not restate.
+        if !restatesPeriod, let p = prevScope.periodText { effective += " " + p }
+        if !restatesEntity, let e = prevScope.entity {
+            effective += (prevScope.hasCategory ? " on " : " at ") + e
+        }
+        return effective
     }
 
     /// One answer per currency, largest ledger first. Honest-zero sections
@@ -894,6 +954,7 @@ public enum FinanceRouter {
         var dayISO: String?      // exact-day scope, "YYYY-MM-DD" (for balance-as-of)
         var dayLabel: String?    // "4 Jun 2026"
         var unmatchedTarget: String?   // a named category/merchant absent from the data
+        var periodText: String?  // the period as a re-parseable phrase ("in June") — B4 scope carry
     }
 
     private static func parseScope(_ low: String, rows: [TxnRow]) -> Scope {
@@ -938,17 +999,21 @@ public enum FinanceRouter {
             s.hasPeriod = true
             // range labels carry a leading space for direct use; strip it here
             // because labelParts joining adds its own.
-            labelParts.append(range.label.trimmingCharacters(in: .whitespaces))
+            let text = range.label.trimmingCharacters(in: .whitespaces)
+            labelParts.append(text)
+            s.periodText = text
         } else if let day = matchDay(low, rows: s.rows) {
             s.rows = day.rows
             s.hasPeriod = true
             s.dayISO = day.iso
             s.dayLabel = day.dayLabel
             labelParts.append("on \(day.dayLabel)")
+            s.periodText = "on \(day.dayLabel)"
         } else if let (rowsInPeriod, plabel) = matchPeriod(low, rows: s.rows) {
             s.rows = rowsInPeriod
             s.hasPeriod = true
             labelParts.append(plabel)
+            s.periodText = plabel
         }
 
         // Named-but-absent target: the user clearly scoped to something ("on rent",
