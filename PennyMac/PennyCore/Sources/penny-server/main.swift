@@ -27,6 +27,8 @@ struct Statement {
     let isCard: Bool
     let closingBalance: Double?
     let rows: [TxnRow]
+    /// Content identity (rows, not filename) — duplicate uploads are rejected.
+    let fingerprint: String
 }
 
 struct ModelState {
@@ -99,12 +101,20 @@ actor PennyEngine {
             throw IngestUserError(message: "No transactions found in “\(filename)”. Is it a bank or card statement? Scanned (image-only) PDFs aren't supported yet.")
         }
 
+        // Duplicate guard: identical rows under any filename would silently
+        // double every total on the dashboard and in chat answers.
+        let fp = StatementFingerprint.compute(out.rows)
+        if let existing = statements.first(where: { $0.fingerprint == fp }) {
+            throw IngestUserError(message: "“\(filename)” is already loaded\(existing.name == filename ? "" : " (as “\(existing.name)”)") — skipped so your totals don't double.")
+        }
+
         let stmt = Statement(name: filename,
                              bankName: out.bankName,
                              currency: out.detectedCurrency.isEmpty ? "GBP" : out.detectedCurrency,
                              isCard: out.isCard,
                              closingBalance: out.closingBalance,
-                             rows: out.rows)
+                             rows: out.rows,
+                             fingerprint: fp)
         statements.append(stmt)
         return stmt
     }

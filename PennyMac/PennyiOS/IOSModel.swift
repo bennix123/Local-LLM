@@ -174,6 +174,12 @@ final class IOSModel: ObservableObject {
                         importErrors.append("\(url.lastPathComponent): no transactions found — is it a bank or card statement?")
                         continue
                     }
+                    // Duplicate guard — same rows under any filename would double every total.
+                    let fp = StatementFingerprint.compute(out.rows)
+                    if let existing = statements.first(where: { StatementFingerprint.compute($0.rows) == fp }) {
+                        importErrors.append("\(url.lastPathComponent): already loaded as “\(existing.name)” — skipped so totals don't double.")
+                        continue
+                    }
                     statements.append(IOSStatement(
                         name: url.lastPathComponent, bankName: out.bankName,
                         currency: out.detectedCurrency.isEmpty ? "GBP" : out.detectedCurrency,
