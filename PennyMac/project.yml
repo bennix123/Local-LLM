@@ -124,6 +124,8 @@ targets:
     platform: iOS
     sources:
       - PennyiOS
+      - path: PennyiOS/Assets.xcassets
+        buildPhase: resources
       # Same deterministic-parser resources the macOS app bundles.
       - path: Resources/categories.json
         buildPhase: resources
@@ -144,6 +146,7 @@ targets:
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         ITSAppUsesNonExemptEncryption: false
+        CFBundleIconName: AppIcon
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
     settings:
@@ -156,6 +159,8 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
       configs:
         Debug:
+          CODE_SIGN_STYLE: Automatic
+        Release:
           CODE_SIGN_STYLE: Automatic
 
   # Hosted unit tests — app-layer logic (AppModel summaries, markdown/table
@@ -240,6 +245,20 @@ schemes:
       environmentVariables:
         PENNY_UITEST: "1"
         PENNY_UITEST_MODEL_READY: "1"
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  Penny-iOS:
+    build:
+      targets:
+        Penny-iOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
     profile:
       config: Release
     analyze:
