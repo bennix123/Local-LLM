@@ -1,4 +1,5 @@
 import Foundation
+import PennyTxnStore   // CategoryNormalizer — taxonomy-level category snapping
 import MLXLMCommon
 import MLXLLM
 import MLXHuggingFace
@@ -560,24 +561,12 @@ public actor PennyLLM {
         String(s.lowercased().filter { $0.isLetter || $0.isNumber })
     }
 
-    /// Tidy a model-proposed category name: strip quotes/punctuation, collapse
-    /// whitespace, snap a case-insensitive seed match to the seed's canonical
-    /// spelling (so "food & dining" can't fork "Food & Dining"), Title-Case new
-    /// names, and fall back to "Other" for empty or rambling (>3 words / >28
-    /// chars) answers.
+
+    /// Forwarder: category normalization lives with the taxonomy in
+    /// PennyTxnStore (`CategoryNormalizer`) — kept here so existing callers
+    /// (AppleFoundationLLM, the app) don't churn.
     public static func normalizeCategory(_ raw: String, seeds: [String]) -> String {
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "\"'`.,:;"))
-        s = s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        guard !s.isEmpty else { return "Other" }
-        if let seed = seeds.first(where: { $0.caseInsensitiveCompare(s) == .orderedSame }) { return seed }
-        let words = s.split(separator: " ")
-        guard words.count <= 3, s.count <= 28 else { return "Other" }
-        return words.enumerated().map { i, w -> String in
-            let lw = w.lowercased()
-            if i > 0, ["&", "and", "of", "the"].contains(lw) { return lw }
-            return w.prefix(1).uppercased() + w.dropFirst().lowercased()
-        }.joined(separator: " ")
+        CategoryNormalizer.normalize(raw, seeds: seeds)
     }
 
     /// Normalize the model's reply to a bare institution name (first line, stripped

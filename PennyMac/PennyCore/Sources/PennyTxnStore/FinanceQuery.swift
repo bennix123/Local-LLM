@@ -15,13 +15,17 @@ public enum FinanceRouter {
 
     /// One account's latest balance, for multi-account balance answers.
     /// `isCard` = credit-card semantics: the balance is money OWED, so it
-    /// subtracts from the total rather than adding.
+    /// subtracts from the total rather than adding. `currency` (optional, for
+    /// callers that know it) lets mixed-currency sessions scope balance answers
+    /// to the right partition instead of summing £ with ₹.
     public struct AccountBalance: Sendable {
         public let name: String
         public let balance: Double?
         public let isCard: Bool
-        public init(name: String, balance: Double?, isCard: Bool) {
+        public let currency: String?
+        public init(name: String, balance: Double?, isCard: Bool, currency: String? = nil) {
             self.name = name; self.balance = balance; self.isCard = isCard
+            self.currency = currency
         }
     }
 
@@ -29,11 +33,78 @@ public enum FinanceRouter {
     /// to the model. `money` formats an amount in the statement's currency
     /// (the app passes its `Money.format`; tests pass a simple formatter).
     /// `accounts` (optional) enables exact multi-account balance answers.
+    ///
+    /// Mixed currencies NEVER blend: when rows carry more than one currency the
+    /// question is answered once per currency (each partition through the full
+    /// single-currency router with its own symbol) and the answers are joined —
+    /// ₹ + £ is not a sum, and no exchange-rate conversion is ever attempted.
     public static func answer(_ question: String,
                               rows: [TxnRow],
                               currency: String,
                               accounts: [AccountBalance] = [],
                               money: (Double) -> String) -> String? {
+        let codes = Set(rows.map { $0.currency.isEmpty ? currency : $0.currency })
+        if codes.count > 1 {
+            return multiCurrencyAnswer(question, rows: rows,
+                                       fallbackCurrency: currency, accounts: accounts)
+        }
+        return answerSingleCurrency(question, rows: rows, currency: currency,
+                                    accounts: accounts, money: money)
+    }
+
+    /// One answer per currency, largest ledger first. Honest-zero sections
+    /// ("couldn't find X") are dropped when another currency has real hits, so
+    /// "spend at Zara" with Zara only on the Indian statement answers in ₹ alone.
+    static func multiCurrencyAnswer(_ question: String, rows: [TxnRow],
+                                    fallbackCurrency: String,
+                                    accounts: [AccountBalance]) -> String? {
+        let partitions = Dictionary(grouping: rows) {
+            $0.currency.isEmpty ? fallbackCurrency : $0.currency
+        }
+        let ordered = partitions.sorted {
+            $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count
+        }
+        var sections: [(code: String, answer: String, isZero: Bool)] = []
+        for (code, part) in ordered {
+            // Accounts scoped to this currency; untagged accounts are excluded in
+            // mixed mode (including them would re-blend balances across sections).
+            let accts = accounts.filter { $0.currency == code }
+            guard let ans = answerSingleCurrency(question, rows: part, currency: code,
+                                                 accounts: accts, money: defaultMoney(code)) else { continue }
+            let isZero = ans.contains("I couldn't find any transactions matching")
+                || ans.hasPrefix("**No transactions for")
+                || ans.hasPrefix("**No —")
+            sections.append((code, ans, isZero))
+        }
+        guard !sections.isEmpty else { return nil }
+        let substantive = sections.filter { !$0.isZero }
+        if substantive.isEmpty { return sections[0].answer }   // one honest zero, not three
+        if substantive.count == 1 { return substantive[0].answer }
+        return substantive.map { "**\($0.code)**\n\($0.answer)" }.joined(separator: "\n\n")
+    }
+
+    /// Symbol-correct formatter for a currency partition (grouped, 2 dp).
+    /// Locale is pinned per currency — the machine's own locale must not leak
+    /// (an en_IN system would lakh-group dollars: "$2,88,153.34").
+    static func defaultMoney(_ code: String) -> (Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = 2; f.maximumFractionDigits = 2
+        f.locale = Locale(identifier: code.uppercased() == "INR" ? "en_IN" : "en_US")
+        let symbol: String
+        switch code.uppercased() {
+        case "GBP": symbol = "£"; case "INR": symbol = "₹"
+        case "EUR": symbol = "€"; case "USD": symbol = "$"
+        default: symbol = code + " "
+        }
+        return { symbol + (f.string(from: NSNumber(value: $0)) ?? String(format: "%.2f", $0)) }
+    }
+
+    static func answerSingleCurrency(_ question: String,
+                                     rows: [TxnRow],
+                                     currency: String,
+                                     accounts: [AccountBalance] = [],
+                                     money: (Double) -> String) -> String? {
         var low = question.lowercased()
         guard !rows.isEmpty else { return nil }
 

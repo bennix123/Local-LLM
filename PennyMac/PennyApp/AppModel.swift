@@ -1373,8 +1373,18 @@ final class AppModel: ObservableObject {
             // row sharing its key, mapped to the DISPLAY (specific) category so
             // "Bike Rental" / "Cafe" / "Food Delivery" replace the broad bucket.
             var results = knownVerdicts
+            // Accumulated taxonomy: canonical categories + everything already in
+            // the graph + labels accepted earlier in THIS batch. Every model-coined
+            // label is snapped against it (case/hyphen/plural/word-order-insensitive),
+            // so "Ride Hailing" / "ride-hailing" / "Cab Services" can't fork — the
+            // first accepted spelling becomes the one every later batch reuses.
+            var taxonomy = ClaudeCategorizer.canonicalCategories
+            for name in self.graph.categories.map(\.name) where !taxonomy.contains(name) {
+                taxonomy.append(name)
+            }
             for c in fresh {
-                let display = Self.displayCategory(for: c)
+                let display = PennyLLM.normalizeCategory(Self.displayCategory(for: c), seeds: taxonomy)
+                if !taxonomy.contains(display) { taxonomy.append(display) }
                 let k = MerchantKnowledgeBase.key(for: c.merchant)
                 for raw in (keyToRaws[k] ?? [c.merchant]) {
                     results.append(ClaudeCategorization(merchant: raw, category: display,

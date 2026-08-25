@@ -68,7 +68,8 @@ actor PennyEngine {
     }
 
     var accounts: [FinanceRouter.AccountBalance] {
-        statements.map { .init(name: $0.bankName ?? $0.name, balance: $0.closingBalance, isCard: $0.isCard) }
+        statements.map { .init(name: $0.bankName ?? $0.name, balance: $0.closingBalance,
+                               isCard: $0.isCard, currency: $0.currency) }
     }
 
     func reset() { statements.removeAll() }
@@ -132,17 +133,13 @@ actor PennyEngine {
     }
 
     /// Deterministic answer first (FinanceRouter); nil means "defer to MLX".
+    /// Mixed-currency sessions get one answer per currency from the router
+    /// itself — no blended figures, no caveat needed.
     func deterministicAnswer(_ question: String) -> String? {
         let rows = mergedRows
         guard !rows.isEmpty else { return nil }
-        let fmt = moneyFormatter(primaryCurrency)
-        guard var answer = FinanceRouter.answer(question, rows: rows, currency: primaryCurrency,
-                                                accounts: accounts, money: fmt) else { return nil }
-        let currencies = loadedCurrencies
-        if currencies.count > 1 {
-            answer += "\n\n⚠️ Your statements use different currencies (\(currencies.joined(separator: ", "))) — combined figures mix them. For exact numbers, load one currency at a time."
-        }
-        return answer
+        return FinanceRouter.answer(question, rows: rows, currency: primaryCurrency,
+                                    accounts: accounts, money: moneyFormatter(primaryCurrency))
     }
 
     /// On-device answer, grounded in a compact text rendering of the rows.

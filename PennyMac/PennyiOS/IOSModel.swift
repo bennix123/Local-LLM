@@ -233,14 +233,12 @@ final class IOSModel: ObservableObject {
         let cur = primaryCurrency
         let accounts = statements.map {
             FinanceRouter.AccountBalance(name: $0.bankName ?? $0.name,
-                                         balance: $0.closingBalance, isCard: $0.isCard)
+                                         balance: $0.closingBalance, isCard: $0.isCard,
+                                         currency: $0.currency)
         }
-        if var det = FinanceRouter.answer(q, rows: rows, currency: cur,
+        // Mixed currencies come back as one answer per currency from the router.
+        if let det = FinanceRouter.answer(q, rows: rows, currency: cur,
                                           accounts: accounts, money: { self.money($0, cur) }) {
-            let currencies = Set(statements.map(\.currency)).sorted()
-            if currencies.count > 1 {
-                det += "\n\n⚠️ Your statements use different currencies (\(currencies.joined(separator: ", "))) — combined figures mix them."
-            }
             messages.append(IOSChatMsg(role: .penny, text: det, engine: "swift engine"))
             return
         }
