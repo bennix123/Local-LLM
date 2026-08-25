@@ -158,7 +158,7 @@ public actor PennyLLM {
     /// and categorization then run with NO MLX download. Lets callers relax the
     /// "load the model first" gate and advertise on-device readiness up front.
     public static var systemModelAvailable: Bool {
-        if #available(macOS 26.0, *) { return AppleFoundationLLM.isAvailable }
+        if #available(macOS 26.0, iOS 26.0, *) { return AppleFoundationLLM.isAvailable }
         return false
     }
 
@@ -229,7 +229,9 @@ public actor PennyLLM {
         var hubDirs: [URL] = []
         if let p = env["HF_HUB_CACHE"] { hubDirs.append(URL(fileURLWithPath: p)) }
         if let p = env["HF_HOME"] { hubDirs.append(URL(fileURLWithPath: p).appendingPathComponent("hub")) }
-        hubDirs.append(fm.homeDirectoryForCurrentUser.appendingPathComponent(".cache/huggingface/hub"))
+        // NSHomeDirectory, not homeDirectoryForCurrentUser: the latter is macOS-only
+        // API; this resolves to the sandbox container home on iOS.
+        hubDirs.append(URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".cache/huggingface/hub"))
         if let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
             hubDirs.append(caches.appendingPathComponent("huggingface/hub"))
         }
@@ -272,7 +274,7 @@ public actor PennyLLM {
         // the no-download case, with MLX as the fallback on an Apple failure.
         // Apple's path is non-streaming-on-failure: it only throws when nothing
         // streamed, so the MLX fallback never double-shows a half-streamed answer.
-        if container == nil, #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        if container == nil, #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do {
                 onEngine?("apple")
                 // Streams straight to `onToken` for immediate first-token; returns the
@@ -332,7 +334,7 @@ public actor PennyLLM {
     public func extractTransactions(from statementText: String, maxTokens: Int = 4096) async throws -> [Transaction] {
         // Apple's on-device system model first (no download, no MLX/Metal init).
         // Only a genuine FM error falls through to the MLX model below.
-        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        if #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do { return try await AppleFoundationLLM.extractTransactions(from: statementText, maxTokens: maxTokens) }
             catch is CancellationError { throw CancellationError() }
             catch { /* fall through to the MLX model below */ }
@@ -373,7 +375,7 @@ public actor PennyLLM {
         // Apple's on-device system model first (no download, no MLX/Metal init).
         // A nil result here is a legitimate "UNKNOWN" and is returned as-is; only a
         // genuine FM error falls through to the MLX model below.
-        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        if #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do { return try await AppleFoundationLLM.detectIssuer(from: statementText) }
             catch is CancellationError { throw CancellationError() }
             catch { /* fall through to the MLX model below */ }
@@ -411,7 +413,7 @@ public actor PennyLLM {
     /// system model (validated `@Generable`) first; the MLX model (JSON) otherwise.
     /// Deterministic (temp 0) and small. All fields may be nil ("not printed").
     public func extractStatementFacts(from statementText: String) async throws -> StatementFacts {
-        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        if #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do { return try await AppleFoundationLLM.extractFacts(from: statementText) }
             catch is CancellationError { throw CancellationError() }
             catch { /* fall through to the MLX model below */ }
@@ -457,7 +459,7 @@ public actor PennyLLM {
         // has Apple Intelligence: it emits validated @Generable structs (no JSON to
         // truncate) and needs no weights download. Falls through to MLX on any error
         // or when it's unavailable. See AppleFoundationLLM / WWDC26-326.
-        if #available(macOS 26.0, *), AppleFoundationLLM.isAvailable {
+        if #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             if let out = try? await AppleFoundationLLM.categorize(
                 descriptors, seedCategories: seedCategories, forbidOther: forbidOther), !out.isEmpty {
                 return out

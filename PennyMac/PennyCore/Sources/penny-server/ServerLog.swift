@@ -25,7 +25,11 @@ actor ServerLog {
            !override.isEmpty {
             fileURL = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         } else {
-            fileURL = FileManager.default.homeDirectoryForCurrentUser
+            // NSHomeDirectory: cross-platform (homeDirectoryForCurrentUser is
+            // macOS-only, and this file is compiled when cross-building the
+            // package's library products for iOS even though the server itself
+            // only ever runs on macOS).
+            fileURL = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent("Library/Logs/penny-server", isDirectory: true)
                 .appendingPathComponent("penny-server.log")
         }

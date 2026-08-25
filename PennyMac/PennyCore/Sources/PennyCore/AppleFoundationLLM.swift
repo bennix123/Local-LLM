@@ -12,13 +12,13 @@ import Foundation
 // machine, and falls back to the bundled MLX model otherwise — so nothing here
 // is required for Penny to work; it's a zero-download upgrade when present.
 //
-// Everything is gated `@available(macOS 26.0, *)`; PennyLLM only reaches it from
-// inside `if #available(macOS 26.0, *)`, so the package still targets macOS 14.
+// Everything is gated `@available(macOS 26.0, iOS 26.0, *)`; PennyLLM only reaches
+// it from matching `#available` checks, so the package still targets macOS 14 / iOS 17.
 
 #if canImport(FoundationModels)
 import FoundationModels
 
-@available(macOS 26.0, *)
+@available(macOS 26.0, iOS 26.0, *)
 enum AppleFoundationLLM {
 
     /// Whether the Apple system model is ready to answer *right now* — i.e. the

@@ -4,6 +4,7 @@ name: Penny
 options:
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
 
 packages:
   PennyCore:
@@ -114,6 +115,48 @@ targets:
           CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Penny Mac App Store"
           CODE_SIGN_ENTITLEMENTS: PennyApp/Penny-dist.entitlements
+
+  # Penny for iOS — the same PennyCore brain (deterministic parsers, router,
+  # on-device model) wearing the penny_final_1 mockup's design. Lives beside
+  # the macOS target; neither affects the other.
+  Penny-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - PennyiOS
+      # Same deterministic-parser resources the macOS app bundles.
+      - path: Resources/categories.json
+        buildPhase: resources
+      - path: Resources/bank_profiles
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: PennyCore
+        product: PennyCore
+      - package: PennyCore
+        product: PennyTxnStore
+    info:
+      path: PennyiOS/Info.plist
+      properties:
+        CFBundleName: Penny
+        CFBundleDisplayName: Penny
+        LSApplicationCategoryType: public.app-category.finance
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app.ios
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        SWIFT_VERSION: "5.0"
+        DEVELOPMENT_TEAM: P4ANR778GY
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_DEBUG_DYLIB: NO
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
 
   # Hosted unit tests — app-layer logic (AppModel summaries, markdown/table
   # parser, issuer detection). Injected into the running Penny app process.
