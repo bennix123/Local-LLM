@@ -146,7 +146,7 @@ actor PennyEngine {
     /// Returns the text plus the engine that actually produced it ("apple"/"mlx") —
     /// previously the caller guessed from loaded-state and badged Apple answers as MLX.
     func mlxAnswer(_ question: String) async throws -> (answer: String, engine: String) {
-        let text = statementDigest()
+        let text = statementDigest(for: question)
         final class EngineBox: @unchecked Sendable { var name = "mlx" }
         let box = EngineBox()
         let answer = try await llm.ask(question: question, statementText: text,
@@ -197,12 +197,27 @@ actor PennyEngine {
 
     // ---- rendering helpers ----
 
-    /// Compact text table of every row — the grounding the MLX model reads.
-    private func statementDigest() -> String {
-        // Without the currency line the model guesses (usually "$") — wrong for ₹/£/€ statements.
-        var lines = ["All amounts are in \(loadedCurrencies.joined(separator: " and ")) (\(currencySymbol(primaryCurrency))).",
-                     "Date | Description | Debit | Credit | Balance | Category"]
-        for r in mergedRows.prefix(400) {
+    /// The model's grounding (B2/B3): rows selected by the router's scope parse
+    /// of the QUESTION — not "the first 400 of the file" — preceded by an exact
+    /// deterministic facts card so free-prose answers quote correct figures, and
+    /// an explicit disclosure when the window can't hold every relevant row.
+    private func statementDigest(for question: String) -> String {
+        let all = mergedRows
+        let (rows, scopeLabel, total) = FinanceRouter.relevantRows(for: question, in: all, limit: 400)
+        let fmt = moneyFormatter(primaryCurrency)
+        let spent = rows.reduce(0) { $0 + $1.debit }
+        let income = rows.filter { $0.category != "Payments" }.reduce(0) { $0 + $1.credit }
+        let scopeName = scopeLabel.isEmpty ? "all transactions" : scopeLabel
+
+        var lines = ["All amounts are in \(loadedCurrencies.joined(separator: " and ")) (\(currencySymbol(primaryCurrency)))."]
+        lines.append("EXACT FIGURES (computed, trust these over any sum you attempt): "
+            + "\(scopeName): spent \(fmt(spent)), received \(fmt(income)), \(rows.count) transactions shown.")
+        if total > rows.count {
+            lines.append("NOTE: showing the \(rows.count) most recent of \(total) matching transactions — "
+                + "say so if the user asks about completeness.")
+        }
+        lines.append("Date | Description | Debit | Credit | Balance | Category")
+        for r in rows {
             let debit = r.debit == 0 ? "" : String(format: "%.2f", r.debit)
             let credit = r.credit == 0 ? "" : String(format: "%.2f", r.credit)
             let bal = r.balance.map { String(format: "%.2f", $0) } ?? ""
@@ -424,6 +439,28 @@ func handle(_ req: HTTPRequest, engine: PennyEngine, indexHTML: Data) async -> H
 }
 
 // MARK: - Bootstrap
+
+// Disk hygiene: URLSession download temps orphaned by killed runs accumulate
+// into multi-GB graveyards (observed filling a disk to the point of a system
+// crash). Anything older than an hour cannot belong to a live download.
+func clearStaleDownloadTemps() {
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory
+    guard let items = try? fm.contentsOfDirectory(
+        at: tmp, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+    var freed: Int64 = 0
+    for u in items where u.lastPathComponent.hasPrefix("CFNetworkDownload") {
+        let vals = try? u.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        guard let mtime = vals?.contentModificationDate,
+              Date().timeIntervalSince(mtime) > 3600 else { continue }
+        freed += Int64(vals?.fileSize ?? 0)
+        try? fm.removeItem(at: u)
+    }
+    if freed > 0 {
+        ServerLog.shared.log("hygiene", "cleared \(freed / 1_048_576) MB of stale download temps")
+    }
+}
+clearStaleDownloadTemps()
 
 let port: UInt16 = UInt16(ProcessInfo.processInfo.environment["PENNY_PORT"] ?? "8088") ?? 8088
 

@@ -10,6 +10,7 @@
 // returns nil when a question isn't a factual numeric lookup (advisory /
 // opinion / open-ended), so the caller can fall back to the LLM.
 import Foundation
+import NaturalLanguage   // POS gate on target extraction (A1 class 1)
 
 public enum FinanceRouter {
 
@@ -98,6 +99,27 @@ public enum FinanceRouter {
         default: symbol = code + " "
         }
         return { symbol + (f.string(from: NSNumber(value: $0)) ?? String(format: "%.2f", $0)) }
+    }
+
+    /// Context assembly for the on-device model (B2): the rows RELEVANT to the
+    /// question, selected by the router's own scope parse (category / merchant /
+    /// period) instead of "the first N rows of the file". When the question
+    /// scopes nothing, the most recent rows win — recency beats file order as a
+    /// relevance prior. `total` is the scoped population size BEFORE the limit,
+    /// so callers can disclose truncation honestly ("showing X of Y").
+    public static func relevantRows(for question: String, in rows: [TxnRow],
+                                    limit: Int = 400)
+        -> (rows: [TxnRow], scopeLabel: String, total: Int) {
+        let low = question.lowercased()
+        let scope = parseScope(low, rows: rows)
+        let scoped = (scope.hasCategory || scope.hasMerchant || scope.hasPeriod) ? scope.rows : rows
+        guard scoped.count > limit else {
+            return (scoped, scope.label.trimmingCharacters(in: .whitespaces), scoped.count)
+        }
+        let recent = scoped.sorted { ($0.txnDate, $0.seq) > ($1.txnDate, $1.seq) }.prefix(limit)
+        // Chronological order restored — models reason better over time-ordered ledgers.
+        return (recent.sorted { ($0.txnDate, $0.seq) < ($1.txnDate, $1.seq) },
+                scope.label.trimmingCharacters(in: .whitespaces), scoped.count)
     }
 
     static func answerSingleCurrency(_ question: String,
@@ -229,16 +251,31 @@ public enum FinanceRouter {
         // is a yes/no over them; both would otherwise be mis-caught by the generic
         // count / income handlers below.
         if matches(low, #"\brefund\w*|\bcashback\b|\bcash\s?back\b|\breversal\w*|\breversed\b|\bchargeback\b|money back|\brebate\b"#) {
-            let refunds = credits   // `credits` already excludes card repayments
+            // A1 class 3 — a credit is a refund only with EVIDENCE: money-back
+            // markers printed on the row, a "Refund" category, or a prior DEBIT at
+            // the same merchant (the return-without-marker pattern). Salary and
+            // other income structurally can't qualify — the old logic counted
+            // every non-repayment credit, so payroll showed up as a "refund".
+            let markers = #"refund|reversal|\brvsl\b|charge\s?back|cash\s?back|\brebate\b|money\s?back|\breturn(?:ed|s)?\b|\brtn\b"#
+            let debitMerchants = Set(sr.filter { $0.debit > 0 && !$0.merchant.isEmpty }
+                .map { $0.merchant.lowercased() })
+            let refunds = credits.filter { r in
+                if r.category == "Refund" { return true }
+                if matches(r.descr.lowercased(), markers) { return true }
+                if !r.merchant.isEmpty, debitMerchants.contains(r.merchant.lowercased()),
+                   !["Income", "Salary", "Interest", "Transfers"].contains(r.category) { return true }
+                return false
+            }
             if refunds.isEmpty {
                 return "**No refunds\(scope.label) — \(money(0)).** I don't see any money-back credits on this statement."
             }
+            let total = refunds.reduce(0) { $0 + $1.credit }
             let noun = refunds.count == 1 ? "refund" : "refunds"
             if matches(low, #"how much|total|worth|value|\bsum\b"#),
                !matches(low, #"how many|number of|\blist\b|show|which|what were"#) {
-                return "**You received \(money(income)) in \(noun)\(scope.label)** across \(grp(refunds.count)) credit\(refunds.count == 1 ? "" : "s")."
+                return "**You received \(money(total)) in \(noun)\(scope.label)** across \(grp(refunds.count)) credit\(refunds.count == 1 ? "" : "s")."
             }
-            var lines = ["**\(grp(refunds.count)) \(noun)\(scope.label), totalling \(money(income)):**"]
+            var lines = ["**\(grp(refunds.count)) \(noun)\(scope.label), totalling \(money(total)):**"]
             for r in refunds.prefix(10) { lines.append("- \(money(r.credit)) — \(r.descr) (\(prettyDate(r.txnDate)))") }
             return lines.joined(separator: "\n")
         }
@@ -297,6 +334,32 @@ public enum FinanceRouter {
             }
             let noun = n == 1 ? "transaction" : "transactions"
             return "**\(grp(n)) \(noun)\(scope.label).**"
+        }
+
+        // ---- top merchant(s) by TOTAL spend (A1 class 2: group-by, dimension
+        // merchant) — must precede every largest-EXPENSE branch: "top merchant"
+        // aggregates across visits, it is not the single biggest transaction.
+        // (\b after the noun group: "biggest shop" is a merchant question, but
+        // "biggest Shopping charge" is the largest-expense branch's — without the
+        // boundary, `shops?` matches the prefix of "shopping".)
+        if matches(low, #"(?:top|biggest|largest|highest|most)\s+(?:\d+\s+)?(?:merchants?|shops?|stores?|retailers?|vendors?|payees?|places?|brands?|compan(?:y|ies))\b|where do i spend (?:the )?most|who(?:m)? do i pay (?:the )?most|most (?:money |often )?(?:spent|spend|goes?) (?:at|to|with)"#),
+           !debits.isEmpty {
+            var byMerchant: [String: (total: Double, count: Int)] = [:]
+            for r in debits {
+                let key = r.merchant.isEmpty ? r.descr : r.merchant
+                let cur = byMerchant[key] ?? (0, 0)
+                byMerchant[key] = (cur.total + r.debit, cur.count + 1)
+            }
+            let ranked = byMerchant.sorted { $0.value.total > $1.value.total }
+            let n = firstGroup(low, #"top\s+(\d+)"#).flatMap(Int.init) ?? 1
+            if n <= 1, let top = ranked.first {
+                return "**Your top merchant\(scope.label) is \(top.key)** — \(money(top.value.total)) across \(grp(top.value.count)) transaction\(top.value.count == 1 ? "" : "s")."
+            }
+            var lines = ["**Top \(min(n, ranked.count)) merchants by spend\(scope.label):**"]
+            for (i, e) in ranked.prefix(n).enumerated() {
+                lines.append("\(i + 1). \(e.key) — \(money(e.value.total)) (\(grp(e.value.count))×)")
+            }
+            return lines.joined(separator: "\n")
         }
 
         // ---- top N expenses (plural / "top 5") -----------------------------
@@ -375,12 +438,44 @@ public enum FinanceRouter {
             return "**\(name) was \(String(format: "%.1f", pct))% of your total spending** — \(money(spent)) of \(money(allSpent))."
         }
 
+        // ---- monthly breakdown ("spend each month", "monthly summary") -------
+        // A1 class 2: the group-by capability, dimension = month. "Each month"
+        // used to fall into the target-extractor and answer "£0.00 on Each".
+        if matches(low, #"(?:each|every|per|by)\s+month|month(?:ly)?\s*(?:breakdown|summary|report|totals?|spend(?:ing)?)|month[\s-]?wise|over the months|month (?:by|on) month"#),
+           !matches(low, #"\baverage\b|\bavg\b|\bmean\b|\btypical\b"#) {
+            let byMonth = Dictionary(grouping: sr, by: \.month).sorted { $0.key < $1.key }
+            func prettyMonth(_ m: String) -> String {
+                let parts = m.split(separator: "-")
+                guard parts.count == 2, let no = Int(parts[1]), (1...12).contains(no) else { return m }
+                return ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
+                        "Sep", "Oct", "Nov", "Dec"][no] + " " + parts[0]
+            }
+            if byMonth.count == 1, let only = byMonth.first {
+                let sp = only.value.reduce(0) { $0 + $1.debit }
+                return "**Everything here falls in \(prettyMonth(only.key))** — \(money(sp)) spent\(scope.label). Add another month's statement for a month-by-month view."
+            }
+            var lines = ["**Month by month\(scope.label):**"]
+            for (m, monthRows) in byMonth.prefix(24) {
+                let sp = monthRows.reduce(0) { $0 + $1.debit }
+                let inc = monthRows.filter { $0.credit > 0 && $0.category != "Payments" }
+                    .reduce(0) { $0 + $1.credit }
+                lines.append("- \(prettyMonth(m)) — spent \(money(sp))"
+                             + (inc > 0 ? ", received \(money(inc))" : ""))
+            }
+            return lines.joined(separator: "\n")
+        }
+
         // ---- by-category breakdown -----------------------------------------
         // ("what did I spend on <a date>" is a day-total, not a breakdown — the
         // "spend on" phrasing only means categories when no day was parsed)
         if matches(low, #"by category|category breakdown|categor\w*\s*(?:report|summary)|categories|each category|split.*categor|breakdown of|where.*money go|(?:which|what|top|biggest) category"#)
             || (scope.dayISO == nil && matches(low, #"what.*spend.*on\b"#)
                 && !matches(low, #"\baverage\b|\bavg\b|on average|per month|per day|monthly"#)
+                // An explicit amount ("what did I spend 100 pounds on") is a
+                // reverse-lookup, never a breakdown. (Previously a bare number
+                // became a phantom unmatchedTarget, which suppressed this branch
+                // by accident; the A1 target gates removed that accident.)
+                && !matches(low, #"£\s?\d|\d+\.\d{1,2}\b|\d+\s*(?:pounds|quid|pence|dollars|bucks|euros|rupees)\b"#)
                 && scope.unmatchedTarget == nil && !scope.hasCategory && !scope.hasMerchant),
            !debits.isEmpty {
             return categoryBreakdown(debits, total: spent, scopeLabel: scope.label, money: money)
@@ -510,9 +605,12 @@ public enum FinanceRouter {
         // A "how many / number of" threshold phrasing wants just the count, not a list.
         let thresholdWantsCount = matches(low, #"\bhow many\b|\bnumber of\b|\bcount\b"#)
 
-        // ---- threshold ("transactions over £50", "did I spend above 100") ----
-        if let g = firstGroup(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least)\s*£?\s*(\d+(?:\.\d+)?)"#),
-           let thr = Double(g), !debits.isEmpty {
+        // ---- threshold ("transactions over £50", "above 5,000", "over 5k") ----
+        // A1 class 4: one amount-literal reader — separators and spoken
+        // multipliers included. The old `\d+` stopped at a comma, so "over
+        // 5,000" parsed as threshold 5 and listed nearly every transaction.
+        if let g = firstTwoGroups(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least)\s*£?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|crores?|m|million)?\b"#),
+           let thr = amountLiteral(g.0, suffix: g.1), !debits.isEmpty {
             let hits = debits.filter { $0.debit > thr }.sorted { $0.debit > $1.debit }
             if hits.isEmpty {
                 return "**No transactions over \(money(thr))\(scope.label).** Your largest was \(money(debits.map(\.debit).max() ?? 0))."
@@ -530,10 +628,10 @@ public enum FinanceRouter {
         }
 
         // ---- threshold BELOW ("transactions under £5", "less than a tenner") ----
-        if let g = firstGroup(low, #"(?:under|below|less than|cheaper than|no more than|at most|beneath)\s*£?\s*(\d+(?:\.\d+)?)"#)
-                ?? (matches(low, #"\ba fiver\b"#) ? "5" : nil)
-                ?? (matches(low, #"\ba tenner\b"#) ? "10" : nil),
-           let thr = Double(g), !debits.isEmpty {
+        if let pair = firstTwoGroups(low, #"(?:under|below|less than|cheaper than|no more than|at most|beneath)\s*£?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|crores?|m|million)?\b"#)
+                ?? (matches(low, #"\ba fiver\b"#) ? ("5", String?.none) : nil)
+                ?? (matches(low, #"\ba tenner\b"#) ? ("10", String?.none) : nil),
+           let thr = amountLiteral(pair.0, suffix: pair.1), !debits.isEmpty {
             let hits = debits.filter { $0.debit < thr }.sorted { $0.debit < $1.debit }
             if hits.isEmpty {
                 return "**No transactions under \(money(thr))\(scope.label).** Your smallest was \(money(debits.map(\.debit).min() ?? 0))."
@@ -611,7 +709,7 @@ public enum FinanceRouter {
             let monthWords = Set(monthNames.map(\.0))
             let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
                 .map(String.init)
-                .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !monthWords.contains($0) }
+                .filter { $0.count >= 3 && !isStopword($0) && !monthWords.contains($0) }
             let compareWord = matches(low, #"\bmore\b|\bor\b|\bvs\.?\b|versus|\bcompare\b|\bthan\b|which (?:cost|was|is)|cost me more|\bless\b|higher|lower|bigger|smaller|greater|\bdifference\b|\bgap\b"#)
             let wantsDiff = matches(low, #"\bdifference\b|how much (?:more|less)|\bgap\b"#)
             let wantsCount = matches(low, #"how many|number of|how often|more often|\buse[ds]?\b|\bvisit\w*"#)
@@ -878,13 +976,62 @@ public enum FinanceRouter {
         let months = Set(monthNames.map(\.0))
         let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
-            .filter { $0.count >= 3 && !merchantStopwords.contains($0) && !months.contains($0) }
+            .filter {
+                $0.count >= 3 && !$0.allSatisfy(\.isNumber)
+                    && !isStopword($0) && !months.contains($0) && !isGrammarWord($0)
+            }
         // A genuine "spend at <X>" names a merchant/category in 1–2 tokens. Three or
         // more leftover content words means the question wasn't a clean spend lookup
         // (e.g. "how much were the new debits this period", "verify the ISK
         // conversion") — defer to the model rather than inventing a £0 "merchant".
         guard !toks.isEmpty, toks.count <= 2 else { return nil }
         return merchantDisplay(toks.joined(separator: " "))
+    }
+
+    /// A1 class 4 — the one amount-literal reader every threshold/range branch
+    /// uses: thousands separators ("5,000", "1,00,000") and spoken multipliers
+    /// ("5k", "1.2 lakh", "2 crore", "1m"). Currency symbol optional.
+    static func amountLiteral(_ number: String, suffix: String?) -> Double? {
+        guard var value = Double(number.replacingOccurrences(of: ",", with: "")) else { return nil }
+        switch (suffix ?? "").lowercased() {
+        case "k", "thousand": value *= 1_000
+        case "lakh", "lakhs", "lac", "lacs": value *= 100_000
+        case "m", "million": value *= 1_000_000
+        case "crore", "crores": value *= 10_000_000
+        default: break
+        }
+        return value
+    }
+
+    /// A1 class 1a — stopword lookup with plural folding, so "accounts" is
+    /// caught by "account" and no list has to enumerate both forms.
+    static func isStopword(_ token: String) -> Bool {
+        if merchantStopwords.contains(token) { return true }
+        if token.count > 3, token.hasSuffix("s"), !token.hasSuffix("ss"),
+           merchantStopwords.contains(String(token.dropLast())) { return true }
+        return false
+    }
+
+    /// A1 class 1b — part-of-speech gate: determiners ("each", "every"),
+    /// pronouns ("everything"), prepositions, conjunctions, adverbs, particles
+    /// and bare numbers are CLOSED word classes — grammar can enumerate what a
+    /// merchant name can never be, where no stopword list can enumerate every
+    /// merchant. A word these tags catch must never become a phantom "£0.00 on
+    /// Each" target.
+    static func isGrammarWord(_ token: String) -> Bool {
+        let tagger = NLTagger(tagSchemes: [.lexicalClass])
+        tagger.string = token
+        let (tag, _) = tagger.tag(at: token.startIndex, unit: .word, scheme: .lexicalClass)
+        switch tag {
+        case .some(.determiner), .some(.pronoun), .some(.preposition),
+             .some(.conjunction), .some(.adverb), .some(.particle),
+             .some(.interjection), .some(.number), .some(.verb):
+            // .verb included: "were"/"getting"-type auxiliaries survive stopword
+            // lists but are never merchant names ("how much WERE the new debits").
+            return true
+        default:
+            return false
+        }
     }
 
     /// Exact-day scope: "on 4 June", "June 4th 2026", "the 4th of June", "4/6".
@@ -1096,6 +1243,13 @@ public enum FinanceRouter {
         "which", "who", "where", "when", "why", "whose", "than", "versus", "compare",
         "against", "most", "least", "fewest", "fewer", "portion", "fraction", "share",
         "pounds", "quid", "pence", "dollars", "euros", "rupees",
+        // belt-and-braces alongside the POS gate (isGrammarWord) — quantifiers
+        // and router-vocabulary nouns that must never become a phantom target
+        "each", "every", "both", "either", "neither", "none", "several", "various",
+        "multiple", "single", "merchant", "merchants", "wise",
+        // time-span vocabulary ("this period", "the whole term") — router words,
+        // never merchants
+        "period", "window", "term", "range", "fortnight", "duration", "span",
     ]
 
     /// Title-case a derived merchant token for display; short tokens (≤3 chars,

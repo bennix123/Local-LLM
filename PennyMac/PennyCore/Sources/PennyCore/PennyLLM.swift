@@ -155,6 +155,13 @@ public actor PennyLLM {
 
     public var isLoaded: Bool { container != nil }
 
+    /// Release the MLX container — and with it ~2 GB of wired GPU memory. The
+    /// weights stay cached on disk, so the next load() is a fast local reload,
+    /// not a re-download. Callers hook this to memory-pressure warnings and
+    /// app-background transitions; holding a model nobody is talking to is how
+    /// a 16 GB machine ends up swapping.
+    public func unload() { container = nil }
+
     /// True when Apple's on-device system model (FoundationModels) is ready — chat
     /// and categorization then run with NO MLX download. Lets callers relax the
     /// "load the model first" gate and advertise on-device readiness up front.
@@ -267,6 +274,7 @@ public actor PennyLLM {
         question: String,
         statementText: String,
         maxTokens: Int = 600,
+        allowMLXFallback: Bool = true,
         onEngine: (@Sendable (String) -> Void)? = nil,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> String {
@@ -275,6 +283,8 @@ public actor PennyLLM {
         // the no-download case, with MLX as the fallback on an Apple failure.
         // Apple's path is non-streaming-on-failure: it only throws when nothing
         // streamed, so the MLX fallback never double-shows a half-streamed answer.
+        // `allowMLXFallback: false` (iOS: Apple-only by product decision) surfaces
+        // the Apple error instead of triggering a multi-GB weights download.
         if container == nil, #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do {
                 onEngine?("apple")
@@ -286,8 +296,13 @@ public actor PennyLLM {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                guard allowMLXFallback else { throw error }
                 // nothing was streamed → fall through to the MLX model below
             }
+        }
+        guard allowMLXFallback || container != nil else {
+            throw NSError(domain: "penny", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "On-device generation needs Apple Intelligence on this device."])
         }
         onEngine?("mlx")
         let container = try await load()

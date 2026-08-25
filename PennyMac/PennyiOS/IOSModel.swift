@@ -40,9 +40,6 @@ final class IOSModel: ObservableObject {
     // MARK: chat
     @Published var messages: [IOSChatMsg] = []
     @Published var isThinking = false
-    @Published var modelLoading = false
-    @Published var modelLoadFraction: Double = 0
-    @Published var mlxReady = false
 
     // MARK: onboarding
     @AppStorage("penny.ios.onboarded") var onboarded = false
@@ -243,14 +240,23 @@ final class IOSModel: ObservableObject {
             return
         }
 
-        // 2) on-device model
+        // 2) Apple's on-device system model — iOS's ONLY generative engine (user
+        //    directive: no MLX download on the phone; the deterministic layer
+        //    carries every factual question regardless).
+        guard PennyLLM.systemModelAvailable else {
+            messages.append(IOSChatMsg(role: .penny,
+                text: "That one needs Apple Intelligence, which isn't available on this device. Exact answers still work — ask me totals, categories, merchants, recurring charges, comparisons…",
+                engine: nil))
+            return
+        }
         isThinking = true
         let idx = messages.count
         messages.append(IOSChatMsg(role: .penny, text: "", engine: nil))
         Task {
             do {
-                _ = try await llm.ask(question: q, statementText: digest(),
+                _ = try await llm.ask(question: q, statementText: digest(for: q),
                                       maxTokens: 512,
+                                      allowMLXFallback: false,   // iOS is Apple-only — never download weights
                                       onEngine: { [weak self] engine in
                                           Task { @MainActor in
                                               guard let self, self.messages.indices.contains(idx) else { return }
@@ -263,12 +269,9 @@ final class IOSModel: ObservableObject {
                                               self.messages[idx].text += piece
                                           }
                                       })
-                if messages.indices.contains(idx), messages[idx].engine == "mlx" { mlxReady = true }
             } catch {
                 if messages.indices.contains(idx) {
-                    messages[idx].text = PennyLLM.systemModelAvailable || mlxReady
-                        ? "Sorry — I couldn't answer that. \(error.localizedDescription)"
-                        : "That one needs the on-device model. Tap **Load on-device model** below — it downloads once (~1.8 GB), then everything runs offline."
+                    messages[idx].text = "Sorry — I couldn't answer that. \(error.localizedDescription)"
                     messages[idx].engine = nil
                 }
             }
@@ -276,33 +279,25 @@ final class IOSModel: ObservableObject {
         }
     }
 
-    /// Whether the "Load on-device model" affordance should show: no Apple
-    /// Intelligence on this device and MLX not yet loaded.
-    var needsModelDownload: Bool { !PennyLLM.systemModelAvailable && !mlxReady && !modelLoading }
+    /// The model's grounding (B2/B3): rows the router's scope parse deems
+    /// relevant to the question + an exact facts card, with honest disclosure
+    /// when the window can't hold every matching row.
+    private func digest(for question: String) -> String {
+        let all = mergedRows
+        let (rows, scopeLabel, total) = FinanceRouter.relevantRows(for: question, in: all, limit: 400)
+        let spent = rows.reduce(0) { $0 + $1.debit }
+        let income = rows.filter { $0.category != "Payments" }.reduce(0) { $0 + $1.credit }
+        let scopeName = scopeLabel.isEmpty ? "all transactions" : scopeLabel
 
-    func loadModel() {
-        guard !modelLoading, !mlxReady else { return }
-        modelLoading = true
-        messages.append(IOSChatMsg(role: .penny, text: "Downloading the on-device model — I'll tell you when it's ready. You can keep using exact answers meanwhile.", engine: nil))
-        Task {
-            do {
-                try await llm.load { [weak self] p in
-                    Task { @MainActor in self?.modelLoadFraction = p.fraction }
-                }
-                mlxReady = true
-                messages.append(IOSChatMsg(role: .penny, text: "Model ready ✓ — open-ended questions now run fully on this device.", engine: nil))
-            } catch {
-                messages.append(IOSChatMsg(role: .penny, text: "Model download failed: \(error.localizedDescription)", engine: nil))
-            }
-            modelLoading = false
+        var lines = ["All amounts are in \(primaryCurrency) (\(Self.symbol(primaryCurrency)))."]
+        lines.append("EXACT FIGURES (computed, trust these over any sum you attempt): "
+            + "\(scopeName): spent \(money(spent)), received \(money(income)), \(rows.count) transactions shown.")
+        if total > rows.count {
+            lines.append("NOTE: showing the \(rows.count) most recent of \(total) matching transactions — "
+                + "say so if the user asks about completeness.")
         }
-    }
-
-    /// Compact grounding table for the model — same shape penny-server feeds it.
-    private func digest() -> String {
-        var lines = ["All amounts are in \(primaryCurrency) (\(Self.symbol(primaryCurrency))).",
-                     "Date | Description | Debit | Credit | Balance | Category"]
-        for r in mergedRows.prefix(400) {
+        lines.append("Date | Description | Debit | Credit | Balance | Category")
+        for r in rows {
             let d = r.debit == 0 ? "" : String(format: "%.2f", r.debit)
             let c = r.credit == 0 ? "" : String(format: "%.2f", r.credit)
             let b = r.balance.map { String(format: "%.2f", $0) } ?? ""

@@ -509,7 +509,32 @@ final class AppModel: ObservableObject {
     /// main actor). Held as a handle so tests can await — or cancel — it.
     private(set) var restoreTask: Task<Void, Never>?
 
+    /// Frees the MLX container under system memory pressure — the weights stay
+    /// on disk, so the next model question transparently reloads. Without this
+    /// the model squats on ~2 GB of wired GPU memory for the app's lifetime
+    /// (observed contributing to swap exhaustion on 16 GB machines).
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
+    private func startMemoryPressureRelief() {
+        let src = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical],
+                                                          queue: .main)
+        src.setEventHandler { [weak self] in
+            guard let self, case .ready = self.modelPhase else { return }
+            let llm = self.llm
+            Task {
+                await llm.unload()
+                await MainActor.run {
+                    self.postToast("Freed model memory under system pressure — it reloads on your next question.",
+                                   kind: .progress)
+                }
+            }
+        }
+        src.resume()
+        memoryPressureSource = src
+    }
+
     init() {
+        startMemoryPressureRelief()
         // Bring back the statements persisted by earlier launches: decode off
         // the main thread, then apply + recompute on the main actor. In test
         // mode `StatementStore` points at an empty per-process temp dir, so

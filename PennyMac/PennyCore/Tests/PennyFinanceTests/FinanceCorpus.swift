@@ -124,7 +124,9 @@ enum FinanceCorpus {
             query: "spending by month",
             expectedQuery: Query(filters: [.direction(.debit)], aggregate: .sum, groupBy: .month),
             expectedResult: .groups(["2026-06": dec("165.50"), "2026-07": dec("600.00")]),
-            expectedRouter: "**You spent £765.50** across 3 transactions."),
+            // A1 class 2: the router now has a real month-by-month capability —
+            // the previous expectation pinned its old fallback (the bare total).
+            expectedRouter: "**Month by month:**\n- Jun 2026 — spent £165.50, received £2500.00\n- Jul 2026 — spent £600.00"),
     ]
 
     // MARK: Wave A2 — balances & recurring

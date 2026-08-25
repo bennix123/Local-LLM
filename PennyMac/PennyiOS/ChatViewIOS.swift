@@ -64,10 +64,6 @@ struct ChatViewIOS: View {
                 LazyVStack(spacing: 10) {
                     if model.messages.isEmpty { emptyState }
                     ForEach(model.messages) { msg in bubble(msg).id(msg.id) }
-                    if model.needsModelDownload && !model.messages.isEmpty {
-                        loadModelButton
-                    }
-                    if model.modelLoading { modelProgress }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 10)
             }
@@ -115,24 +111,6 @@ struct ChatViewIOS: View {
         case "mlx": return "🧠 MLX · ON-DEVICE"
         default: return engine.uppercased()
         }
-    }
-
-    private var loadModelButton: some View {
-        Button { model.loadModel() } label: {
-            Text("Load on-device model (~1.8 GB, once)")
-                .font(T.body(13, .semibold)).foregroundStyle(T.limeDeep)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(T.limeSoft, in: Capsule())
-        }
-    }
-
-    private var modelProgress: some View {
-        VStack(spacing: 6) {
-            ProgressView(value: model.modelLoadFraction).tint(T.limeDeep)
-            Text("\(Int(model.modelLoadFraction * 100))% · downloading weights")
-                .font(T.mono(10)).foregroundStyle(T.dim)
-        }
-        .padding(.horizontal, 30)
     }
 
     private var composer: some View {
