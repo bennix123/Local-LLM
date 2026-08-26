@@ -1723,6 +1723,8 @@ public enum FinanceRouter {
         "weekend", "weekends", "day", "days", "week", "month", "months", "year", "years",
         "quarter", "half", "across", "whole", "entire", "throughout", "altogether",
         "sum", "out", "outgoing", "outgoings", "overall", "went", "came", "total",
+        // quantity vocabulary — "my most AMOUNT", "highest VALUE" — never merchants
+        "amount", "amounts", "value", "values", "figure", "figures",
         "owe", "owed", "owing", "outstanding", "due",
         "altogether", "overall", "everything", "anything", "something", "stuff", "things",
         "new", "old", "this", "these", "those", "here",

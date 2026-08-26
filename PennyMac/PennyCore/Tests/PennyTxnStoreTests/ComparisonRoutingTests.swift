@@ -217,6 +217,16 @@ final class ComparisonRoutingTests: XCTestCase {
 
     // MARK: - must-not-change
 
+    func testMostAmountIsNotAMerchant() throws {
+        // Live session: "what did i spend my most amount on?" answered
+        // "**You spent $0.00 on Amount.**" — a router-vocabulary word became a
+        // phantom merchant AND its unmatched-target state suppressed the
+        // category breakdown this phrasing should reach.
+        let ans = try XCTUnwrap(ask("what did i spend my most amount on?"))
+        XCTAssertFalse(ans.contains("on Amount"), "\(ans)")
+        XCTAssertTrue(ans.contains("Spending by category"), "\(ans)")
+    }
+
     func testPlainTopFiveExpensesUnchanged() throws {
         let ans = try XCTUnwrap(ask("top 5 expenses"))
         XCTAssertTrue(ans.contains("top 5 expenses"), "\(ans)")
