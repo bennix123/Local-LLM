@@ -101,7 +101,7 @@ struct ContextPanelView: View {
 
     private var statusLine: String {
         if app.isAnalyzing { return "reading your transactions…" }
-        if app.isRecategorizing { return "categorizing with Claude…" }
+        if app.isRecategorizing { return "categorizing merchants…" }
         if app.contextReady { return "\(s.count) transactions · on-device" }
         return "on-device · upload a statement to begin"
     }
@@ -235,9 +235,9 @@ struct ContextPanelView: View {
     /// count while Claude works through a big statement, else the phase message.
     private var categorizingMessage: String {
         if let p = app.categorizeProgress, p.total > 0 {
-            return "Identifying merchants with Claude… \(shownConverted) / \(p.total)"
+            return "Identifying merchants… \(shownConverted) / \(p.total)"
         }
-        return app.isRecategorizing ? "Categorizing your spending with Claude…"
+        return app.isRecategorizing ? "Categorizing your spending…"
                                     : "Reading your statement on-device…"
     }
 

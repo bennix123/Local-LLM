@@ -192,7 +192,7 @@ struct SidebarView: View {
             }
             Text(MD.inline(offline
                 ? "Penny is **fully offline**. Your statements and questions never leave this Mac."
-                : "Merchant names (and scanned-PDF text, if OCR was needed) were sent to Claude (**\(app.dataSentLabel)**). Your statements, balances and questions stay on this Mac."))
+                : "Merchant names (and scanned-PDF text, if OCR was needed) were sent to the categorization API (**\(app.dataSentLabel)**). Your statements, balances and questions stay on this Mac."))
                 .font(Theme.font(10.5, .medium)).foregroundStyle(Theme.ink2)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -243,7 +243,7 @@ struct SidebarView: View {
     @ViewBuilder private var apiKeyRow: some View {
         if app.claudeAPIKey != nil {
             HStack(spacing: 6) {
-                Text("Claude API").font(Theme.mono(9)).foregroundStyle(Theme.dim)
+                Text("Categorizer").font(Theme.mono(9)).foregroundStyle(Theme.dim)
                 Spacer(minLength: 4)
                 Text("connected").font(Theme.mono(9)).foregroundStyle(Theme.limeD)
                 Button { app.clearClaudeAPIKey() } label: {
@@ -275,7 +275,7 @@ struct SidebarView: View {
             // a calm connected state, not the "add a key" nag. Tapping still lets a
             // user supply their own key to bypass the proxy.
             HStack(spacing: 6) {
-                Text("Claude API").font(Theme.mono(9)).foregroundStyle(Theme.dim)
+                Text("Categorizer").font(Theme.mono(9)).foregroundStyle(Theme.dim)
                 Spacer(minLength: 4)
                 Text("connected").font(Theme.mono(9)).foregroundStyle(Theme.limeD)
                 Button { editingAPIKey = true } label: {
@@ -287,7 +287,7 @@ struct SidebarView: View {
             .padding(.top, 1)
         } else {
             Button { editingAPIKey = true } label: {
-                Text(MD.inline("🔑 **add Claude API key** — categories need it"))
+                Text(MD.inline("🔑 **add API key** — categories need it"))
                     .font(Theme.font(9.5, .semibold))
                     .foregroundStyle(Theme.coral)
                     .multilineTextAlignment(.leading)
