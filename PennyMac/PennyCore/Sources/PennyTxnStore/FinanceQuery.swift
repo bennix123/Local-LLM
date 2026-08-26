@@ -197,7 +197,7 @@ public enum FinanceRouter {
     static let creditNounPattern = #"(?<!available\s)\bcredits?\b(?!\s+(?:cards?|limits?|lines?|scores?|ratings?)\b)|\bdeposits?\b|\bincomings?\b|money (?:in|received)\b|paid in\b"#
     static let debitNounPattern = #"\bdebits?\b(?!\s+cards?\b)|\bwithdrawals?\b|\bcharges?\b|\boutgoings?\b|money (?:out|spent)\b|paid out\b"#
     private static let creditVerbPattern = #"\bcredited\b|\breceived\b|\bincome\b|\bincoming\b|came in\b|come in\b|coming in\b"#
-    private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b"#
+    private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b|(?:i|we)\s+sent\b|\bsent\s+(?:to|out)\b"#
 
     /// Credit-only / debit-only intent, or nil when neither or both directions
     /// are named ("credits and debits" scopes nothing).
@@ -281,7 +281,8 @@ public enum FinanceRouter {
         for (typo, fix) in [("mcuh", "much"), ("muhc", "much"), ("moch", "much"),
                             ("totl", "total"), ("toatl", "total"), ("transprot", "transport"),
                             ("trasnport", "transport"), ("expence", "expense"),
-                            ("expences", "expenses"), ("groceies", "groceries")] {
+                            ("expences", "expenses"), ("groceies", "groceries"),
+                            ("recieved", "received"), ("recieve", "receive")] {
             low = low.replacingOccurrences(of: #"\b"# + typo + #"\b"#, with: fix,
                                            options: .regularExpression)
         }
@@ -511,18 +512,29 @@ public enum FinanceRouter {
            // count — defer to the dedicated threshold handler, don't answer the
            // grand total here.
            !matches(low, #"(?:over|above|more than|greater than|bigger than|exceed\w*|at least|under|below|less than|cheaper than|no more than|beneath|at most)\s*£?\s*\d"#) {
-            let n = sr.count
+            // Direction-aware: "count of transactions I sent / received", "how
+            // many debits" — the shared detector decides, so the count agrees
+            // with every other direction-scoped answer. No direction → all rows.
+            let dir = directionScope(low)
+            let counted: [TxnRow]
+            switch dir {
+            case .credit: counted = sr.filter { $0.credit > 0 }
+            case .debit: counted = sr.filter { $0.debit > 0 }
+            case nil: counted = sr
+            }
+            let n = counted.count
             // per-week frequency: "how many times a week do I use X"
             if matches(low, #"times (?:a|per) week|(?:a|per) week do i"#), n > 0 {
                 let weeks = max(1, Int((Double(spanDays(rows)) / 7.0).rounded(.up)))
                 let freq = Double(n) / Double(weeks)
                 return "**About \(String(format: "%.1f", freq)) times a week\(scope.label)** — \(grp(n)) transactions over \(weeks) week\(weeks == 1 ? "" : "s")."
             }
-            let noun = n == 1 ? "transaction" : "transactions"
+            let nounStem = dir == .credit ? "credit" : dir == .debit ? "debit" : "transaction"
+            let noun = "\(nounStem)\(n == 1 ? "" : "s")"
             // "How much have I sent to X, and how many times?" — a two-part
             // question; the count alone silently drops the amount half.
             if matches(low, #"how much"#), n > 0 {
-                let tot = spent > 0 ? spent : income
+                let tot = dir == .credit ? income : dir == .debit ? spent : (spent > 0 ? spent : income)
                 return "**\(grp(n)) \(noun)\(scope.label), totalling \(money(tot)).**"
             }
             return "**\(grp(n)) \(noun)\(scope.label).**"

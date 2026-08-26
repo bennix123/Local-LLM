@@ -113,6 +113,30 @@ final class DirectionScopeTests: XCTestCase {
         XCTAssertTrue(ans.contains("more._"), "22 credits must be capped with a footer: \(ans)")
     }
 
+    // MARK: - direction-aware counts (from the Aug-25 manual session: "count of
+    // transactions I sent" and "…received" both answered the whole-ledger total)
+
+    func testCountOfSentIsDebitsOnly() throws {
+        let ans = try XCTUnwrap(ask("whats the count of the transactions i sent?"))
+        XCTAssertTrue(ans.contains("3 debits"), "\(ans)")
+    }
+
+    func testCountOfReceivedIsCreditsOnly() throws {
+        // Includes the "recieved" misspelling from the real session.
+        let ans = try XCTUnwrap(ask("whats the count of the transactions i recieved?"))
+        XCTAssertTrue(ans.contains("3 credits"), "\(ans)")
+    }
+
+    func testPlainCountUnchanged() throws {
+        let ans = try XCTUnwrap(ask("how many transactions do I have?"))
+        XCTAssertTrue(ans.contains("6 transactions"), "\(ans)")
+    }
+
+    func testDebitCountByNoun() throws {
+        let ans = try XCTUnwrap(ask("what are total debit transactions count?"))
+        XCTAssertTrue(ans.contains("3 debits"), "\(ans)")
+    }
+
     // MARK: - must-not-change routes
 
     func testDirectDebitsAreNotADebitList() {

@@ -210,8 +210,9 @@ final class ComparisonRoutingTests: XCTestCase {
     }
 
     func testHowMuchAndHowManyAnswersBoth() throws {
+        // "sent" now scopes the count to debits (direction-aware counts).
         let ans = try XCTUnwrap(ask("How much have I sent to TESCO, and how many times?"))
-        XCTAssertTrue(ans.contains("3 transactions") && ans.contains("totalling £290.00"), "\(ans)")
+        XCTAssertTrue(ans.contains("3 debits") && ans.contains("totalling £290.00"), "\(ans)")
     }
 
     // MARK: - must-not-change
