@@ -78,6 +78,7 @@ struct ContextPanelView: View {
                         .todayCardAccessibility(id: "today.accounts",
                                                 label: "accounts \(app.docs.count) \(app.docs.count == 1 ? "statement loaded" : "statements loaded")")
                     categoriesSection
+                    exportButton
                 }
                 .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 18)
             }
@@ -86,6 +87,29 @@ struct ContextPanelView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.bg)
         .overlay(Rectangle().fill(Theme.line).frame(width: 1), alignment: .leading)
+        .fileExporter(isPresented: $app.isExportingCSV,
+                      document: app.csvExportDocument(),
+                      contentType: .commaSeparatedText,
+                      defaultFilename: app.csvExportFilename()) { _ in }
+    }
+
+    /// Fix 7 — export the current (selected, or all) transactions to a
+    /// spreadsheet/accountant-ready CSV. Disabled with nothing to export.
+    @ViewBuilder private var exportButton: some View {
+        Button { app.isExportingCSV = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.up")
+                Text("Export CSV").font(Theme.font(11, .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(app.canExportCSV ? Theme.ink : Theme.dim)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
+        .disabled(!app.canExportCSV)
+        .padding(.top, 4)
     }
 
     private var header: some View {
@@ -94,6 +118,14 @@ struct ContextPanelView: View {
             HStack(spacing: 6) {
                 if app.isAnalyzing || app.isRecategorizing { ProgressView().controlSize(.small) }
                 Text(statusLine).font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
+            }
+            // Fix 1 — the visible trust handshake: does the ledger's own math add
+            // up? Shown once transactions are in and we're not mid-analysis.
+            if !app.isAnalyzing, let line = app.reconciliationLine {
+                Text(line)
+                    .font(Theme.mono(9, .semibold))
+                    .foregroundStyle(line.hasPrefix("⚠︎") ? Theme.coral : Theme.dim)
+                    .accessibilityIdentifier("today.reconciliation")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

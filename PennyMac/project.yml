@@ -16,6 +16,9 @@ targets:
     platform: macOS
     sources:
       - PennyApp
+      # Cross-platform UI helpers shared with the iOS target (e.g. the CSV
+      # export document).
+      - Shared
       # Deterministic-parser resources, bundled into the sandboxed app:
       # categories.json (categorization) + bank_profiles/ (bank detection).
       # Kept as a folder reference so bank_profiles/ stays a real directory
@@ -124,6 +127,8 @@ targets:
     platform: iOS
     sources:
       - PennyiOS
+      # Cross-platform UI helpers shared with the macOS target.
+      - Shared
       - path: PennyiOS/Assets.xcassets
         buildPhase: resources
       # Same deterministic-parser resources the macOS app bundles.

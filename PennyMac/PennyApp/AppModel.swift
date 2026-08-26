@@ -1719,6 +1719,85 @@ final class AppModel: ObservableObject {
             .flatMap(\.rows)
     }
 
+    // MARK: - Reconciliation handshake (Fix 1)
+    // Prove each imported statement's own numbers add up (opening + in − out =
+    // stated closing) and show the user, so they trust the figures before asking
+    // anything. Pure arithmetic via `Reconciliation` — no router, no model.
+
+    /// Per-statement reconciliation for one doc: derive opening from the
+    /// statement text (or the first running balance) and check it against the
+    /// stated/last closing balance.
+    func reconciliation(for doc: LoadedDoc) -> Reconciliation.Report {
+        let opening = Self.openingBalance(in: doc.text) ?? impliedOpening(doc)
+        let closing = doc.closingBalance ?? doc.latestBalance
+        return Reconciliation.check(rows: doc.rows, opening: opening, closing: closing)
+    }
+
+    /// When no opening balance is printed but rows carry running balances, the
+    /// opening is the first row's balance minus that row's own effect.
+    private func impliedOpening(_ doc: LoadedDoc) -> Double? {
+        guard let first = doc.rows.first(where: { $0.balance != nil }),
+              let b = first.balance else { return nil }
+        return b - first.credit + first.debit
+    }
+
+    /// One line for the whole current selection: all-clear, a warning if any
+    /// statement fails to reconcile (one broken parse taints the totals), or an
+    /// honest "unverifiable" when no statement carries balances.
+    var reconciliationLine: String? {
+        let chosen = selectedDocs().filter { !$0.rows.isEmpty }
+        guard !chosen.isEmpty else { return nil }
+        let reports = chosen.map { reconciliation(for: $0) }
+        let money: (Double) -> String = { Money.format($0, currency: self.summary.currency) }
+
+        if let bad = reports.first(where: { if case .mismatch = $0.status { return true } else { return false } }),
+           case .mismatch(let d) = bad.status {
+            let n = reports.filter { if case .mismatch = $0.status { return true } else { return false } }.count
+            return n == 1
+                ? "⚠︎ one statement's totals are off by \(money(abs(d))) — I may have misread it"
+                : "⚠︎ \(n) statements don't reconcile — I may have misread them"
+        }
+        let verified = reports.filter { $0.reconciles }.count
+        if verified == 0 { return "no balance line to reconcile against" }
+        let total = reports.count
+        return verified == total
+            ? "\(total == 1 ? "Statement reconciles" : "All \(total) statements reconcile") ✓"
+            : "\(verified) of \(total) statements reconcile ✓"
+    }
+
+    // MARK: - CSV export (Fix 7)
+    // Serializes exactly the rows the user is looking at (the current selection,
+    // or every statement when nothing is selected) into an accountant/Excel-ready
+    // CSV. Pure and deterministic — `TxnCSVExport` touches neither the router nor
+    // the model — so what exports is exactly what the ledger holds.
+
+    /// Drives the `.fileExporter` sheet. The view toggles this on; the platform
+    /// save/share panel does the rest.
+    @Published var isExportingCSV = false
+
+    /// True when there is at least one row to export (the button is disabled
+    /// otherwise, so the user never exports an empty file by accident).
+    var canExportCSV: Bool { !selectedRows().isEmpty }
+
+    /// The document handed to `.fileExporter`, built lazily at export time.
+    func csvExportDocument() -> CSVFileDocument {
+        // Stable, legible order: oldest → newest, then by original row order.
+        let rows = selectedRows().sorted { ($0.txnDate, $0.seq) < ($1.txnDate, $1.seq) }
+        return CSVFileDocument(data: TxnCSVExport.data(from: rows))
+    }
+
+    /// A human-friendly default filename: the selected statement's name when a
+    /// single one is chosen, otherwise a generic dated-ledger name.
+    func csvExportFilename() -> String {
+        let base: String
+        if selectedDocNames.count == 1, let only = selectedDocNames.first {
+            base = (only as NSString).deletingPathExtension
+        } else {
+            base = "penny-transactions"
+        }
+        return base.isEmpty ? "penny-transactions" : base
+    }
+
     /// The canonical graph narrowed to the selected statements — the input to the
     /// Query Engine, scoped exactly like `selectedRows()` (empty selection ⇒ all).
     private func selectedGraph() -> FinancialGraph {

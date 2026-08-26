@@ -62,6 +62,52 @@ final class IOSModel: ObservableObject {
     var mergedRows: [TxnRow] { statements.flatMap(\.rows) }
     var hasData: Bool { !mergedRows.isEmpty }
 
+    // MARK: - CSV export (Fix 7) — shares TxnCSVExport with the macOS app.
+    @Published var isExportingCSV = false
+    var canExportCSV: Bool { hasData }
+    func csvExportDocument() -> CSVFileDocument {
+        let rows = mergedRows.sorted { ($0.txnDate, $0.seq) < ($1.txnDate, $1.seq) }
+        return CSVFileDocument(data: TxnCSVExport.data(from: rows))
+    }
+    func csvExportFilename() -> String {
+        statements.count == 1
+            ? (statements[0].name as NSString).deletingPathExtension
+            : "penny-transactions"
+    }
+
+    // MARK: - Reconciliation handshake (Fix 1) — shares Reconciliation with macOS.
+    /// Per-statement check. iOS statements carry no raw text, so the opening
+    /// balance is implied from the first running balance when present.
+    func reconciliation(for s: IOSStatement) -> Reconciliation.Report {
+        let opening: Double? = s.rows.first(where: { $0.balance != nil }).map {
+            ($0.balance ?? 0) - $0.credit + $0.debit
+        }
+        let closing = s.closingBalance ?? s.rows.last(where: { $0.balance != nil })?.balance
+        return Reconciliation.check(rows: s.rows, opening: opening, closing: closing)
+    }
+
+    /// One trust line across all loaded statements (mirrors AppModel).
+    var reconciliationLine: String? {
+        let chosen = statements.filter { !$0.rows.isEmpty }
+        guard !chosen.isEmpty else { return nil }
+        let reports = chosen.map { reconciliation(for: $0) }
+        let sym = Self.symbol(primaryCurrency)
+        let money: (Double) -> String = { sym + String(format: "%.2f", $0) }
+
+        let mismatches = reports.filter { if case .mismatch = $0.status { return true } else { return false } }
+        if let bad = mismatches.first, case .mismatch(let d) = bad.status {
+            return mismatches.count == 1
+                ? "⚠︎ one statement's totals are off by \(money(abs(d))) — I may have misread it"
+                : "⚠︎ \(mismatches.count) statements don't reconcile"
+        }
+        let verified = reports.filter { $0.reconciles }.count
+        if verified == 0 { return "no balance line to reconcile against" }
+        let total = reports.count
+        return verified == total
+            ? "\(total == 1 ? "Statement reconciles" : "All \(total) statements reconcile") ✓"
+            : "\(verified) of \(total) statements reconcile ✓"
+    }
+
     var primaryCurrency: String {
         let counts = Dictionary(grouping: statements.map(\.currency).filter { !$0.isEmpty }, by: { $0 })
             .mapValues(\.count)

@@ -2,6 +2,7 @@
 // stacked category bar), category pills with amounts, recent transactions.
 // Mixed currencies never blend: the hero shows one line per currency.
 import SwiftUI
+import UniformTypeIdentifiers
 import PennyTxnStore
 
 struct TodayView: View {
@@ -15,10 +16,31 @@ struct TodayView: View {
                 categoryPills
                 sectionHeader("Recent", right: "\(min(12, model.recentRows.count)) shown")
                 recent
+                exportButton
             }
             .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
         }
         .background(T.bg)
+        .fileExporter(isPresented: $model.isExportingCSV,
+                      document: model.csvExportDocument(),
+                      contentType: .commaSeparatedText,
+                      defaultFilename: model.csvExportFilename()) { _ in }
+    }
+
+    /// Fix 7 — export all transactions to a spreadsheet/accountant-ready CSV.
+    @ViewBuilder private var exportButton: some View {
+        if model.canExportCSV {
+            Button { model.isExportingCSV = true } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "square.and.arrow.up")
+                    Text("Export CSV").font(T.body(14, .semibold))
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                .foregroundStyle(T.ink)
+                .pennyCard(tint: T.cardTint)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: hero
@@ -44,6 +66,13 @@ struct TodayView: View {
                 }
             }
             spendBar
+            // Fix 1 — the visible trust handshake: does the ledger's own math
+            // add up? Coral when a statement fails to reconcile.
+            if let line = model.reconciliationLine {
+                Text(line)
+                    .font(T.mono(10))
+                    .foregroundStyle(line.hasPrefix("⚠︎") ? T.coral : T.dim)
+            }
         }
         .padding(18)
         .pennyCard(tint: T.cardTint)
