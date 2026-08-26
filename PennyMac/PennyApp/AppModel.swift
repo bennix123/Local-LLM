@@ -1164,10 +1164,13 @@ final class AppModel: ObservableObject {
                                                  endpoint: ClaudeCategorizer.Endpoint = .anthropic,
                                                  onBatch: @escaping @Sendable ([String]) -> Void = { _ in })
     async -> (results: [ClaudeCategorization], bytesSent: Int, failed: Int, apiError: String?) {
-        // Rich merchant-first output is ~130 tokens/merchant, so batches are modest.
-        // A batch that truncates or errors is split and retried once (see
+        // Rich merchant-first output is ~95 tokens/merchant and generation speed
+        // through the proxy is ~160 tok/s, so a batch's latency ≈ 0.6s per
+        // merchant. Smaller batches finish in ~15s (vs ~30s+ at 40), stay far
+        // from the 60s request timeout, and advance the loader more often. A
+        // batch that truncates or errors is split and retried once (see
         // categorizeChunk) so a single bad batch never silently drops rows.
-        let batchSize = 40
+        let batchSize = 24
         // Flatten every group into ≤batchSize work items tagged with their bank
         // location, so batches from different banks can run together.
         struct Work: Sendable { let chunk: [String]; let location: String? }
@@ -1190,7 +1193,9 @@ final class AppModel: ObservableObject {
         // batches "deep" in wall-clock instead of a dozen sequential Sonnet calls.
         // Each task uses its own categorizer, so there's no shared mutable state
         // (byte counts don't race).
-        let maxConcurrent = min(4, work.count)
+        // 8-way: well under the proxy's 240 req/min per-IP limit, and halves the
+        // wall-clock of multi-statement imports vs the old 4.
+        let maxConcurrent = min(8, work.count)
         var results: [ClaudeCategorization] = []
         var bytes = 0, failed = 0
         var apiError: String? = nil

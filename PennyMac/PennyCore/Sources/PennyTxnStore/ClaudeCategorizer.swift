@@ -396,23 +396,29 @@ public final class ClaudeCategorizer {
 
         PRIMARY CATEGORIES: \(Self.primaryCategories.joined(separator: ", ")).
 
-        Echo each descriptor back verbatim in the `raw` field so it can be matched.
+        Return each descriptor's number (as given in the input list) in the `i` \
+        field so it can be matched back.
         """
         if let locationContext, !locationContext.isEmpty { system += "\n\n" + locationContext }
 
+        // Output cost is THE latency driver: generation time scales linearly with
+        // output tokens (measured ~160 tok/s through the proxy). `i` replaces the
+        // verbatim `raw` echo (long descriptors were ~15 tokens each to repeat, an
+        // integer is 1, and exact index matching beats fuzzy echo matching), and
+        // there is no `reason` field — it was never consumed by any caller and
+        // cost ~20 tokens per merchant.
         let itemSchema: [String: Any] = [
             "type": "object",
             "properties": [
-                "raw": ["type": "string"],
+                "i": ["type": "integer"],
                 "merchant": ["type": "string"],
                 "business": ["type": "string"],
                 "primary_category": ["type": "string", "enum": Self.primaryCategories],
                 "secondary_category": ["type": "string"],
                 "confidence": ["type": "number"],
-                "reason": ["type": "string"],
             ],
-            "required": ["raw", "merchant", "business", "primary_category",
-                         "secondary_category", "confidence", "reason"],
+            "required": ["i", "merchant", "business", "primary_category",
+                         "secondary_category", "confidence"],
             "additionalProperties": false,
         ]
         let schema: [String: Any] = [
@@ -423,10 +429,10 @@ public final class ClaudeCategorizer {
         ]
         return [
             "model": model,
-            // ~120 output tokens/merchant (7 fields + a short reason), plus headroom
-            // for a Sonnet reasoning block. A truncated response parse-fails and
-            // silently costs the whole batch, so keep this generous.
-            "max_tokens": max(2048, min(16384, merchants.count * 130 + 1500)),
+            // ~95 output tokens/merchant (6 compact fields), plus headroom for a
+            // model that prepends a reasoning block. A truncated response
+            // parse-fails and silently costs the whole batch, so stay generous.
+            "max_tokens": max(2048, min(16384, merchants.count * 110 + 1200)),
             "system": system,
             "output_config": ["format": ["type": "json_schema", "schema": schema]],
             "messages": [[
@@ -451,15 +457,20 @@ public final class ClaudeCategorizer {
               let results = root["results"] as? [[String: Any]] else {
             throw ClaudeCategorizerError.badResponse("missing content[].text JSON with `results`")
         }
-        // Match each verdict's echoed `raw` back to the original descriptor
-        // (case/punctuation-insensitive), with a positional fallback when the model
+        // Match each verdict back to its original descriptor by the 1-based `i`
+        // index. Fallbacks (older prompt shape / a model that ignores `i`): a
+        // case/punctuation-insensitive echo match, then positional when the model
         // returned exactly one verdict per input.
         var originals: [String: String] = [:]
         for d in merchants where originals[Self.matchKey(d)] == nil { originals[Self.matchKey(d)] = d }
-        return results.enumerated().compactMap { i, r in
+        return results.enumerated().compactMap { pos, r in
+            let indexed: String? = (r["i"] as? NSNumber).flatMap {
+                let idx = $0.intValue - 1
+                return merchants.indices.contains(idx) ? merchants[idx] : nil
+            }
             let echoed = (r["raw"] as? String) ?? (r["merchant"] as? String) ?? ""
-            let positional = results.count == merchants.count ? merchants[i] : nil
-            guard let raw = originals[Self.matchKey(echoed)] ?? positional else { return nil }
+            let positional = results.count == merchants.count ? merchants[pos] : nil
+            guard let raw = indexed ?? originals[Self.matchKey(echoed)] ?? positional else { return nil }
             let primary = (r["primary_category"] as? String)?.trimmingCharacters(in: .whitespaces) ?? "Other"
             let secondary = (r["secondary_category"] as? String)?.trimmingCharacters(in: .whitespaces)
             let conf = (r["confidence"] as? NSNumber)?.doubleValue ?? 0

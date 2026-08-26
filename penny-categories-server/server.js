@@ -46,6 +46,15 @@ const ANTHROPIC_UPSTREAM = "https://api.anthropic.com/v1/messages";
 // so the app needs no change. Image-bearing requests still fall back to Anthropic.
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+// Model used for STRUCTURED (json_schema) requests — i.e. Penny's categorization
+// batches. Measured 2026-08-26 through this proxy: deepseek-v4-flash spends
+// 64–77% of its billed output tokens on hidden reasoning before the JSON
+// (3-merchant batch: 289 billed vs ~67 visible; 24-merchant: 3,317 vs ~1,000),
+// which is pure latency — the app's prompt already encodes the reasoning steps.
+// DeepSeek switches thinking off by MODEL NAME, so classification defaults to
+// the documented non-thinking model. Override with DEEPSEEK_FAST_MODEL (set it
+// equal to DEEPSEEK_MODEL to restore the old single-model behaviour).
+const DEEPSEEK_FAST_MODEL = process.env.DEEPSEEK_FAST_MODEL || "deepseek-chat";
 const DEEPSEEK_UPSTREAM = "https://api.deepseek.com/chat/completions";
 const LLM_PROVIDER = DEEPSEEK_API_KEY ? "deepseek" : (ANTHROPIC_API_KEY ? "anthropic" : "none");
 const CATEGORIES_PATH = process.env.CATEGORIES_PATH || join(__dirname, "categories.json");
@@ -195,7 +204,11 @@ function anthropicToDeepSeek(reqObj) {
   // so the app's max_tokens (sized for Anthropic's smaller thinking block) is too
   // tight and would truncate — add headroom, capped to a safe ceiling.
   const askedMax = Number(reqObj.max_tokens) || 4096;
-  const body = { model: DEEPSEEK_MODEL, messages,
+  // Structured (json_schema) requests are Penny's categorization batches: pure
+  // classification where hidden chain-of-thought is 64–77% of the billed output
+  // (measured — see DEEPSEEK_FAST_MODEL above) and adds nothing the prompt
+  // doesn't already encode. Serve them with the non-thinking model.
+  const body = { model: jsonMode ? DEEPSEEK_FAST_MODEL : DEEPSEEK_MODEL, messages,
                  max_tokens: Math.min(8192, askedMax + 4096) };
   if (jsonMode) body.response_format = { type: "json_object" };
   return body;
@@ -361,5 +374,6 @@ server.listen(PORT, () => {
              categories: state.payload.categories.length, version: state.payload.version,
              proxy: LLM_PROVIDER !== "none", provider: LLM_PROVIDER,
              model: LLM_PROVIDER === "deepseek" ? DEEPSEEK_MODEL : undefined,
+             fastModel: LLM_PROVIDER === "deepseek" ? DEEPSEEK_FAST_MODEL : undefined,
              log: LOG_PATH });
 });
