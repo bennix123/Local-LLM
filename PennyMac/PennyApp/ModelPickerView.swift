@@ -65,11 +65,15 @@ struct ModelPickerView: View {
             Text(entry.id).font(Theme.font(10, .medium).monospaced()).foregroundStyle(Theme.dim).lineLimit(1)
             let fits = app.modelFits(entry)
             let downloaded = app.downloadedModelIDs.contains(entry.id)
+            let pausedAt = app.pausedModels[entry.id]
             HStack(spacing: 8) {
                 tag(entry.size, bg: Theme.tint)
                 tag("≥\(entry.minRAMGB) GB RAM", bg: fits ? Theme.tint : Theme.coralS,
                     fg: fits ? Theme.ink2 : Theme.coral)
                 if downloaded { tag("downloaded ✓", bg: Theme.limeS, fg: Theme.limeD) }
+                else if let pausedAt, !isLoading {
+                    tag("paused · \(Int(pausedAt * 100))%", bg: Theme.tint, fg: Theme.ink2)
+                }
             }
             Text(entry.note).font(Theme.font(12)).foregroundStyle(Theme.dim)
 
@@ -78,7 +82,15 @@ struct ModelPickerView: View {
                 Text("⚠️ Needs ≥\(entry.minRAMGB) GB — this Mac has \(AppModel.deviceRAMGB) GB. May run slowly or run out of memory.")
                     .font(Theme.font(10, .semibold)).foregroundStyle(Theme.coral)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if !downloaded {
+            } else if downloaded {
+                Text("On this Mac — opens instantly, nothing to download.")
+                    .font(Theme.font(10, .semibold)).foregroundStyle(Theme.limeD)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if pausedAt != nil {
+                Text("Partially downloaded — resumes from where it stopped.")
+                    .font(Theme.font(10)).foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
                 Text("Downloads \(entry.size) once on first use, then runs offline.")
                     .font(Theme.font(10)).foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -88,13 +100,29 @@ struct ModelPickerView: View {
 
             if isLoading {
                 progressBlock
+                Button {
+                    app.pauseDownload()
+                } label: {
+                    Text("⏸ Pause download")
+                        .font(Theme.font(12, .bold))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(Theme.tint, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("model.pause")
             } else {
                 Button {
                     app.chooseModel(entry.id)
                     app.errorMessage = nil
                     app.loadAndContinue()
                 } label: {
-                    Text(isReady ? "In use ✓ · Continue →" : "Use this model")
+                    Text(isReady ? "In use ✓ · Continue →"
+                         : downloaded ? "Use this model →"
+                         : pausedAt != nil ? "▶ Resume download (\(Int((pausedAt ?? 0) * 100))%)"
+                         : "⬇ Download this model (\(entry.size))")
                         .font(Theme.font(13, .bold))
                         .foregroundStyle(Theme.ink)
                         .frame(maxWidth: .infinity)
@@ -105,6 +133,7 @@ struct ModelPickerView: View {
                 .buttonStyle(.plain)
                 .disabled(isLoadingAny)
                 .opacity(isLoadingAny && !isSelected ? 0.5 : 1)
+                .accessibilityIdentifier(pausedAt != nil ? "model.resume" : "model.use")
             }
         }
         .padding(16)
@@ -112,7 +141,10 @@ struct ModelPickerView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(isSelected ? Theme.limeD : Theme.line, lineWidth: isSelected ? 2.5 : 1)
+                .stroke(isSelected ? Theme.limeD
+                        : app.downloadedModelIDs.contains(entry.id) ? Theme.limeD.opacity(0.45)
+                        : Theme.line,
+                        lineWidth: isSelected ? 2.5 : 1)
         )
     }
 

@@ -182,47 +182,38 @@ public actor PennyLLM {
     @discardableResult
     public func load(onProgress: (@Sendable (LoadProgress) -> Void)? = nil) async throws -> ModelContainer {
         if let container { return container }
-        let configuration = ModelConfiguration(id: modelID)
-        let hub = HubReported()
-        let watcher: Task<Void, Never>? = onProgress.map { report in
-            let repo = modelID
-            return Task.detached {
-                while !Task.isCancelled {
-                    let total = await hub.total
-                    if total > 0 {
-                        let disk = PennyLLM.bytesOnDisk(repo: repo)
-                        let completed = max(await hub.completed, disk)
-                        report(LoadProgress(
-                            fraction: min(0.999, Double(completed) / Double(total)),
-                            completedBytes: min(completed, total),
-                            totalBytes: total
-                        ))
-                    }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-            }
-        }
-        defer { watcher?.cancel() }
-        let container = try await #huggingFaceLoadModelContainer(
-            configuration: configuration,
-            progressHandler: { p in
-                Task { await hub.update(completed: p.completedUnitCount, total: p.totalUnitCount) }
-            }
-        )
-        self.container = container
-        onProgress?(LoadProgress(fraction: 1, completedBytes: await hub.total, totalBytes: await hub.total))
-        return container
-    }
+        let store = ModelStore.shared
 
-    /// Last byte counts the Hub reported — its total is trustworthy, its completed
-    /// count only moves when a whole file finishes.
-    private actor HubReported {
-        var completed: Int64 = 0
-        var total: Int64 = 0
-        func update(completed: Int64, total: Int64) {
-            self.completed = max(self.completed, completed)
-            if total > 0 { self.total = total }
+        // Weights already fetched by an earlier build (Hub layouts) become an
+        // instant install instead of a multi-GB re-download.
+        if await store.directoryIfInstalled(for: modelID) == nil {
+            await store.adoptLegacyCaches(for: modelID)
         }
+
+        // Download whatever is missing — byte-exact resumable, so a cancelled
+        // (paused / quit) attempt continues where it stopped, whenever retried.
+        if await store.directoryIfInstalled(for: modelID) == nil {
+            try await store.download(repo: modelID) { p in
+                onProgress?(LoadProgress(
+                    // Reserve the top slice of the bar for the GPU load below.
+                    fraction: min(0.98, p.fraction),
+                    completedBytes: p.bytes,
+                    totalBytes: p.total
+                ))
+            }
+        }
+
+        guard let dir = await store.directoryIfInstalled(for: modelID) else {
+            // Should be unreachable (download throws on failure) — but never
+            // fall through to a silent hub re-download.
+            throw NSError(domain: "penny", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Model files incomplete after download — resume to retry."])
+        }
+        let container = try await loadModelContainer(
+            from: dir, using: #huggingFaceTokenizerLoader())
+        self.container = container
+        onProgress?(LoadProgress(fraction: 1, completedBytes: 0, totalBytes: 0))
+        return container
     }
 
     /// Bytes of this repo already on disk plus any in-flight download temp files.

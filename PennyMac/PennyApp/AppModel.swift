@@ -629,17 +629,32 @@ final class AppModel: ObservableObject {
     /// the "downloaded ✓ / downloads on first use" hint. Refreshed on picker appear.
     @Published var downloadedModelIDs: Set<String> = []
 
+    /// Models with a paused / interrupted (resumable) download: id → fraction done.
+    @Published var pausedModels: [String: Double] = [:]
+
     func refreshDownloadedModels() {
         let ids = catalog.map(\.id)
         Task.detached {
+            let store = ModelStore.shared
             var done = Set<String>()
+            var paused: [String: Double] = [:]
             for id in ids {
-                let total = AppModel.catalogBytes(id)
-                if total > 0, DownloadMeter.bytesOnDisk(repo: id, includeTemps: false) >= Int64(Double(total) * 0.95) {
+                // Adopt weights an earlier build left in the legacy HF caches, so
+                // "downloaded ✓" reflects what is truly on this machine.
+                switch await store.status(for: id) {
+                case .installed:
                     done.insert(id)
+                case .partial(let bytes, let total):
+                    paused[id] = total > 0 ? Double(bytes) / Double(total) : 0
+                case .notInstalled:
+                    if await store.adoptLegacyCaches(for: id) { done.insert(id) }
                 }
             }
-            await MainActor.run { [weak self] in self?.downloadedModelIDs = done }
+            let doneNow = done, pausedNow = paused
+            await MainActor.run { [weak self] in
+                self?.downloadedModelIDs = doneNow
+                self?.pausedModels = pausedNow
+            }
         }
     }
 
@@ -719,60 +734,83 @@ final class AppModel: ObservableObject {
         guard modelPhase == .idle else { return }
         resetLoadTelemetry()
         totalBytes = Self.catalogBytes(selectedModelID)   // provisional denominator
-        DownloadMeter.clearStaleTemps()
+        // An installed model never shows download UI — the only wait left is the
+        // GPU load, so the bar starts full with an honest status. A paused
+        // download starts the bar from where it stopped.
+        if downloadedModelIDs.contains(selectedModelID) {
+            downloadFraction = 1
+            downloadedBytes = totalBytes
+            loadStatus = "loading onto GPU…"
+        } else if let f = pausedModels[selectedModelID] {
+            downloadFraction = f
+            loadStatus = "resuming…"
+        } else {
+            loadStatus = "connecting…"
+        }
         modelPhase = .loading(0)
-        loadStatus = "connecting…"
         startProgressTimer()
         loadTask = Task {
             do {
+                // Progress is byte-exact from ModelStore (finished files + the
+                // in-flight partial) — resumable, so pausing/quitting mid-way
+                // costs nothing.
                 try await llm.load { [weak self] p in
-                    // Use the Hub only for the accurate TOTAL byte count.
-                    guard p.totalBytes > 0 else { return }
-                    Task { @MainActor in self?.totalBytes = p.totalBytes }
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if p.totalBytes > 0 {
+                            self.totalBytes = p.totalBytes
+                            self.downloadedBytes = max(self.downloadedBytes, p.completedBytes)
+                            self.downloadFraction = min(0.999, Double(self.downloadedBytes) / Double(p.totalBytes))
+                            self.loadStatus = self.downloadFraction >= 0.98
+                                ? "loading onto GPU…" : "downloading weights…"
+                        } else if p.fraction >= 1 {
+                            self.loadStatus = "loading onto GPU…"
+                        }
+                    }
                 }
                 downloadedBytes = totalBytes
                 downloadFraction = 1
                 modelPhase = .ready
                 loadStatus = "ready ✓"
+                pausedModels[selectedModelID] = nil
+                downloadedModelIDs.insert(selectedModelID)
                 stage = .dashboard
                 refineIssuersViaLLM()   // label statements imported before load
                 refineCategoriesForLoadedStatements()   // ...and categorize their "Other" rows
+            } catch is CancellationError {
+                // A pause (or model switch) — the partial stays on disk and the
+                // next loadAndContinue resumes from its exact byte offset.
+                modelPhase = .idle
+                loadStatus = "paused"
+                refreshDownloadedModels()
             } catch {
                 modelPhase = .idle
                 errorMessage = "Model load failed: \(error.localizedDescription)"
                 loadStatus = ""
+                refreshDownloadedModels()
             }
         }
     }
 
-    /// Polls disk every 0.5 s while loading: real downloaded bytes → smooth bar +
-    /// a ticking elapsed clock.
+    /// Pause the in-flight model download. The partial file stays on disk and
+    /// `loadAndContinue()` resumes byte-exactly — after a pause, an app restart,
+    /// or any amount of time.
+    func pauseDownload() {
+        guard case .loading = modelPhase else { return }
+        loadTask?.cancel()
+        loadTask = nil
+    }
+
+    /// Ticks the elapsed clock while loading. (Byte progress arrives from
+    /// ModelStore's download callback — exact, no disk polling needed.)
     private func startProgressTimer() {
-        let repo = selectedModelID
         Task { @MainActor [weak self] in
             while true {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard let self, case .loading = self.modelPhase else { break }
                 self.tickCount += 1
                 self.loadElapsed = self.tickCount / 2
-                self.refreshDiskProgress(repo: repo)
             }
-        }
-    }
-
-    private func refreshDiskProgress(repo: String) {
-        let bytes = DownloadMeter.bytesOnDisk(repo: repo)
-        // Never let the bar go backwards (temp→blob moves can dip the instantaneous sum).
-        downloadedBytes = max(downloadedBytes, bytes)
-        if totalBytes > 0 {
-            downloadFraction = min(0.999, Double(downloadedBytes) / Double(totalBytes))
-        }
-        if downloadFraction >= 0.98 {
-            loadStatus = "loading onto GPU…"
-        } else if downloadedBytes > 1_000_000 {
-            loadStatus = "downloading weights…"
-        } else {
-            loadStatus = "connecting…"
         }
     }
 
@@ -1051,7 +1089,7 @@ final class AppModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             let loaded = await self.llm.isLoaded
-            let onDisk = DownloadMeter.bytesOnDisk(repo: self.selectedModelID) > 0
+            let onDisk = await ModelStore.shared.directoryIfInstalled(for: self.selectedModelID) != nil
             // The Apple system model (macOS 26+) needs no weights on disk and never
             // brings up MLX — so it's always eligible to name the issuer.
             guard loaded || onDisk || PennyLLM.systemModelAvailable else {
