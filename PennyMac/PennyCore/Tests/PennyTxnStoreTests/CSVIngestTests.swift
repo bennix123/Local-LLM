@@ -233,6 +233,46 @@ final class CSVIngestTests: XCTestCase {
         XCTAssertEqual(out.rows[0].debit, 12.00)
     }
 
+    // MARK: - Type-column direction (DEBIT/CREDIT in a separate column)
+
+    /// The common Indian export layout: ONE positive amount column plus a
+    /// "type" column carrying DEBIT/CREDIT. Every row used to parse as a
+    /// credit (direction only came from a Cr/Dr suffix or the sign), and the
+    /// "type" header also hijacked the category role from the REAL category
+    /// column further right.
+    func testTypeColumnDrivesDirection() throws {
+        let csv = """
+        date,narration,type,amount,category,merchant,mode,balance
+        2025-07-01,SALARY CREDIT ACME,CREDIT,120000.0,Salary,Acme,NEFT,200000.0
+        2025-07-03,UPI SWIGGY,DEBIT,412.50,Food Delivery,Swiggy,UPI,199587.50
+        2025-07-05,ATM WDL,DEBIT,5000.0,Cash Withdrawal,ATM,ATM,194587.50
+        """
+        let out = try ingester.ingestCSV(path: try tempCSV(csv, "typecol"))
+        XCTAssertEqual(out.rows.count, 3)
+        XCTAssertEqual(out.rows[0].credit, 120000.0)
+        XCTAssertEqual(out.rows[0].debit, 0)
+        XCTAssertEqual(out.rows[1].debit, 412.50, "positive amount + Type DEBIT must be a debit")
+        XCTAssertEqual(out.rows[1].credit, 0)
+        XCTAssertEqual(out.rows[2].debit, 5000.0)
+        // The REAL category column must survive the "type" header.
+        XCTAssertEqual(out.rows[1].rawCategory, "Food Delivery")
+    }
+
+    /// A "Type" column whose values are NOT direction markers is a category
+    /// column (some exports use "Type" that way) — the sign fallback still
+    /// decides direction.
+    func testTypeColumnDemotedToCategoryWhenNotDirectional() throws {
+        let csv = """
+        Date,Description,Type,Amount
+        2025-07-01,STARBUCKS,Dining,-450.0
+        2025-07-02,SALARY,Income,90000.0
+        """
+        let out = try ingester.ingestCSV(path: try tempCSV(csv, "typecat"))
+        XCTAssertEqual(out.rows[0].debit, 450.0)
+        XCTAssertEqual(out.rows[1].credit, 90000.0)
+        XCTAssertEqual(out.rows[0].rawCategory, "Dining")
+    }
+
     // MARK: - unmappable headers
 
     func testUnmappableHeadersYieldNoRows() throws {

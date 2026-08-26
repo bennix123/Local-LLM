@@ -326,6 +326,21 @@ public enum FinanceRouter {
         // renders card closing balances with owed semantics.
         if matches(low, #"\bbalance\b|how much do i have|money in my account|in my account|\bowe[ds]?\b|\bowing\b|\boutstanding\b|how much is (?:due|owed)|left to pay|to pay off|pay off the card|card bill|credit[\s-]?card bill|amount to pay|balance owing|still owe"#),
            !matches(low, #"\b(opening|starting|start|initial|beginning)\s+balance\b|balance\s+(?:brought|carried)\s+forward"#) {
+            // lowest / highest the running balance ever reached, with the date
+            if matches(low, #"lowest|minimum|\bdipped\b|dropped|\blow point\b|bottomed"#) {
+                if let r = rows.filter({ $0.balance != nil })
+                    .min(by: { $0.balance! < $1.balance! }) {
+                    return "**Your lowest balance was \(money(r.balance!))** — on \(prettyDate(r.txnDate))."
+                }
+                return "This statement doesn't show a running balance, so I can't find the low point."
+            }
+            if matches(low, #"highest|maximum|\bpeak(?:ed)?\b|high point"#) {
+                if let r = rows.filter({ $0.balance != nil })
+                    .max(by: { $0.balance! < $1.balance! }) {
+                    return "**Your highest balance was \(money(r.balance!))** — on \(prettyDate(r.txnDate))."
+                }
+                return "This statement doesn't show a running balance, so I can't find the peak."
+            }
             // balance as of a specific date: last running balance up to that day
             if let iso = scope.dayISO {
                 if let bal = rows.filter({ $0.txnDate <= iso })
@@ -446,6 +461,12 @@ public enum FinanceRouter {
                 return "**About \(String(format: "%.1f", freq)) times a week\(scope.label)** — \(grp(n)) transactions over \(weeks) week\(weeks == 1 ? "" : "s")."
             }
             let noun = n == 1 ? "transaction" : "transactions"
+            // "How much have I sent to X, and how many times?" — a two-part
+            // question; the count alone silently drops the amount half.
+            if matches(low, #"how much"#), n > 0 {
+                let tot = spent > 0 ? spent : income
+                return "**\(grp(n)) \(noun)\(scope.label), totalling \(money(tot)).**"
+            }
             return "**\(grp(n)) \(noun)\(scope.label).**"
         }
 
@@ -693,7 +714,7 @@ public enum FinanceRouter {
         // ---- by-category breakdown -----------------------------------------
         // ("what did I spend on <a date>" is a day-total, not a breakdown — the
         // "spend on" phrasing only means categories when no day was parsed)
-        if matches(low, #"by category|category breakdown|categor\w*\s*(?:report|summary)|categories|each category|split.*categor|breakdown of|where.*money go|(?:which|what|top|biggest) category"#)
+        if matches(low, #"by category|category breakdown|categor\w*\s*(?:report|summary)|categories|each category|split.*categor|breakdown of|where.*money go|(?:which|what|top|biggest) category|(?:single\s+)?(?:biggest|largest|top|highest|main)\s+(?:spending\s+)?categor"#)
             || (scope.dayISO == nil && matches(low, #"what.*spend.*on\b"#)
                 && !matches(low, #"\baverage\b|\bavg\b|on average|per month|per day|monthly"#)
                 // An explicit amount ("what did I spend 100 pounds on") is a
@@ -999,6 +1020,8 @@ public enum FinanceRouter {
         // never register as an amount.
         if matches(low, #"(?:what|which|who).*(?:charge|transaction|payment|purchase|debit|cost|was|spend|buy|bought|pay|paid)|what did i (?:buy|pay|get|purchase|spend) (?:for|on)|the £?\s?\d+(?:\.\d{1,2})? (?:charge|transaction|payment|purchase)"#),
            !matches(low, #"\bover\b|\babove\b|\bunder\b|\bbelow\b|more than|less than|biggest|largest|smallest|highest|lowest|\bfirst\b|\blast\b|latest|earliest|how many|how much did i spend\b(?!\s+£?\s?\d)"#),
+           // "for 2025" / "in 2024" is a YEAR scope, not a ₹2,025 amount lookup.
+           !matches(low, #"(?:in|for|of|during|year)\s+(?:19|20)\d\d\b|year to date|\bytd\b|\bq[1-4]\b"#),
            let g = firstGroup(low, #"£\s*(\d+(?:\.\d{1,2})?)"#)
                 ?? firstGroup(low, #"\b(\d+\.\d{2})\b"#)
                 ?? firstGroup(low, #"\b(\d+(?:\.\d{1,2})?)\s*(?:pounds?|quid|pence|dollars?|euros?|rupees?)\b"#)
@@ -1018,20 +1041,38 @@ public enum FinanceRouter {
         }
 
         // ---- month-vs-month comparison ("did I spend more in Feb or March",
-        // "how much more in Feb than March") ----------------------------------
+        // "July 2025 than June 2025", "July 2025 vs July 2024") ---------------
+        // Year-aware: each named month keeps the year written right after it, so
+        // a multi-year statement never sums July 2024 + July 2025 into one side,
+        // and the SAME month in two different years is a valid comparison.
         if matches(low, #"\bcompare\b|\bvs\.?\b|versus|more in|less in|higher in|which month|\bthan\b|difference between"#) {
-            let ms = monthNames.filter { matches(low, #"\b"# + $0.0 + #"\b"#) }.map(\.1)
-            let uniq = Array(Set(ms)).sorted()
-            if uniq.count >= 2 {
+            var pairs: [(mo: Int, yr: Int?)] = []
+            if let re = try? NSRegularExpression(pattern: #"\b([a-z]{3,9})\.?(?:\s+((?:19|20)\d\d))?\b"#) {
+                for m in re.matches(in: low, range: NSRange(low.startIndex..., in: low)) {
+                    guard let r1 = Range(m.range(at: 1), in: low),
+                          let mo = monthNames.first(where: { $0.0 == String(low[r1]) })?.1 else { continue }
+                    var yr: Int?
+                    if m.range(at: 2).location != NSNotFound, let r2 = Range(m.range(at: 2), in: low) {
+                        yr = Int(low[r2])
+                    }
+                    if !pairs.contains(where: { $0.mo == mo && $0.yr == yr }) { pairs.append((mo, yr)) }
+                }
+            }
+            if pairs.count >= 2 {
+                func label(_ p: (mo: Int, yr: Int?)) -> String {
+                    monthAbbr(p.mo) + (p.yr.map { " \($0)" } ?? "")
+                }
                 var parts: [String] = []
-                var totals: [(Int, Double)] = []
-                for mo in uniq {
-                    let t = rows.filter { $0.monthNo == mo && $0.debit > 0 }.reduce(0) { $0 + $1.debit }
-                    totals.append((mo, t))
-                    parts.append("\(monthAbbr(mo)) \(money(t))")
+                var totals: [((mo: Int, yr: Int?), Double)] = []
+                for p in pairs {
+                    let t = rows.filter { $0.monthNo == p.mo && (p.yr == nil || $0.year == p.yr!)
+                                          && $0.debit > 0 }
+                        .reduce(0) { $0 + $1.debit }
+                    totals.append((p, t))
+                    parts.append("\(label(p)) \(money(t))")
                 }
                 let hi = totals.max(by: { $0.1 < $1.1 })!
-                var out = "**You spent more in \(monthAbbr(hi.0)) (\(money(hi.1))).** " + parts.joined(separator: " vs ") + "."
+                var out = "**You spent more in \(label(hi.0)) (\(money(hi.1))).** " + parts.joined(separator: " vs ") + "."
                 if totals.count == 2 {
                     out += " Difference: \(money(abs(totals[0].1 - totals[1].1)))."
                 }
@@ -1198,6 +1239,14 @@ public enum FinanceRouter {
             return lines.joined(separator: "\n")
         }
 
+        // ---- peer benchmarking → honest limitation ---------------------------
+        // "Is my spending normal for someone my age?" — there is no peer data
+        // here; saying so beats both a made-up comparison and a raw total.
+        if matches(low, #"normal for|people my age|someone my age|average person|typical person|people like me|others spend|compared? (?:to|with) (?:other|most) people"#) {
+            return "**I can't compare you with other people — I only see your own statements.** "
+                + "Ask me for your own totals, averages or trends instead."
+        }
+
         // Advisory / opinion / open-ended that no deterministic handler caught →
         // let the LLM handle it (before the broad total-spent catch-all below).
         if isAdvisory(low) { return nil }
@@ -1329,11 +1378,22 @@ public enum FinanceRouter {
         // when the question is actually asking about spending on / visiting something.
         guard matches(low, #"spen[dt]|how much|paid|\bpay\b|\bcost\b|\bat\b|\bon\b|\buse[ds]?\b|\bvisit\w*|\bgo\b|\bwent\b|\beat\b|\border\w*|\bshop\w*|\bbuy\b|\bbought\b"#) else { return nil }
         let months = Set(monthNames.map(\.0))
+        // A word right after "at/to/from" is a spend TARGET whatever the POS
+        // tagger thinks — NLTagger reads "starbucks" as an adverb and "walmart"
+        // as a verb, which silently dropped them and turned "how much at
+        // Starbucks?" into the whole-account total.
+        var prepTargets: Set<String> = []
+        if let re = try? NSRegularExpression(pattern: #"\b(?:at|to|from)\s+([a-z0-9]{3,})"#) {
+            for m in re.matches(in: low, range: NSRange(low.startIndex..., in: low)) {
+                if let r = Range(m.range(at: 1), in: low) { prepTargets.insert(String(low[r])) }
+            }
+        }
         let toks = low.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
             .filter {
                 $0.count >= 3 && !$0.allSatisfy(\.isNumber)
-                    && !isStopword($0) && !months.contains($0) && !isGrammarWord($0)
+                    && !isStopword($0) && !months.contains($0)
+                    && (prepTargets.contains($0) || !isGrammarWord($0))
             }
         // A genuine "spend at <X>" names a merchant/category in 1–2 tokens. Three or
         // more leftover content words means the question wasn't a clean spend lookup
@@ -1821,6 +1881,39 @@ public enum FinanceRouter {
             if !inMonth.isEmpty || mayIsMonth {
                 return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst() + yearLabel)
             }
+        }
+        // quarter: "Q2 2025", "second quarter of 2025" — three calendar months,
+        // year-filtered when named. An empty result still scopes (honest zero).
+        let quarterWords = ["first": 1, "1st": 1, "second": 2, "2nd": 2,
+                            "third": 3, "3rd": 3, "fourth": 4, "4th": 4]
+        var quarter: Int?
+        if let qs = firstGroup(low, #"\bq([1-4])\b"#) { quarter = Int(qs) }
+        else if let w = firstGroup(low, #"\b(first|1st|second|2nd|third|3rd|fourth|4th)\s+quarter\b"#) {
+            quarter = quarterWords[w]
+        }
+        if let q = quarter {
+            let monthsInQ = ((q - 1) * 3 + 1)...(q * 3)
+            var inQ = rows.filter { monthsInQ.contains($0.monthNo) }
+            var label = "in Q\(q)"
+            if let ys = firstGroup(low, #"\b((?:19|20)\d\d)\b"#), let y = Int(ys) {
+                inQ = inQ.filter { $0.year == y }
+                label += " \(y)"
+            }
+            return (inQ, label)
+        }
+        // year-to-date / "this year": the latest year on record.
+        if matches(low, #"year to date|\bytd\b|this year|so far (?:this|in the) year"#),
+           let maxYear = rows.map(\.year).max() {
+            return (rows.filter { $0.year == maxYear }, "in \(maxYear) so far")
+        }
+        // bare year ("in 2019", "for 2025", "2025 so far") — no month name made it
+        // here, so the year IS the period. An absent year scopes to zero rows and
+        // downstream handlers answer an honest "₹0.00 in 2019" instead of the
+        // whole-history total.
+        if let ys = firstGroup(low, #"\b(?:in|for|of|during|year)\s+((?:19|20)\d\d)\b"#)
+                    ?? firstGroup(low, #"\b((?:19|20)\d\d)\s+so far\b"#),
+           let y = Int(ys) {
+            return (rows.filter { $0.year == y }, "in \(y)")
         }
         return nil
     }

@@ -153,6 +153,67 @@ final class ComparisonRoutingTests: XCTestCase {
         XCTAssertNil(ask("Pre-salary week vs post-salary week spending patterns"))
     }
 
+    // MARK: - year / quarter scope (from the Downloads eval kit, 2026-08-26)
+
+    func testBareYearScopes() throws {
+        let ans = try XCTUnwrap(ask("How much did I spend in 2019?"))
+        XCTAssertTrue(ans.contains("£0.00 in 2019"), "absent year must be an honest zero: \(ans)")
+    }
+
+    func testYearToDateScopesToLatestYear() throws {
+        let ans = try XCTUnwrap(ask("What's my year-to-date spending for 2026?"))
+        XCTAssertTrue(ans.contains("in 2026"), "\(ans)")
+        XCTAssertFalse(ans.contains("2,025.00"), "2026 must not be read as an amount: \(ans)")
+    }
+
+    func testQuarterScopes() throws {
+        let ans = try XCTUnwrap(ask("How much did I spend in Q2 2026?"))
+        // Apr+May+Jun debits: 100 + 200 + 399.98 = 699.98
+        XCTAssertTrue(ans.contains("in Q2 2026") && ans.contains("£699.98"), "\(ans)")
+    }
+
+    func testMonthComparisonIsYearAware() throws {
+        var r = rows
+        r.append(row(30, date: "2025-06-15", descr: "OLD ZARA", debit: 5000))
+        let ans = try XCTUnwrap(ask("Did I spend more in June 2026 than May 2026?", r))
+        XCTAssertTrue(ans.contains("Jun 2026") && ans.contains("£399.98"),
+                      "June 2025's £5000 must not leak into June 2026: \(ans)")
+        let yoy = try XCTUnwrap(ask("Compare June 2026 vs June 2025", r))
+        XCTAssertTrue(yoy.contains("Jun 2025") && yoy.contains("£5000.00"), "\(yoy)")
+    }
+
+    // MARK: - balance extremes, POS-gate targets, benchmark decline
+
+    func testLowestBalanceWithDate() throws {
+        var r = rows
+        for i in r.indices { r[i].balance = 1000 + Double(i) }
+        r[3].balance = 42.42
+        let ans = try XCTUnwrap(ask("What's the lowest my balance dropped, and when?", r))
+        XCTAssertTrue(ans.contains("£42.42") && ans.contains("10 May 2026"), "\(ans)")
+    }
+
+    func testBrandNamesSurviveThePOSTagger() throws {
+        // NLTagger reads "starbucks" as an adverb and "walmart" as a verb —
+        // both used to fall out of the target extractor and answer the TOTAL.
+        for q in ["How much have I spent at Starbucks?", "How much did I spend at Walmart?"] {
+            let ans = try XCTUnwrap(ask(q))
+            XCTAssertTrue(ans.contains("£0.00"), "\(q) → \(ans)")
+            XCTAssertFalse(ans.contains("£549.98") || ans.contains("£699.98"),
+                           "must not be the whole-account total: \(ans)")
+        }
+    }
+
+    func testPeerBenchmarkDeclinesHonestly() throws {
+        let ans = try XCTUnwrap(ask("Is my spending normal for someone my age?"))
+        XCTAssertTrue(ans.contains("can't compare you with other people"), "\(ans)")
+        XCTAssertFalse(ans.contains("£"), "no figures — nothing to benchmark against: \(ans)")
+    }
+
+    func testHowMuchAndHowManyAnswersBoth() throws {
+        let ans = try XCTUnwrap(ask("How much have I sent to TESCO, and how many times?"))
+        XCTAssertTrue(ans.contains("3 transactions") && ans.contains("totalling £290.00"), "\(ans)")
+    }
+
     // MARK: - must-not-change
 
     func testPlainTopFiveExpensesUnchanged() throws {

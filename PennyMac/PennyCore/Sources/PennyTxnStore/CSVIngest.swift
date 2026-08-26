@@ -29,6 +29,13 @@ enum CSVIngest {
     static let categoryAliases: Set<String> = ["category", "transaction category", "type",
         "transaction type", "details", "sub-category", "group", "class", "narrative", "remarks"]
     static let currencyAliases: Set<String> = ["currency", "currency code", "ccy"]
+    /// Direction-marker column ("Type: DEBIT/CREDIT", "Dr/Cr") — the common
+    /// Indian-bank export layout with ONE amount column and the direction in a
+    /// separate column. "type" is deliberately in BOTH this set and
+    /// categoryAliases: which role the column really plays is decided from its
+    /// DATA in `resolveTxnTypeColumn` (some exports use "Type" for categories).
+    static let txnTypeAliases: Set<String> = ["type", "transaction type", "txn type",
+        "dr/cr", "cr/dr", "dr / cr", "debit/credit", "credit/debit", "d/c", "dr cr"]
 
     /// Role check order mirrors the Python elif chain: a header maps to the
     /// FIRST role whose alias set contains it and that isn't already mapped
@@ -36,8 +43,32 @@ enum CSVIngest {
     static let roleOrder: [(String, Set<String>)] = [
         ("date", dateAliases), ("desc", descAliases), ("debit", debitAliases),
         ("credit", creditAliases), ("balance", balanceAliases), ("amount", amountAliases),
-        ("category", categoryAliases), ("currency", currencyAliases),
+        ("txntype", txnTypeAliases), ("category", categoryAliases), ("currency", currencyAliases),
     ]
+
+    /// Direction words a Type/DrCr column may carry, lowercased.
+    static let debitMarkers: Set<String> = ["debit", "dr", "d", "withdrawal", "out", "paid out"]
+    static let creditMarkers: Set<String> = ["credit", "cr", "c", "deposit", "in", "paid in"]
+
+    /// A "type" header wins the txntype role at header time, but only its DATA
+    /// says whether it truly carries direction markers (DEBIT/CREDIT/DR/CR) or
+    /// is actually a category column ("Groceries", "POS", …). When under 80% of
+    /// its values are direction words, demote it: hand the column to the (still
+    /// free) category role instead.
+    static func resolveTxnTypeColumn(_ mapping: inout [String: Int], dataRows: [[String]]) {
+        guard let ti = mapping["txntype"] else { return }
+        var direction = 0, filled = 0
+        for row in dataRows where ti < row.count {
+            let v = row[ti].pyStrip().pyLower()
+            guard !v.isEmpty else { continue }
+            filled += 1
+            if debitMarkers.contains(v) || creditMarkers.contains(v) { direction += 1 }
+        }
+        if filled == 0 || Double(direction) / Double(filled) < 0.8 {
+            mapping.removeValue(forKey: "txntype")
+            if mapping["category"] == nil { mapping["category"] = ti }
+        }
+    }
 
     /// Bracketed qualifiers banks append to header names — "Withdrawal (Dr)",
     /// "Amount (INR)" — stripped for a second alias lookup.
@@ -253,6 +284,9 @@ enum CSVIngest {
             row.count > headerCount ? repairSplitAmounts(row, target: headerCount) : row
         }
 
+        // Decide from the data whether a "Type" column is direction or category.
+        resolveTxnTypeColumn(&mapping, dataRows: dataRows)
+
         // day/month order inferred over every ambiguous numeric date in the file
         var dmPairs: [(Int, Int)] = []
         if let di = mapping["date"] {
@@ -301,10 +335,17 @@ enum CSVIngest {
             } else if !amountRaw.isEmpty {
                 let val = csvMoney(amountRaw)
                 let suffix = crdrAmountRe.search(amountRaw)?.group(1)?.pyLower()
+                let marker = cell("txntype").pyLower()
                 if suffix == "cr" {
                     credit = abs(val)
                 } else if suffix == "dr" {
                     debit = abs(val)
+                } else if Self.debitMarkers.contains(marker) {
+                    // "Type: DEBIT" column + positive amount — without this,
+                    // every row of the common Indian export layout was a credit.
+                    debit = abs(val)
+                } else if Self.creditMarkers.contains(marker) {
+                    credit = abs(val)
                 } else {
                     debit = val < 0 ? abs(val) : 0.0
                     credit = val > 0 ? val : 0.0
