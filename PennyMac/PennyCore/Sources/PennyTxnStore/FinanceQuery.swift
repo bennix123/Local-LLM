@@ -209,6 +209,64 @@ public enum FinanceRouter {
         return credit ? .credit : .debit
     }
 
+    /// The transactions and human scope behind a factual answer (Fixes 4 & 5).
+    ///
+    /// Runs the SAME scope + direction parsing the answer path uses, and returns
+    /// the in-scope, direction-filtered rows plus a short label of the filter —
+    /// so the UI can show WHICH transactions a figure came from ("Show 12
+    /// transactions") and WHAT it was scoped to ("Groceries in June · money
+    /// out"). Additive: it does not alter `answer()`.
+    ///
+    /// Returns nil when nothing distinguishing applies (a whole-ledger answer
+    /// with no category/merchant/period/direction) or the scope is empty — in
+    /// those cases there is no meaningful subset to show.
+    public struct AnswerScope: Sendable, Equatable {
+        public let rows: [TxnRow]        // in-scope, direction-filtered, newest first
+        public let label: String         // e.g. "on Groceries in June · money out"
+        public let directionNote: String?  // "money out" | "money in" | nil
+    }
+
+    public static func context(for question: String, rows: [TxnRow],
+                               previousQuestion: String? = nil) -> AnswerScope? {
+        guard !rows.isEmpty else { return nil }
+        let q = carryScope(into: question, from: previousQuestion, rows: rows)
+        let low = q.lowercased()
+        let scope = parseScope(low, rows: rows)
+        var scoped = scope.rows
+        var parts: [String] = []
+
+        if scope.hasCategory || scope.hasMerchant || scope.hasPeriod {
+            let l = scope.label.trimmingCharacters(in: .whitespaces)
+            if !l.isEmpty { parts.append(l) }
+        }
+
+        var directionNote: String?
+        switch directionScope(q) {
+        case .debit:
+            scoped = scoped.filter { $0.debit > 0 }
+            directionNote = "money out"; parts.append("money out")
+        case .credit:
+            scoped = scoped.filter { $0.credit > 0 && $0.category != "Payments" }
+            directionNote = "money in"; parts.append("money in")
+        case nil:
+            // `directionScope` is conservative and doesn't treat the base verb
+            // "spend" as a direction (only "spent"/"spending"). For receipts we
+            // want the debit rows behind the most common question — "how much
+            // did I spend on X" — so mirror that here, locally (this never
+            // affects the shared answer path or the eval).
+            if matches(low, #"\bspend\b"#) {
+                scoped = scoped.filter { $0.debit > 0 }
+                directionNote = "money out"; parts.append("money out")
+            }
+        }
+
+        guard !parts.isEmpty, !scoped.isEmpty else { return nil }
+        return AnswerScope(
+            rows: scoped.sorted { ($0.txnDate, $0.seq) > ($1.txnDate, $1.seq) },
+            label: parts.joined(separator: " · "),
+            directionNote: directionNote)
+    }
+
     static func answerSingleCurrency(_ question: String,
                                      rows: [TxnRow],
                                      currency: String,

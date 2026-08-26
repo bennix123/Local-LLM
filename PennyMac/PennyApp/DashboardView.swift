@@ -18,6 +18,7 @@ struct DashboardView: View {
                 switch app.centerView {
                 case .chat:    ChatView()
                 case .history: ChatHistoryView()
+                case .search:  SearchView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -24,6 +24,7 @@ struct IOSChatMsg: Identifiable, Equatable {
     let role: Role          // .user | .penny
     var text: String
     var engine: String?     // "swift engine" | "apple" | "mlx" | nil while streaming
+    var receipts: AnswerReceipts?   // Fixes 4 & 5 — scope + rows behind a figure
     enum Role { case user, penny }
 }
 
@@ -294,7 +295,10 @@ final class IOSModel: ObservableObject {
         if let det = FinanceRouter.answer(resolvedQ, rows: rows, currency: cur,
                                           accounts: accounts,
                                           money: { self.money($0, cur) }) {
-            messages.append(IOSChatMsg(role: .penny, text: det, engine: "swift engine"))
+            // Fixes 4 & 5 — scope + the transactions behind the figure.
+            let receipts = FinanceRouter.context(for: resolvedQ, rows: rows)
+                .flatMap { AnswerReceipts(from: $0) }
+            messages.append(IOSChatMsg(role: .penny, text: det, engine: "swift engine", receipts: receipts))
             return
         }
 

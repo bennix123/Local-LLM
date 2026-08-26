@@ -309,6 +309,12 @@ struct MessageBubble: View {
                     .accessibilityLabel(message.content)
                     .accessibilityIdentifier(message.role == .user ? "chat.msg.user" : "chat.msg.assistant")
                 }
+                // Fixes 5 & 4 — the scope the figure was computed on, and a
+                // tap-to-reveal list of the exact transactions behind it.
+                if message.role == .assistant, let receipts = message.receipts {
+                    ReceiptsDisclosure(receipts: receipts)
+                        .frame(maxWidth: maxBubbleWidth, alignment: .leading)
+                }
                 // Copy + thumbs-up/down, shown under a finished assistant reply.
                 if message.role == .assistant, !message.content.isEmpty {
                     messageActions

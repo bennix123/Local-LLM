@@ -84,6 +84,7 @@ struct ChatMessage: Identifiable, Equatable, Codable {
     let role: Role
     var content: String
     var engine: String?   // e.g. "MLX" — the badge shown on assistant bubbles
+    var receipts: AnswerReceipts?   // Fixes 4 & 5 — scope + rows behind a figure
 }
 
 /// An archived conversation — created when the user starts a new chat, listed
@@ -96,7 +97,7 @@ struct ChatSession: Identifiable, Equatable, Codable {
 }
 
 /// Which view fills the centre column of the dashboard.
-enum CenterView { case chat, history }
+enum CenterView { case chat, history, search }
 
 /// A statement the user imported: its PDFKit-extracted text (grounding for chat)
 /// plus the transactions the deterministic `PennyTxnStore` parser pulled out of it
@@ -1765,6 +1766,14 @@ final class AppModel: ObservableObject {
             : "\(verified) of \(total) statements reconcile ✓"
     }
 
+    // MARK: - Transaction search (Fix 3)
+    /// Deterministic find-a-transaction over the selected statements (or all).
+    /// No model in the path — instant and never invents a row.
+    func searchTransactions(_ query: String) -> [TxnRow] {
+        TxnSearch.search(query, in: selectedRows())
+    }
+    var hasRowsToSearch: Bool { !selectedRows().isEmpty }
+
     // MARK: - CSV export (Fix 7)
     // Serializes exactly the rows the user is looking at (the current selection,
     // or every statement when nothing is selected) into an accountant/Excel-ready
@@ -2773,6 +2782,11 @@ final class AppModel: ObservableObject {
         let money: (Double) -> String = { Money.format($0, currency: cur) }
         let routerAnswer = FinanceRouter.answer(resolvedQ, rows: selectedRows(), currency: cur,
                                                 accounts: accounts, money: money)
+        // Fixes 4 & 5 — the scope + transactions behind a deterministic figure,
+        // so the answer bubble can show what it filtered on and let the user
+        // drill into the exact rows. nil for whole-ledger answers (no chip).
+        let receipts = FinanceRouter.context(for: resolvedQ, rows: selectedRows())
+            .flatMap { AnswerReceipts(from: $0) }
 
         // Phase 1.1 — route through the Query Engine (LegacyQueryBridge → QueryEngine).
         // We adopt the engine's answer ONLY when it exactly reconciles with the router
@@ -2786,14 +2800,14 @@ final class AppModel: ObservableObject {
         if let engineAnswer = EngineRouter.answer(for: q, graph: selectedGraph(), money: money),
            engineAnswer == routerAnswer {
             engineRoutingStats.routed += 1
-            messages.append(ChatMessage(role: .assistant, content: engineAnswer, engine: "ANALYTICS"))
+            messages.append(ChatMessage(role: .assistant, content: engineAnswer, engine: "ANALYTICS", receipts: receipts))
             PennyLog.shared.log("chat", "A (analytics): \(engineAnswer)")
             return
         }
         #endif
         if let routerAnswer {
             engineRoutingStats.fellBack += 1
-            messages.append(ChatMessage(role: .assistant, content: routerAnswer, engine: "ANALYTICS"))
+            messages.append(ChatMessage(role: .assistant, content: routerAnswer, engine: "ANALYTICS", receipts: receipts))
             PennyLog.shared.log("chat", "A (analytics): \(routerAnswer)")
             return
         }

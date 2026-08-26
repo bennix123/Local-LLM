@@ -94,6 +94,10 @@ struct ChatViewIOS: View {
                             in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16)
                     .stroke(msg.role == .user ? .clear : T.line, lineWidth: 1))
+            // Fixes 5 & 4 — scope chip + tap-to-reveal receipts under the answer.
+            if let receipts = msg.receipts {
+                ReceiptsDisclosureIOS(receipts: receipts)
+            }
             if let engine = msg.engine {
                 Text(engineLabel(engine))
                     .font(T.mono(9, .semibold)).kerning(0.8)

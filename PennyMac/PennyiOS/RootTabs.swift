@@ -5,6 +5,7 @@ import SwiftUI
 struct RootTabs: View {
     @EnvironmentObject var model: IOSModel
     @State private var tab: Tab = .chat
+    @State private var showSearch = false
 
     enum Tab { case today, chat, patterns, bills }
 
@@ -24,13 +25,22 @@ struct RootTabs: View {
         }
         .background(T.bg.ignoresSafeArea())
         .toolbarBackground(T.bg, for: .tabBar)
+        .sheet(isPresented: $showSearch) { SearchSheet() }
     }
 
     private var topBar: some View {
-        HStack {
+        HStack(spacing: 12) {
             (Text("penny").foregroundStyle(T.ink) + Text(".").foregroundStyle(T.limeDeep))
                 .font(T.display(24, .heavy))
             Spacer()
+            if model.hasData {
+                Button { showSearch = true } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(T.ink)
+                }
+                .accessibilityLabel("Search transactions")
+            }
             Menu {
                 Button(role: .destructive) { model.wipeAll(); model.onboarded = false } label: {
                     Label("Wipe all data", systemImage: "trash")

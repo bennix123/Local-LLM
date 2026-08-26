@@ -47,6 +47,9 @@ struct SidebarView: View {
                             badge: app.history.isEmpty ? nil : app.history.count) {
                             app.centerView = .history
                         }
+                        row(icon: "🔎", label: "Search", active: app.centerView == .search) {
+                            app.centerView = .search
+                        }
                         row(icon: "✨", label: "New chat") { app.newChat() }
                     }
 
