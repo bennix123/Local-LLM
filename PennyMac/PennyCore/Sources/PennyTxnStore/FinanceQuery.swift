@@ -182,6 +182,33 @@ public enum FinanceRouter {
                 scope.label.trimmingCharacters(in: .whitespaces), scoped.count)
     }
 
+    /// Money direction a question is scoped to: credits (money in) or debits
+    /// (money out). Shared by the router, the app's transaction-table branch,
+    /// and the LLM-digest context builder, so "credit vs debit" is decided by
+    /// exactly one vocabulary everywhere.
+    public enum TxnDirection: Sendable, Equatable { case credit, debit }
+
+    // Noun patterns name the rows themselves ("credits", "deposits", "charges");
+    // verb patterns describe flow ("received", "spent"). The itemised-list
+    // handler only fires on an explicit noun — a bare verb like "spent" appears
+    // in far too many aggregate questions to mean "give me a list".
+    // `\bcredits?\b` excludes the compound-noun senses that aren't money-in:
+    // "credit card", "credit limit/line/score/rating", "available credit".
+    static let creditNounPattern = #"(?<!available\s)\bcredits?\b(?!\s+(?:cards?|limits?|lines?|scores?|ratings?)\b)|\bdeposits?\b|\bincomings?\b|money (?:in|received)\b|paid in\b"#
+    static let debitNounPattern = #"\bdebits?\b(?!\s+cards?\b)|\bwithdrawals?\b|\bcharges?\b|\boutgoings?\b|money (?:out|spent)\b|paid out\b"#
+    private static let creditVerbPattern = #"\bcredited\b|\breceived\b|\bincome\b|\bincoming\b|came in\b|come in\b|coming in\b"#
+    private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b"#
+
+    /// Credit-only / debit-only intent, or nil when neither or both directions
+    /// are named ("credits and debits" scopes nothing).
+    public static func directionScope(_ question: String) -> TxnDirection? {
+        let low = question.lowercased()
+        let credit = matches(low, creditNounPattern) || matches(low, creditVerbPattern)
+        let debit = matches(low, debitNounPattern) || matches(low, debitVerbPattern)
+        if credit == debit { return nil }
+        return credit ? .credit : .debit
+    }
+
     static func answerSingleCurrency(_ question: String,
                                      rows: [TxnRow],
                                      currency: String,
@@ -539,6 +566,37 @@ public enum FinanceRouter {
                 && scope.unmatchedTarget == nil && !scope.hasCategory && !scope.hasMerchant),
            !debits.isEmpty {
             return categoryBreakdown(debits, total: spent, scopeLabel: scope.label, money: money)
+        }
+
+        // ---- itemised credit / debit list -----------------------------------
+        // "list my credits", "show me my deposits", "show my debits" — an
+        // explicit money-direction NOUN plus a list word means enumerate those
+        // rows, not sum them. Must precede the income handler, whose
+        // `\bcredits?\b` would otherwise swallow every list phrasing as a
+        // one-line total. Direct debits / standing orders are recurring-payment
+        // vocabulary, not a request for the debit rows.
+        if let dir = directionScope(low),
+           matches(low, dir == .credit ? creditNounPattern : debitNounPattern),
+           matches(low, #"\blist\b|show (?:me|all|my|the)|itemi[sz]e|let me see|what (?:are|were)\b|which (?:are|were)\b"#),
+           !matches(low, #"how much|how many|\btotal\b|number of|\bcount\b|average|\bavg\b|\bmedian\b|biggest|largest|highest|smallest|\bsum\b|percent"#),
+           !matches(low, #"direct debits?|standing orders?|subscriptions?|recurring"#) {
+            let listRows = (dir == .credit ? sr.filter { $0.credit > 0 }
+                                           : sr.filter { $0.debit > 0 })
+                .sorted { ($0.txnDate, $0.seq) < ($1.txnDate, $1.seq) }
+            let noun = dir == .credit ? "credit" : "debit"
+            guard !listRows.isEmpty else {
+                return "**No \(noun)s\(scope.label)** — nothing found in this statement."
+            }
+            let tot = listRows.reduce(0) { $0 + (dir == .credit ? $1.credit : $1.debit) }
+            var lines = ["**\(grp(listRows.count)) \(noun)\(listRows.count == 1 ? "" : "s")\(scope.label), totalling \(money(tot)):**"]
+            for r in listRows.prefix(15) {
+                lines.append("- \(prettyDate(r.txnDate)) — \(r.descr) (\(money(dir == .credit ? r.credit : r.debit)))")
+            }
+            if listRows.count > 15 { lines.append("_…and \(grp(listRows.count - 15)) more._") }
+            if dir == .credit, cardRepayments > 0 {
+                lines.append("_Includes \(money(cardRepayments)) of card repayments — your own money, not income._")
+            }
+            return lines.joined(separator: "\n")
         }
 
         // ---- income / credits ----------------------------------------------
@@ -1285,7 +1343,8 @@ public enum FinanceRouter {
         "have", "has", "get", "got", "this", "that", "last", "per", "average", "avg",
         "cost", "costs", "transaction", "transactions", "purchase", "purchases",
         "payment", "payments", "expense", "expenses", "charge", "charges", "charged", "money",
-        "account", "balance", "statement", "card", "credit", "debit", "what", "whats",
+        "account", "balance", "statement", "card", "credit", "credits", "debit",
+        "debits", "withdrawal", "withdrawals", "deposited", "what", "whats",
         "times", "time", "use", "used", "using", "order", "ordered", "buy", "bought", "most",
         "biggest", "largest", "smallest", "any", "some", "there", "give", "show", "tell",
         // verbs of spending/visiting that are never merchant names

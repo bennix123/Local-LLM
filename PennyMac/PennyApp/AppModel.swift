@@ -2543,6 +2543,10 @@ final class AppModel: ObservableObject {
                 "for", "and", "with", "all", "full", "every", "complete", "entire",
                 "whole", "transaction", "transactions", "ledger", "entries", "entry",
                 "data", "statement", "statements", "record", "records",
+                // direction words (handled by the direction filter below) — must
+                // not merchant-match rows whose description contains "CREDIT" etc.
+                "credit", "credits", "debit", "debits", "deposit", "deposits",
+                "withdrawal", "withdrawals",
                 // date words (so "in March", "last month", "last 7 days" don't merchant-match)
                 "last", "past", "previous", "current", "next", "recent", "since", "after",
                 "before", "until", "during", "between", "from", "day", "days", "week",
@@ -2598,13 +2602,24 @@ final class AppModel: ObservableObject {
                 }
             }
 
+            // "list my credit transactions" / "show all debit entries" — keep
+            // only the named direction. One shared detector (FinanceRouter) so
+            // the table, the router, and the digest agree on what "credit" means.
+            let direction = FinanceRouter.directionScope(q)
+            if let direction {
+                rows = rows.filter {
+                    direction == .credit ? ($0.credit ?? 0) > 0 : ($0.debit ?? 0) > 0
+                }
+            }
+            let directionWord = direction.map { $0 == .credit ? "credit " : "debit " } ?? ""
+
             let scope = scopeLabel.map { " \($0)" } ?? ""
 
             // No rows in the window — say so plainly rather than an empty table.
-            if let range = range, rows.isEmpty {
-                let msg = "No\(scope) transactions\(range.label)."
+            if rows.isEmpty {
+                let msg = "No\(scope) \(directionWord)transactions\(range?.label ?? " on record")."
                 messages.append(ChatMessage(role: .assistant, content: msg, engine: "LEDGER"))
-                PennyLog.shared.log("chat", "A (ledger): 0-row transaction table [\(range.label.trimmingCharacters(in: .whitespaces))]")
+                PennyLog.shared.log("chat", "A (ledger): 0-row \(directionWord)transaction table\(range.map { " [\($0.label.trimmingCharacters(in: .whitespaces))]" } ?? "")")
                 return
             }
 
@@ -2614,7 +2629,7 @@ final class AppModel: ObservableObject {
             let wantsAll = range != nil
                 || ["all", "full", "every", "complete", "entire", "whole"].contains { l.contains($0) }
             let limit: Int? = wantsAll ? nil : 200
-            let noun = rows.count == 1 ? "transaction" : "transactions"
+            let noun = "\(directionWord)transaction\(rows.count == 1 ? "" : "s")"
             let rangeSuffix = range?.label ?? " on record"
             let header = (wantsAll || rows.count <= 200)
                 ? "Here \(rows.count == 1 ? "is" : "are") all \(rows.count)\(scope) \(noun)\(rangeSuffix):\n\n"
@@ -2707,7 +2722,7 @@ final class AppModel: ObservableObject {
         let rows = selectedRows()
         let fullText = scopedText()
         let key = retrieverSignature()
-        let facts = computedFacts()
+        let facts = computedFacts(for: resolvedQ)
         // Per-document header context: when the question names a specific imported
         // statement, the RAG rows alone can't answer header-level metadata (the
         // statement period, sort code, account number, payment-due date, address).
@@ -2735,7 +2750,25 @@ final class AppModel: ObservableObject {
                     retriever = retr
                     retrieverKey = key
                 }
-                let hits = retr.topK(resolvedQ, k: 14)
+                // Direction-scoped questions widen the pool and post-filter, so
+                // "my credits" is grounded on credit rows — the lexical/dense
+                // retriever itself has no notion of money direction and would
+                // otherwise hand the model mostly debits. The cached index is
+                // untouched; the filter is a deterministic pass over the hits.
+                let direction = FinanceRouter.directionScope(resolvedQ)
+                var hits = retr.topK(resolvedQ, k: direction == nil ? 14 : 42)
+                if let direction {
+                    hits = Array(hits.filter {
+                        direction == .credit ? $0.credit > 0 : $0.debit > 0
+                    }.prefix(14))
+                    if hits.isEmpty {
+                        // No lexically-relevant rows in that direction — fall back
+                        // to the most recent rows of the right direction.
+                        hits = Array(rows.filter {
+                            direction == .credit ? $0.credit > 0 : $0.debit > 0
+                        }.sorted { ($0.txnDate, $0.seq) > ($1.txnDate, $1.seq) }.prefix(14))
+                    }
+                }
                 if !hits.isEmpty {
                     grounding = Self.retrievalContext(hits, currency: summary.currency)
                 }
@@ -2810,12 +2843,30 @@ final class AppModel: ObservableObject {
     /// same sums `recomputeSummary()` shows — never model-guessed.) When the
     /// statements span currencies, every figure is stated per currency — the
     /// model must never see a mixed-currency sum.
-    private func computedFacts() -> String {
+    private func computedFacts(for question: String = "") -> String {
         let chosen = selectedDocs()
         guard summary.count > 0 else { return "" }
         let cur = summary.currency
         let multi = summary.isMultiCurrency
         var lines = ["EXACT FIGURES (computed from the parsed statement data — always use these):"]
+        // A direction-scoped question ("my credits", "my withdrawals") gets the
+        // matching figure FIRST — small models otherwise blend money-in and
+        // money-out when handed all three totals with equal prominence. Every
+        // figure still follows (honesty), this only sets the lead.
+        if let dir = FinanceRouter.directionScope(question) {
+            if multi {
+                for c in summary.currencyList {
+                    guard let t = summary.perCurrency[c] else { continue }
+                    lines.append(dir == .credit
+                        ? "- MOST RELEVANT to this question — total income in \(c) (credits, excl. card repayments): \(Money.format(t.income, currency: c))"
+                        : "- MOST RELEVANT to this question — total spent in \(c) (sum of debits): \(Money.format(t.spent, currency: c))")
+                }
+            } else {
+                lines.append(dir == .credit
+                    ? "- MOST RELEVANT to this question — total income (credits, excl. card repayments): \(Money.format(summary.income, currency: cur))"
+                    : "- MOST RELEVANT to this question — total spent (sum of debits): \(Money.format(summary.spent, currency: cur))")
+            }
+        }
         if multi {
             for c in summary.currencyList {
                 guard let bal = summary.perCurrency[c]?.balance else { continue }

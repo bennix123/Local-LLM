@@ -93,6 +93,15 @@ public enum LegacyQueryBridge {
             return Query(filters: sf + [.direction(.debit)], aggregate: .sum, groupBy: .category)
         }
 
+        // ---- itemised credit/debit list → decline ----
+        // FinanceRouter now answers "list my credits / show me my deposits" with
+        // an itemised list; the engine has no list capability yet, so mapping
+        // those to .sum would make the parity guard log a false divergence.
+        if matches(q, #"\blist\b|show (?:me|all|my|the)|itemi[sz]e|let me see"#),
+           !matches(q, #"how much|how many|\btotal\b|\bcount\b|average|\bavg\b"#) {
+            return nil
+        }
+
         // ---- total income ----
         if matches(q, incomeWords), !matches(q, spendWords) {
             return Query(filters: sf + [.direction(.credit)], aggregate: .sum)

@@ -82,6 +82,12 @@ final class FinanceRouterParityTests: XCTestCase {
 
         // an unrecognized question returns nil (falls back to the legacy path)
         XCTAssertNil(LegacyQueryBridge.query(for: "roast my spending"))
+
+        // itemised-list phrasings decline: FinanceRouter answers them with a
+        // list, and the engine has no list capability yet — mapping them to
+        // .sum would make the parity guard log a false divergence.
+        XCTAssertNil(LegacyQueryBridge.query(for: "list my credits"))
+        XCTAssertNil(LegacyQueryBridge.query(for: "show me my deposits"))
     }
 
     func testIncomeParity() {

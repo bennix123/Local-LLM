@@ -487,6 +487,38 @@ final class AppModelLogicTests: XCTestCase {
                       "singular verb/noun expected; got: \(m.messages.last?.content.prefix(60) ?? "")")
     }
 
+    func testSendCreditTableFiltersToCreditsOnly() {
+        let m = modelWithThreeTxns()
+        m.send("list my credit transactions")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertTrue(reply?.content.hasPrefix("Here is all 1 credit transaction on record:") == true,
+                      "direction word + credit-only count expected; got: \(reply?.content.prefix(60) ?? "")")
+        XCTAssertTrue(reply?.content.contains("CHARLIE") == true)
+        XCTAssertFalse(reply?.content.contains("ALPHA") == true, "debit rows must be filtered out")
+    }
+
+    func testSendDebitTableFiltersToDebitsOnly() {
+        let m = modelWithThreeTxns()
+        m.send("show all debit transactions")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertTrue(reply?.content.hasPrefix("Here are all 2 debit transactions on record:") == true,
+                      "got: \(reply?.content.prefix(60) ?? "")")
+        XCTAssertTrue(reply?.content.contains("ALPHA") == true && reply?.content.contains("BRAVO") == true)
+        XCTAssertFalse(reply?.content.contains("CHARLIE") == true, "credit row must be filtered out")
+    }
+
+    func testSendCreditTableWithNoCreditsSaysSo() {
+        let m = freshModel()
+        m.loadForTesting([makeDoc(name: "one.pdf", txns: [txn(debit: 5)], rows: [row(1, debit: 5)],
+                          currency: "GBP")])
+        m.recomputeSummary()
+        m.send("show all credit transactions")
+        XCTAssertEqual(m.messages.last?.engine, "LEDGER")
+        XCTAssertEqual(m.messages.last?.content, "No credit transactions on record.")
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",
