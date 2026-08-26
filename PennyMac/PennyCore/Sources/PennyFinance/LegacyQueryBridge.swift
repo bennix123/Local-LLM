@@ -20,6 +20,15 @@ public enum LegacyQueryBridge {
             return nil
         }
 
+        // Shapes FinanceRouter answers with a specialized handler the engine has
+        // no capability for yet (comparisons, ratio, trend, payday, day-of-week,
+        // month halves, fixed/recurring outflow, donations, duplicates, top-N
+        // categories). Mapping them to a plain sum here would make the DEBUG
+        // parity guard log false divergences — decline so the router owns them.
+        if matches(q, #"\bvs\.?\b|\bversus\b|compared? (?:to|with|against)|\bratio\b|\btrend(?:ing|s)?\b|going (?:up|down)|(?:get|got|getting|being|usually) paid\b|\bpayday\b|day of the week|\bweekday\b|first half|second half|\bfixed\b|donat\w*|charit\w*|duplicat\w*|\btwice\b|(?:top|biggest|largest)\s+(?:\d+\s+)?\w{0,12}\s*categor"#) {
+            return nil
+        }
+
         // Direction scope shared by several intents.
         let spendWords = #"\bspen[dt]\w*|\bspending\b|\bexpenditure\b|\boutgoing\b|\bpaid\b|\bcost\b"#
         let incomeWords = #"\bincome\b|\bearn\w*|\breceiv\w*|\bcredited\b|\bsalary\b|\bdeposits?\b"#
