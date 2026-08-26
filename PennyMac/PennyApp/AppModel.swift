@@ -2404,6 +2404,32 @@ final class AppModel: ObservableObject {
             return "**You uploaded \(docs.count) statement\(docs.count == 1 ? "" : "s").**"
         }
 
+        // ---- transaction count PER ACCOUNT ("count in individual accounts") --
+        // The account dimension of a count is app-level knowledge (one row set
+        // per statement) — answered here so it never collapses into per-currency
+        // sections labeled USD/GBP, which read as a non-answer.
+        if has(#"\bhow many\b|\bnumber of\b|\bcount\b"#), has(#"transactions?|txns?"#),
+           has(#"individual|\beach\b|\bevery\b|\bper\b|separately?|split|by (?:account|statement|bank)|(?:in|across) (?:individual|each|every|all|both) (?:accounts?|statements?|banks?)"#),
+           !has(#"\b(most|highest|largest|greatest|fewest|least|lowest)\b"#) {
+            let total = docs.reduce(0) { $0 + $1.rows.count }
+            let parts = docs.map { "\($0.displayName): \($0.rows.count)" }.joined(separator: " · ")
+            return "**Transactions per statement** — \(parts) (**\(total)** total)."
+        }
+
+        // ---- grand-total transaction count ("total count of transactions") ---
+        // A count is currency-independent, so the per-currency split ("USD: 158,
+        // GBP: 127") was honest but useless. Grand total + the breakdown. Scoped
+        // count questions ("in June") keep their router path via the date guard.
+        if docs.count > 1,
+           has(#"(?:total|overall)\s+(?:count|number)\s+of|count of all|how many transactions (?:do i have\s*)?(?:in total|altogether|overall)|total transactions"#),
+           has(#"transactions?|txns?"#),
+           !has(#"january|february|march|april|june|july|august|september|october|november|december|\b20\d\d\b|last |this |week|month|year|categor|\bat\b|\bon\b"#),
+           !has(#"\b(most|highest|largest|greatest|fewest|least|lowest)\b"#) {
+            let total = docs.reduce(0) { $0 + $1.rows.count }
+            let parts = docs.map { "\($0.displayName): \($0.rows.count)" }.joined(separator: " · ")
+            return "**\(total) transactions** across \(docs.count) statements — \(parts)."
+        }
+
         // ---- per-statement transaction count ("how many Monzo transactions")
         if has(#"\bhow many\b|\bnumber of\b|\bcount\b"#), has(#"transactions?|txns?|purchases?|payments?"#),
            let d = namedDoc(for: question) {

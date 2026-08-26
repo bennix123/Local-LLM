@@ -88,8 +88,11 @@ targets:
         com.apple.security.app-sandbox: true
         # Model weights download (HuggingFace) needs outbound network.
         com.apple.security.network.client: true
-        # User picks their statement PDF in the file dialog.
-        com.apple.security.files.user-selected.read-only: true
+        # User picks their statement PDF in the open dialog, and SAVES the CSV
+        # export in the save dialog — read-write, not read-only: with read-only
+        # the fileExporter save panel cannot be granted, which broke Export CSV
+        # and could wedge the window's file dialogs entirely (Fix 7 regression).
+        com.apple.security.files.user-selected.read-write: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.localbankrag.app

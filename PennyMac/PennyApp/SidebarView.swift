@@ -89,7 +89,6 @@ struct SidebarView: View {
             }
 
             VStack(spacing: 10) {
-                netPanel
                 brainPanel
                 wipeRow
             }
@@ -179,34 +178,9 @@ struct SidebarView: View {
         return "🏦"
     }
 
-    /// `.net` — the privacy card. Reflects reality: fully offline until an AI
-    /// fallback (opt-in, needs a key) actually sends data, then it says so
-    /// honestly. Statements/balances never leave regardless — only merchant
-    /// descriptors are ever sent, and only for categorization.
-    private var netPanel: some View {
-        let offline = app.bytesSentOut == 0
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Circle().fill(offline ? Theme.limeD : Theme.coral).frame(width: 6, height: 6)
-                Text(offline ? "FULLY OFFLINE" : "CLOUD AI USED")
-                    .font(Theme.mono(8.5))
-                    .foregroundStyle(offline ? Theme.limeD : Theme.coral)
-                    .kerning(0.8)
-            }
-            Text(MD.inline(offline
-                ? "Penny is **fully offline**. Your statements and questions never leave this Mac."
-                : "Merchant names (and scanned-PDF text, if OCR was needed) were sent to the categorization API (**\(app.dataSentLabel)**). Your statements, balances and questions stay on this Mac."))
-                .font(Theme.font(10.5, .medium)).foregroundStyle(Theme.ink2)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hardCard(fill: offline ? Color(hex: 0xeefbe0) : Color(hex: 0xfdeee9), radius: 13, border: 2,
-                  borderColor: offline ? Theme.limeD : Theme.coral, shadow: 3)
-    }
-
-    /// `.bp` — "PENNY'S BRAIN" model + stats card.
+    /// `.bp` — "PENNY'S BRAIN" model + stats card. (The privacy status card and
+    /// the "Data sent out" stat were removed by request — the data-sent figure
+    /// still exists on AppModel for any future settings/about surface.)
     private var brainPanel: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
@@ -228,8 +202,6 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             stat("Statements", "\(app.docs.count)")
             stat("Transactions", "\(app.transactionCount)")
-            stat("Data sent out", app.dataSentLabel,
-                 valueColor: app.bytesSentOut == 0 ? Theme.limeD : Theme.coral)
             apiKeyRow
             if app.recheckableMerchantCount > 0 { categorizeButton }
             if app.showUpgradeNudge { upgradeNudge }

@@ -216,17 +216,21 @@ final class DashboardUITests: PennyUITestCase {
                        "starter cards should disappear once the conversation starts")
     }
 
-    // MARK: - 7. offline privacy card (the online toggle was removed by design —
-    // Penny claims exactly what it does: fully offline, no dead affordances)
+    // MARK: - 7. privacy card removed (2026-08-26, by request): neither of its
+    // states may resurface, and no toggle belongs in the sidebar.
 
-    func testOfflinePrivacyCardIsStaticAndToggleFree() throws {
+    func testPrivacyCardIsGone() throws {
         let app = try launchPenny(modelReady: true, dashboard: true)
-        waitForControl(in: app, containing: "FULLY OFFLINE", timeout: 10,
-                       "sidebar should show the static FULLY OFFLINE privacy card")
-        XCTAssertFalse(staticText(in: app, containing: "ONLINE WHEN NEEDED").exists,
-                       "the removed online mode must not resurface")
+        waitForControl(in: app, containing: "PENNY'S BRAIN", timeout: 10,
+                       "sidebar brain card should render")
+        XCTAssertFalse(staticText(in: app, containing: "FULLY OFFLINE").exists,
+                       "the privacy card was removed — its offline state must not resurface")
+        XCTAssertFalse(staticText(in: app, containing: "CLOUD AI USED").exists,
+                       "the privacy card was removed — its cloud state must not resurface")
+        XCTAssertFalse(staticText(in: app, containing: "Data sent out").exists,
+                       "the data-sent stat row was removed from the brain card")
         XCTAssertFalse(app.switches.firstMatch.exists,
-                       "no toggle belongs on the privacy card anymore")
+                       "no toggle belongs in the sidebar")
     }
 
     // MARK: - 8. switch → model picker → ready-state continue

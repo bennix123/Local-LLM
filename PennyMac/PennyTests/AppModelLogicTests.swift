@@ -519,6 +519,42 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(m.messages.last?.content, "No credit transactions on record.")
     }
 
+    // Two statements in different currencies — counts must never split by
+    // currency ("USD: 2 · GBP: 1" read as a non-answer in live testing).
+    private func modelWithTwoDocs() -> AppModel {
+        let m = freshModel()
+        m.loadForTesting([
+            makeDoc(name: "chase.csv",
+                    txns: [txn(desc: "ALPHA", debit: 10), txn(desc: "BRAVO", credit: 20)],
+                    rows: [row(1, desc: "ALPHA", debit: 10),
+                           row(2, desc: "BRAVO", category: "Income", credit: 20)],
+                    currency: "USD"),
+            makeDoc(name: "barclays.csv",
+                    txns: [txn(desc: "CHARLIE", debit: 5)],
+                    rows: [row(1, desc: "CHARLIE", debit: 5)],
+                    currency: "GBP"),
+        ])
+        m.recomputeSummary()
+        return m
+    }
+
+    func testTotalTransactionCountIsGrandTotalNotPerCurrency() {
+        let m = modelWithTwoDocs()
+        m.send("whats the total count of transactions?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("**3 transactions**"), "grand total expected: \(reply)")
+        XCTAssertFalse(reply.contains("**USD**"), "must not split a count by currency: \(reply)")
+    }
+
+    func testPerAccountTransactionCountListsEachStatement() {
+        let m = modelWithTwoDocs()
+        m.send("whats the total count of transactions in individual accounts?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("chase") && reply.contains("2")
+                      && reply.contains("barclays") && reply.contains("1"), "\(reply)")
+        XCTAssertFalse(reply.contains("**USD**"), "per-ACCOUNT, not per-currency: \(reply)")
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",

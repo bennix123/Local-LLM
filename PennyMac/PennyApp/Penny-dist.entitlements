@@ -7,7 +7,7 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<key>com.apple.security.files.user-selected.read-only</key>
+	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 	<key>com.apple.application-identifier</key>
 	<string>P4ANR778GY.com.localbankrag.app</string>
