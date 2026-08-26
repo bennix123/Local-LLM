@@ -57,6 +57,31 @@ enum DeterministicIngest {
                         sourceName: url.lastPathComponent, statementText: "")
     }
 
+    /// Fix 2 — build a statement from the user's explicit column mapping (the
+    /// "help me map this" fallback), reusing the canonical builder so a mapped
+    /// CSV lands identically to an auto-detected one.
+    static func ingest(csvRecords records: [[String]], headerIdx: Int,
+                       mapping: [String: Int], sourceName: String,
+                       statementText: String) throws -> Result {
+        let cats = try makeCategories()
+        let out = CSVMapper.buildRows(records: records, headerIdx: headerIdx,
+                                      mapping: mapping, categories: cats,
+                                      rawText: statementText)
+        return toResult(out, sourceName: sourceName, statementText: statementText)
+    }
+
+    /// The categories vocabulary the mapper needs — same source/fallback order
+    /// as `makeIngester()` (cached server copy, else the bundled file).
+    private static func makeCategories() throws -> Categories {
+        if let cached = CategoryCatalog.cachedCategoriesPath {
+            return try Categories(categoriesJSONPath: cached)
+        }
+        if let bundled = Bundle.main.url(forResource: "categories", withExtension: "json")?.path {
+            return try Categories(categoriesJSONPath: bundled)
+        }
+        throw IngestError.missingResources
+    }
+
     private static func toResult(_ out: IngestOutput, sourceName: String, statementText: String) -> Result {
         // Translate the parser output into the canonical model, filling header
         // metadata parsed from the statement text.

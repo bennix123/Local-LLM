@@ -30,6 +30,11 @@ struct DashboardView: View {
                       allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { app.importStatements(from: urls) }
         }
+        // Fix 2 — "help me map this" fallback for a CSV Penny couldn't auto-parse.
+        .sheet(item: $app.pendingMapping) { pending in
+            ColumnMappingSheet(pending: pending)
+                .environmentObject(app)
+        }
         .overlay {
             if app.isImporting {
                 ZStack {

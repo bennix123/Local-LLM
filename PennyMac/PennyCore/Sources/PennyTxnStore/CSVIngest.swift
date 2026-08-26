@@ -105,7 +105,7 @@ enum CSVIngest {
 
     /// csv.reader semantics: comma-separated, `"` quotes fields (commas, CRLF
     /// and doubled `""` escapes inside), \r\n / \n / \r each end a record.
-    static func parseRecords(_ text: String) -> [[String]] {
+    public static func parseRecords(_ text: String) -> [[String]] {
         var records: [[String]] = []
         var record: [String] = []
         var field = ""
@@ -261,18 +261,26 @@ enum CSVIngest {
     /// sniffing and categorization unchanged. `rawText` feeds the free-text
     /// passes (currency symbol sniffing, card-statement detection); when absent
     /// (XLSX) it's synthesized by joining the cells.
-    static func ingest(records: [[String]], categories: Categories, rawText: String? = nil) -> IngestOutput {
+    static func ingest(records: [[String]], categories: Categories, rawText: String? = nil,
+                       mappingOverride: (headerIdx: Int, mapping: [String: Int])? = nil) -> IngestOutput {
         let text = rawText ?? records.map { $0.joined(separator: " ") }.joined(separator: "\n")
         // Header discovery: the first row that maps a date column and at least
         // one money column. Real exports put branding/summary lines above it.
+        // Fix 2 — a user-supplied column mapping (from the "help me map this"
+        // fallback) bypasses discovery and uses their choices verbatim.
         var headerIdx: Int? = nil
         var mapping: [String: Int] = [:]
-        for (i, rec) in records.prefix(maxHeaderScan).enumerated() {
-            let m = mapHeaders(rec)
-            if m["date"] != nil, m["debit"] != nil || m["credit"] != nil || m["amount"] != nil {
-                headerIdx = i
-                mapping = m
-                break
+        if let ov = mappingOverride {
+            headerIdx = ov.headerIdx
+            mapping = ov.mapping
+        } else {
+            for (i, rec) in records.prefix(maxHeaderScan).enumerated() {
+                let m = mapHeaders(rec)
+                if m["date"] != nil, m["debit"] != nil || m["credit"] != nil || m["amount"] != nil {
+                    headerIdx = i
+                    mapping = m
+                    break
+                }
             }
         }
         guard let headerIdx else {

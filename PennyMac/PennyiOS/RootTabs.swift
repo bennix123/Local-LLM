@@ -26,6 +26,9 @@ struct RootTabs: View {
         .background(T.bg.ignoresSafeArea())
         .toolbarBackground(T.bg, for: .tabBar)
         .sheet(isPresented: $showSearch) { SearchSheet() }
+        .sheet(item: $model.pendingMapping) { pending in
+            ColumnMappingSheetIOS(pending: pending).environmentObject(model)
+        }
     }
 
     private var topBar: some View {

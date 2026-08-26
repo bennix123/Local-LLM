@@ -63,6 +63,52 @@ final class IOSModel: ObservableObject {
     var mergedRows: [TxnRow] { statements.flatMap(\.rows) }
     var hasData: Bool { !mergedRows.isEmpty }
 
+    // MARK: - Column-mapping fallback (Fix 2)
+    struct PendingMapping: Identifiable, Equatable {
+        let id = UUID()
+        let records: [[String]]
+        let analysis: CSVMapper.Analysis
+        let name: String
+        let text: String
+    }
+    @Published var pendingMapping: PendingMapping?
+
+    func confirmMapping(_ mapping: [String: Int]) {
+        guard let p = pendingMapping else { return }
+        pendingMapping = nil
+        do {
+            let cats = try Self.mappingCategories()
+            let out = CSVMapper.buildRows(records: p.records, headerIdx: p.analysis.headerIdx,
+                                          mapping: mapping, categories: cats, rawText: p.text)
+            guard !out.rows.isEmpty else {
+                importErrors = ["That mapping didn't yield any transactions — check the date and amount columns."]
+                return
+            }
+            let fp = StatementFingerprint.compute(out.rows)
+            if statements.contains(where: { StatementFingerprint.compute($0.rows) == fp }) {
+                importErrors = ["\(p.name): already loaded — skipped so totals don't double."]
+                return
+            }
+            statements.append(IOSStatement(
+                name: p.name, bankName: out.bankName,
+                currency: out.detectedCurrency.isEmpty ? "GBP" : out.detectedCurrency,
+                isCard: out.isCard, closingBalance: out.closingBalance, rows: out.rows))
+            persist()
+        } catch {
+            importErrors = ["Couldn't build the statement from that mapping."]
+        }
+    }
+
+    func cancelMapping() { pendingMapping = nil }
+
+    private static func mappingCategories() throws -> Categories {
+        guard let cats = Bundle.main.url(forResource: "categories", withExtension: "json")?.path else {
+            throw NSError(domain: "penny", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "categories.json missing"])
+        }
+        return try Categories(categoriesJSONPath: cats)
+    }
+
     // MARK: - CSV export (Fix 7) — shares TxnCSVExport with the macOS app.
     @Published var isExportingCSV = false
     var canExportCSV: Bool { hasData }
@@ -219,7 +265,16 @@ final class IOSModel: ObservableObject {
                         }
                     }.value
                     guard !out.rows.isEmpty else {
-                        importErrors.append("\(url.lastPathComponent): no transactions found — is it a bank or card statement?")
+                        // Fix 2 — a CSV we couldn't auto-parse: offer the column-
+                        // mapping fallback instead of a dead-end error.
+                        if ext == "csv", let text = try? String(contentsOf: url, encoding: .utf8),
+                           let analysis = CSVMapper.analyze(records: CSVMapper.parseRecords(text)) {
+                            pendingMapping = PendingMapping(
+                                records: CSVMapper.parseRecords(text), analysis: analysis,
+                                name: url.lastPathComponent, text: text)
+                        } else {
+                            importErrors.append("\(url.lastPathComponent): no transactions found — is it a bank or card statement?")
+                        }
                         continue
                     }
                     // Duplicate guard — same rows under any filename would double every total.

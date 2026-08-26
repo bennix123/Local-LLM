@@ -859,6 +859,17 @@ final class AppModel: ObservableObject {
                 // statement (which shows up as a "0 transactions" account and misleads).
                 if r.graph.transactions.isEmpty {
                     isAnalyzing = false
+                    // Fix 2 — for a CSV we couldn't auto-parse, don't dead-end:
+                    // offer the "help me map this" fallback so the user can point
+                    // out the date / amount / description columns themselves.
+                    if r.name.lowercased().hasSuffix(".csv") {
+                        let records = CSVMapper.parseRecords(r.text)
+                        if let analysis = CSVMapper.analyze(records: records) {
+                            pendingMapping = PendingMapping(records: records, analysis: analysis,
+                                                            name: r.name, text: r.text)
+                            return
+                        }
+                    }
                     errorMessage = r.name.lowercased().hasSuffix(".csv")
                         ? "Couldn't read any transactions from \(r.name) — check it has date, amount and balance columns."
                         : "Couldn't read any transactions from \(r.name). Penny needs a table of dates, amounts and a running balance — this statement's layout isn't recognized yet."
@@ -1764,6 +1775,45 @@ final class AppModel: ObservableObject {
         return verified == total
             ? "\(total == 1 ? "Statement reconciles" : "All \(total) statements reconcile") ✓"
             : "\(verified) of \(total) statements reconcile ✓"
+    }
+
+    // MARK: - Column-mapping fallback (Fix 2)
+    /// A CSV we couldn't auto-parse, held while the user maps its columns.
+    struct PendingMapping: Identifiable, Equatable {
+        let id = UUID()
+        let records: [[String]]
+        let analysis: CSVMapper.Analysis
+        let name: String
+        let text: String
+    }
+    @Published var pendingMapping: PendingMapping?
+
+    /// The user chose the columns — build the statement with their mapping and
+    /// land it exactly like an auto-parsed one.
+    func confirmMapping(_ mapping: [String: Int]) {
+        guard let p = pendingMapping else { return }
+        pendingMapping = nil
+        do {
+            let r = try DeterministicIngest.ingest(csvRecords: p.records, headerIdx: p.analysis.headerIdx,
+                                                   mapping: mapping, sourceName: p.name, statementText: p.text)
+            guard !r.graph.transactions.isEmpty else {
+                errorMessage = "That mapping didn't yield any transactions — check the date and amount columns."
+                return
+            }
+            let record = StatementStore.StatementRecord(from: r.graph, text: p.text)
+            StatementStore.save(record)
+            addSlice(r.graph, text: p.text)
+            deriveDocs()
+            recomputeSummary()
+            postToast("Mapped \(r.graph.transactions.count) transaction\(r.graph.transactions.count == 1 ? "" : "s") from \(p.name).", kind: .success)
+        } catch {
+            errorMessage = "Couldn't build the statement from that mapping."
+        }
+    }
+
+    func cancelMapping() {
+        pendingMapping = nil
+        errorMessage = "Import cancelled — the columns weren't mapped."
     }
 
     // MARK: - Transaction search (Fix 3)
