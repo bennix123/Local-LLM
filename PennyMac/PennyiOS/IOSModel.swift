@@ -296,10 +296,23 @@ final class IOSModel: ObservableObject {
     /// when the window can't hold every matching row.
     private func digest(for question: String) -> String {
         let all = mergedRows
-        let (rows, scopeLabel, total) = FinanceRouter.relevantRows(for: question, in: all, limit: 400)
+        let scoped = FinanceRouter.relevantRows(for: question, in: all, limit: 400)
+        var rows = scoped.rows
+        var total = scoped.total
         let spent = rows.reduce(0) { $0 + $1.debit }
         let income = rows.filter { $0.category != "Payments" }.reduce(0) { $0 + $1.credit }
-        let scopeName = scopeLabel.isEmpty ? "all transactions" : scopeLabel
+        var scopeName = scoped.scopeLabel.isEmpty ? "all transactions" : scoped.scopeLabel
+        // Direction-scoped question ("my credits") → ground the model on rows of
+        // that direction only (mirrors the Mac app and penny-server): a mixed
+        // ledger reliably makes small models blend money-in and money-out.
+        if let dir = FinanceRouter.directionScope(question) {
+            let filtered = rows.filter { dir == .credit ? $0.credit > 0 : $0.debit > 0 }
+            if !filtered.isEmpty {
+                rows = filtered
+                total = min(total, filtered.count)
+                scopeName += dir == .credit ? " — credits (money in) only" : " — debits (money out) only"
+            }
+        }
 
         var lines = ["All amounts are in \(primaryCurrency) (\(Self.symbol(primaryCurrency)))."]
         // B4: the last few exchanges, so "why is that so high?" has a referent.
