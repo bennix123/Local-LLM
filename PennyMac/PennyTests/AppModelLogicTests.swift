@@ -509,6 +509,30 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply?.content.contains("CHARLIE") == true, "credit row must be filtered out")
     }
 
+    func testLedgerFiltersToNamedMerchant() {
+        let m = modelWithThreeTxns()
+        m.send("list my alpha transactions")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertTrue(reply?.content.contains("ALPHA") == true, "\(reply?.content.prefix(80) ?? "")")
+        XCTAssertFalse(reply?.content.contains("BRAVO") == true,
+                       "only the named merchant's rows: \(reply?.content.prefix(120) ?? "")")
+    }
+
+    func testLedgerHonestZeroForAbsentMerchant() {
+        // Meeting finding: "list my netflix transactions" with no Netflix rows
+        // dumped the ENTIRE ledger. A named-but-absent merchant is an honest
+        // zero, never the full table.
+        let m = modelWithThreeTxns()
+        m.send("list my netflix transactions")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertTrue(reply?.content.contains("No transactions matching") == true,
+                      "\(reply?.content.prefix(120) ?? "")")
+        XCTAssertFalse(reply?.content.contains("ALPHA") == true,
+                       "must not dump the whole ledger: \(reply?.content.prefix(120) ?? "")")
+    }
+
     func testSendCreditTableWithNoCreditsSaysSo() {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "one.pdf", txns: [txn(debit: 5)], rows: [row(1, debit: 5)],

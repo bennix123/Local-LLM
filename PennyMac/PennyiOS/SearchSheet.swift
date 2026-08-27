@@ -24,7 +24,9 @@ struct SearchSheet: View {
                             ? "By merchant, category, amount, or date."
                             : "Nothing matches “\(q)”."))
                 } else {
-                    List(results) { row in txnRow(row) }
+                    // TxnRow isn't Identifiable — key by position like the macOS
+                    // SearchView does (caught by the iOS typecheck gate).
+                    List(Array(results.enumerated()), id: \.offset) { _, row in txnRow(row) }
                         .listStyle(.plain)
                 }
             }

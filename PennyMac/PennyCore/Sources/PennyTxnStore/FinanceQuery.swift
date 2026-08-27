@@ -1295,7 +1295,7 @@ public enum FinanceRouter {
         // (capped) rather than only summing them. Scoped-only, and never for the
         // aggregate phrasings (how much / how many / biggest …) handled above.
         if (scope.hasCategory || scope.hasMerchant), !sr.isEmpty,
-           matches(low, #"\blist\b|show me|show all|show my|let me see|itemi[sz]e|what (?:did|have) i (?:buy|bought|purchase|get)\b|all (?:my|the) .{0,20}(?:transactions|purchases|payments|charges)|(?:transactions?|purchases?|charges?|payments?)\s+(?:in|on|for|at|from)\b"#),
+           matches(low, #"\blist\b|show me|show all|show my|let me see|itemi[sz]e|what (?:are|were) (?:my|the)\b|what (?:did|have) i (?:buy|bought|purchase|get)\b|all (?:my|the) .{0,20}(?:transactions|purchases|payments|charges)|(?:transactions?|purchases?|charges?|payments?)\s+(?:in|on|for|at|from)\b"#),
            !matches(low, #"how much|how many|\btotal\b|average|\bavg\b|biggest|largest|smallest|percent|\bover\b|\babove\b|\bunder\b|more than"#) {
             let ordered = sr.sorted { $0.txnDate < $1.txnDate }
             let creditOnly = ordered.allSatisfy { $0.debit == 0 }

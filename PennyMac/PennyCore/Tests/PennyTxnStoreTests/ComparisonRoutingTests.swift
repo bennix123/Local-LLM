@@ -217,6 +217,14 @@ final class ComparisonRoutingTests: XCTestCase {
 
     // MARK: - must-not-change
 
+    func testWhatAreMyMerchantTransactionsIsAList() throws {
+        // Meeting finding (2026-08-27): "what are my netflix transactions" leaked
+        // to the model. The phrasing is a merchant list request.
+        let ans = try XCTUnwrap(ask("what are my TESCO transactions?"))
+        XCTAssertTrue(ans.contains("TESCO") && ans.contains("totalling"), "\(ans)")
+        XCTAssertFalse(ans.contains("ZARA"), "only the named merchant's rows: \(ans)")
+    }
+
     func testMostAmountIsNotAMerchant() throws {
         // Live session: "what did i spend my most amount on?" answered
         // "**You spent $0.00 on Amount.**" — a router-vocabulary word became a

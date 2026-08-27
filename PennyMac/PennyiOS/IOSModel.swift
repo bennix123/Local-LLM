@@ -421,11 +421,15 @@ final class IOSModel: ObservableObject {
 
         var lines = ["All amounts are in \(primaryCurrency) (\(Self.symbol(primaryCurrency)))."]
         // B4: the last few exchanges, so "why is that so high?" has a referent.
-        let turns = messages.suffix(7).filter { !$0.text.isEmpty }
-        if turns.count > 1 {
+        // The most recent reply carries more (1200 chars) — a deterministic list
+        // truncated to 300 left the model unable to discuss what the analytics
+        // engine just showed (mirrors the macOS digest).
+        let turns = Array(messages.suffix(7).filter { !$0.text.isEmpty }.dropLast())
+        if turns.count > 0 {
             lines.append("RECENT CONVERSATION:")
-            for m in turns.dropLast() {   // the current question rides separately
-                lines.append("\(m.role == .user ? "User" : "Penny"): \(String(m.text.prefix(300)))")
+            for (i, m) in turns.enumerated() {
+                let cap = i >= turns.count - 2 ? 1200 : 300
+                lines.append("\(m.role == .user ? "User" : "Penny"): \(String(m.text.prefix(cap)))")
             }
         }
         lines.append("EXACT FIGURES (computed, trust these over any sum you attempt): "

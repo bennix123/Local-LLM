@@ -2802,6 +2802,9 @@ final class AppModel: ObservableObject {
                 // not merchant-match rows whose description contains "CREDIT" etc.
                 "credit", "credits", "debit", "debits", "deposit", "deposits",
                 "withdrawal", "withdrawals",
+                // spend vocabulary — intent words, never merchant names
+                "spending", "spent", "spend", "spends", "payment", "payments",
+                "purchase", "purchases", "charge", "charges", "money", "out",
                 // date words (so "in March", "last month", "last 7 days" don't merchant-match)
                 "last", "past", "previous", "current", "next", "recent", "since", "after",
                 "before", "until", "during", "between", "from", "day", "days", "week",
@@ -2842,6 +2845,16 @@ final class AppModel: ObservableObject {
             } else if matchedMerchant != nil, !merchantRows.isEmpty {
                 rows = merchantRows
                 scopeLabel = matchedMerchant
+            } else if let named = filterTokens.max(by: { $0.count < $1.count }),
+                      named.count >= 4 {
+                // The question NAMED something ("netflix", "swiggy") that matches
+                // no category and no row — an honest zero, never the full ledger
+                // (dumping all 127 rows for "list my netflix transactions" when
+                // Netflix isn't here reads as a wrong answer, not a table).
+                let msg = "**No transactions matching “\(named.prefix(1).uppercased() + named.dropFirst())” in the loaded statements.**"
+                messages.append(ChatMessage(role: .assistant, content: msg, engine: "LEDGER"))
+                PennyLog.shared.log("chat", "A (ledger): honest zero for unmatched \(named)")
+                return
             } else {
                 rows = txns
                 scopeLabel = nil
@@ -3044,9 +3057,16 @@ final class AppModel: ObservableObject {
                 grounding = facts + "\n\n" + grounding
             }
             // B4: recent exchanges, so "why is that so high?" has a referent.
-            let turns = await MainActor.run { [weak self] in
-                (self?.messages.suffix(6) ?? []).filter { !$0.content.isEmpty }
-                    .map { "\($0.role == .user ? "User" : "Penny"): \(String($0.content.prefix(300)))" }
+            // The MOST RECENT reply carries far more (1200 chars): follow-ups
+            // usually reference it directly, and a deterministic list truncated
+            // to 300 chars left the model unable to discuss what the analytics
+            // engine just showed ("the engines weren't talking to each other").
+            let turns = await MainActor.run { [weak self] () -> [String] in
+                let recent = Array((self?.messages.suffix(6) ?? []).filter { !$0.content.isEmpty })
+                return recent.enumerated().map { i, m in
+                    let cap = i == recent.count - 1 || i == recent.count - 2 ? 1200 : 300
+                    return "\(m.role == .user ? "User" : "Penny"): \(String(m.content.prefix(cap)))"
+                }
             }
             if turns.count > 1 {
                 grounding = "RECENT CONVERSATION:\n" + turns.dropLast().joined(separator: "\n")
