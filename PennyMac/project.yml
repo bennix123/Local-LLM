@@ -81,6 +81,11 @@ targets:
         CFBundleVersion: "1.1.0"
         CFBundleIconFile: icon.icns
         ITSAppUsesNonExemptEncryption: false
+        # Local categorization server support (PennyBackendHost override):
+        # ATS blocks cleartext http:// to LAN IPs by default; this permits
+        # LOCAL-network hosts only — internet traffic stays HTTPS-enforced.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     entitlements:
       path: PennyApp/Penny.entitlements
       properties:
