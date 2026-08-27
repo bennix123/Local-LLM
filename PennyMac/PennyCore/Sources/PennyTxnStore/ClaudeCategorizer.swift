@@ -51,8 +51,8 @@ public enum ClaudeCategorizerError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .missingKey: return "No Anthropic API key was provided."
-        case .http(let s, let b): return "Anthropic API HTTP \(s): \(b.prefix(300))"
+        case .missingKey: return "No categorization API key was provided."
+        case .http(let s, let b): return "Categorization API HTTP \(s): \(b.prefix(300))"
         case .refused(let r): return "The model declined the request (\(r))."
         case .badResponse(let d): return "Could not parse the model response: \(d)"
         }

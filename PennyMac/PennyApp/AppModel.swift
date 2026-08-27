@@ -48,20 +48,31 @@ enum APIKeyStore {
 /// `appToken` to the shared token the proxy checks (see `penny-proxy/`). Leaving
 /// `urlString` empty disables the proxy and restores the old key-only behavior.
 enum PennyBackend {
-    /// Penny's single hosted backend (see `penny-categories-server/`). Serves the
-    /// central categories API and, if configured server-side, the Anthropic
-    /// categorization proxy — both under this one host.
-    static let host = "https://penny1.thescript.design"
+    /// Penny's backend host (see `penny-categories-server/`). Serves the central
+    /// categories API and the categorization proxy — both under one host.
+    ///
+    /// OVERRIDABLE for a local server (meeting ask, 2026-08-27): set either
+    ///   defaults write com.localbankrag.app PennyBackendHost "http://192.168.1.x:8999"
+    /// or the PENNY_BACKEND_HOST environment variable (Xcode scheme), then
+    /// relaunch. Empty/unset → the hosted default. Run the local server with:
+    ///   cd penny-categories-server && PORT=8999 APP_TOKEN=<token> \
+    ///     DEEPSEEK_API_KEY=<key> node server.js
+    static var host: String {
+        let env = ProcessInfo.processInfo.environment["PENNY_BACKEND_HOST"] ?? ""
+        if !env.isEmpty { return env }
+        let defaults = UserDefaults.standard.string(forKey: "PennyBackendHost") ?? ""
+        if !defaults.isEmpty { return defaults }
+        return "https://penny1.thescript.design"
+    }
 
     /// The categorization proxy endpoint. Empty disables the proxy (a developer's
-    /// own `ANTHROPIC_API_KEY`/Keychain key then takes over, as before). Set to
-    /// `host + "/v1/messages"` only once the server has `ANTHROPIC_API_KEY` set.
-    static let urlString = host + "/v1/messages"
+    /// own env/Keychain key then takes over, as before).
+    static var urlString: String { host + "/v1/messages" }
     static let appToken  = "02395bd2d19b6307e8c58216e9375254c578bae8f2eed4b5e851cfb8de50dcb8"  // must equal APP_TOKEN on the server
 
     /// The central categories endpoint — every device fetches the same, always-
     /// current categorization vocabulary from here (see `CategoryCatalog`).
-    static let categoriesURLString = host + "/v1/categories"
+    static var categoriesURLString: String { host + "/v1/categories" }
 
     static var proxyURL: URL? { urlString.isEmpty ? nil : URL(string: urlString) }
     static var categoriesURL: URL? { categoriesURLString.isEmpty ? nil : URL(string: categoriesURLString) }
@@ -415,7 +426,7 @@ final class AppModel: ObservableObject {
         guard !key.isEmpty else { return }
         claudeAPIKey = key
         APIKeyStore.save(key)
-        postToast("Claude API key saved — categorizing with the API…", kind: .success)
+        postToast("API key saved — categorizing with the API…", kind: .success)
         refineCategoriesForLoadedStatements(manual: true)
     }
 
@@ -423,7 +434,7 @@ final class AppModel: ObservableObject {
     func clearClaudeAPIKey() {
         claudeAPIKey = nil
         APIKeyStore.clear()
-        postToast("Claude API key removed.", kind: .progress)
+        postToast("API key removed.", kind: .progress)
     }
 
     /// Bytes actually sent to Anthropic this session (AI categorization + the
@@ -563,6 +574,13 @@ final class AppModel: ObservableObject {
             // post-load hook in `loadAndContinue` catches that case).
             self.refineCategoriesForLoadedStatements()
         }
+        // The user's model CHOICE survives relaunches (it used to reset to the 3B
+        // slice every launch, which made the app look like it forgot the model).
+        if let saved = UserDefaults.standard.string(forKey: "PennySelectedModel"),
+           PennyLLM.catalog.contains(where: { $0.id == saved }) {
+            selectedModelID = saved
+            llm = PennyLLM(modelID: saved)
+        }
         // macOS 26+ with Apple Intelligence: the built-in system model handles chat,
         // categorization, issuer detection and extraction with zero download. Mark the
         // engine ready up front so onboarding skips the MLX model picker and we never
@@ -570,6 +588,12 @@ final class AppModel: ObservableObject {
         // crashed with SIGTRAP on some client machines. Users can still open the picker
         // to deliberately download an MLX model (chooseModel resets modelPhase).
         if PennyLLM.systemModelAvailable { modelPhase = .ready }
+        // Meeting directive (2026-08-27): the SELECTED model is the primary chat
+        // engine — Apple Intelligence is the fallback, not the default. When the
+        // chosen MLX model is already installed, warm it in the background so
+        // answers come from MLX (badge "MLX"); Apple covers until it's up and on
+        // any failure. Never downloads — only installed weights load here.
+        if !TestMode.active { warmSelectedModelIfInstalled() }
         // XCUITest hooks (inert without `--uitest`): pretend the model is ready,
         // optionally skip to the dashboard, and import a fixture statement
         // directly — the sandboxed NSOpenPanel can't be driven reliably.
@@ -699,9 +723,33 @@ final class AppModel: ObservableObject {
         loadTask?.cancel()
         loadTask = nil
         selectedModelID = id
+        UserDefaults.standard.set(id, forKey: "PennySelectedModel")
         modelPhase = .idle
         resetLoadTelemetry()
         llm = PennyLLM(modelID: id)
+    }
+
+    /// Background GPU-load of the selected model when its weights are already
+    /// installed, so chat prefers MLX from the first question. Silent no-op when
+    /// the model isn't downloaded, doesn't fit this Mac's RAM, or the load fails
+    /// — Apple Intelligence keeps answering in all those cases (the fallback).
+    private func warmSelectedModelIfInstalled() {
+        let id = selectedModelID
+        guard let entry = catalog.first(where: { $0.id == id }), modelFits(entry) else { return }
+        let llm = self.llm
+        Task { [weak self] in
+            guard await ModelStore.shared.directoryIfInstalled(for: id) != nil else { return }
+            do {
+                _ = try await llm.load()
+                await MainActor.run {
+                    guard let self, self.selectedModelID == id else { return }
+                    self.modelPhase = .ready
+                    PennyLog.shared.log("model", "warmed \(id) — MLX answers, Apple is fallback")
+                }
+            } catch {
+                PennyLog.shared.log("model", "warm-load failed for \(id): \(error.localizedDescription) — Apple continues")
+            }
+        }
     }
 
     /// The in-flight `loadAndContinue` task, so switching models can cancel it.
@@ -1310,19 +1358,19 @@ final class AppModel: ObservableObject {
             case .http(let status, let body):
                 let low = body.lowercased()
                 if low.contains("credit balance") || low.contains("billing") {
-                    return "Claude API credits exhausted — add credits at console.anthropic.com (Plans & Billing) to categorize the rest."
+                    return "Categorization API credits exhausted — top up the provider account to categorize the rest."
                 }
                 if status == 401 || low.contains("authentication") || low.contains("invalid x-api-key") {
-                    return "Your Anthropic API key was rejected — re-enter it in settings."
+                    return "The categorization API key was rejected — re-enter it in settings."
                 }
-                if status == 429 { return "Anthropic rate limit hit — wait a moment and tap ✨ to retry." }
-                return "Anthropic API error \(status) — tap ✨ to retry."
-            case .missingKey:  return "No Anthropic API key set — add one in settings."
+                if status == 429 { return "Categorization API rate limit hit — wait a moment and tap ✨ to retry." }
+                return "Categorization API error \(status) — tap ✨ to retry."
+            case .missingKey:  return "No categorization API key set — add one in settings."
             case .refused:     return "Claude declined the request."
             case .badResponse: return "Couldn't read Claude's response — tap ✨ to retry."
             }
         }
-        return "Couldn't reach Claude — check your connection and tap ✨ to retry."
+        return "Couldn't reach the categorization API — check your connection and tap ✨ to retry."
     }
 
     /// The category the app DISPLAYS for a rich verdict: the specific secondary
@@ -1355,7 +1403,7 @@ final class AppModel: ObservableObject {
         guard !isRecategorizing else { return }
         guard let config = categorizerConfig else {
             if manual {
-                postToast("Categories come from the Claude API — add your API key in settings first.",
+                postToast("Categories come from the categorization API — add your API key in settings first.",
                           kind: .progress)
             }
             return
@@ -1493,7 +1541,7 @@ final class AppModel: ObservableObject {
             if failed > 0 {
                 // Show the REAL reason (e.g. out of credits / bad key), not a
                 // generic "couldn't reach" — retrying a billing error just fails.
-                let reason = apiError ?? "Couldn't reach Claude for \(failed) merchant\(failed == 1 ? "" : "s") — tap ✨ to retry."
+                let reason = apiError ?? "Couldn't categorize \(failed) merchant\(failed == 1 ? "" : "s") — tap ✨ to retry."
                 self.postToast(reason, kind: .progress)
             }
             guard refined != before else {
