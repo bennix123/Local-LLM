@@ -3243,12 +3243,23 @@ final class AppModel: ObservableObject {
     /// rows — the "what did I buy?" → wrong-people bug).
     static func isElaborationFollowUp(_ q: String) -> Bool {
         let l = q.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        // A follow-up that points back at the previous answer's rows — "these/
+        // those/them transactions", "the dates of these", "when did I…" — must be
+        // grounded on THAT answer's exact rows, not a fresh retrieval.
+        let refersBack = l.contains("these") || l.contains("those")
+            || l.contains(" them") || l.hasSuffix("them")
+            || l.contains(" they") || l.contains("each of")
+        let aboutRows = l.contains("transaction") || l.contains("payment") || l.contains("purchase")
+            || l.contains("date") || l.contains("when") || l.contains("each")
+        if refersBack && aboutRows { return true }
         let pats = ["what did i buy", "what did i spend", "what did i pay", "what were they",
                     "what are they", "what are those", "which ones", "which one", "list them",
                     "list those", "show me", "show them", "show those", "details", "the details",
                     "tell me more", "what was it", "what was that", "break it down", "breakdown",
-                    "on what", "for what", "what did that include", "what's in that", "whats in that"]
-        return pats.contains { l == $0 || l.hasPrefix($0 + " ") || l.hasSuffix(" " + $0) || l == $0 + "?" }
+                    "on what", "for what", "what did that include", "what's in that", "whats in that",
+                    "exact date", "the dates", "give me the date", "what date", "when did i",
+                    "when were", "each transaction", "each one"]
+        return pats.contains { l.contains($0) }
     }
 
     /// Grounding built from the most recent deterministic answer's receipts (its
