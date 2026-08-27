@@ -932,11 +932,18 @@ final class AppModel: ObservableObject {
             importingName = nil
             switch result {
             case .success(let r):
-                if r.text.isEmpty {
+                // Empty extracted text is only fatal when NO transactions were parsed
+                // either. XLSX carries no raw statement text by nature (the workbook
+                // isn't prose), yet parses valid rows — so "no text" alone must not
+                // reject it. Text drives chat grounding on PDFs, not row validity.
+                if r.text.isEmpty && r.graph.transactions.isEmpty {
                     isAnalyzing = false
-                    errorMessage = r.name.lowercased().hasSuffix(".csv")
+                    let low = r.name.lowercased()
+                    errorMessage = low.hasSuffix(".csv")
                         ? "\(r.name) is empty — no rows to read."
-                        : "No selectable text in \(r.name) (is it a scanned image?)"
+                        : low.hasSuffix(".xlsx")
+                          ? "Couldn't read any transactions from \(r.name) — check the sheet has date and amount columns."
+                          : "No selectable text in \(r.name) (is it a scanned image?)"
                     return
                 }
                 // Text came through but the parser recognized no transactions — the
@@ -1095,7 +1102,9 @@ final class AppModel: ObservableObject {
             }
             for await (url, result) in group {
                 switch result {
-                case .success(let r) where !r.text.isEmpty && !r.graph.transactions.isEmpty:
+                // Success = we parsed transactions. Empty text is fine (XLSX has none)
+                // — it only affects chat grounding, not whether the statement loaded.
+                case .success(let r) where !r.graph.transactions.isEmpty:
                     let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
                     StatementStore.save(record)
                     addSlice(r.graph, text: r.text)
@@ -2485,8 +2494,14 @@ final class AppModel: ObservableObject {
         }
 
         // ---- most / fewest transactions across statements ------------------
-        if has(#"transactions?"#), has(#"\b(most|highest|largest|greatest|fewest|least|lowest|which statement|which account)\b"#),
-           has(#"which|most|fewest|least|highest|lowest"#), namedDoc(for: question) == nil {
+        // Cross-statement only: needs ≥2 statements, and is about transaction
+        // COUNT — never "my largest transaction" (a single-txn amount question,
+        // which FinanceRouter answers). "largest/biggest/highest transaction"
+        // (singular amount) must fall through to the router.
+        if docs.count > 1, has(#"transactions?"#),
+           has(#"\b(most|fewest|least|which statement|which account)\b"#),
+           !has(#"\b(largest|biggest|highest|greatest)\s+(single\s+)?transaction\b"#),
+           namedDoc(for: question) == nil {
             let ranked = docs.sorted { $0.rows.count > $1.rows.count }
             let fewest = has(#"\b(fewest|least|lowest)\b"#)
             if let d = (fewest ? ranked.last : ranked.first) {
@@ -3001,6 +3016,12 @@ final class AppModel: ObservableObject {
         // statement period, sort code, account number, payment-due date, address).
         // Supply that statement's header text so the model can read it off directly.
         let namedHeader = namedDocHeader(for: q)
+        // Elaboration follow-up ("what did I buy?", "which ones?") after a scoped
+        // deterministic answer → ground on THAT answer's exact rows (its receipts),
+        // bypassing the fuzzy retriever that would otherwise feed unrelated rows.
+        let scopedGrounding = Self.followUpGrounding(q, in: messages, currency: summary.currency)
+            ?? (Self.isBarePurchaseQuery(q) && !selectedRows().isEmpty
+                ? Self.topPurchasesGrounding(selectedRows(), currency: summary.currency) : nil)
         // UI-test stub: deterministic reply on the MLX fallback path — no model
         // load, no NLEmbedding, so tests are fast and repeatable.
         if TestMode.modelReady {
@@ -3013,8 +3034,8 @@ final class AppModel: ObservableObject {
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which
             // blows the context window and dilutes relevance on big statements).
-            var grounding = fullText
-            if !rows.isEmpty {
+            var grounding = scopedGrounding ?? fullText
+            if scopedGrounding == nil, !rows.isEmpty {
                 let retr: TxnRetriever
                 if let cached = retriever, retrieverKey == key {
                     retr = cached
@@ -3199,6 +3220,68 @@ final class AppModel: ObservableObject {
                                   : "received \(Money.format(r.credit, currency: currency))"
             let bal = r.balance.map { " · balance \(Money.format($0, currency: currency))" } ?? ""
             lines.append("• \(r.txnDate) — \(r.descr) [\(r.category)] — \(amt)\(bal)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Elaboration follow-ups — "tell me more about the thing you just answered".
+    /// After a scoped deterministic reply ("₹28,594 on Healthcare"), these mean
+    /// "which transactions?" and must be grounded on THAT answer's rows, not on a
+    /// fuzzy retrieval over a scope-less query (which feeds the model unrelated
+    /// rows — the "what did I buy?" → wrong-people bug).
+    static func isElaborationFollowUp(_ q: String) -> Bool {
+        let l = q.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let pats = ["what did i buy", "what did i spend", "what did i pay", "what were they",
+                    "what are they", "what are those", "which ones", "which one", "list them",
+                    "list those", "show me", "show them", "show those", "details", "the details",
+                    "tell me more", "what was it", "what was that", "break it down", "breakdown",
+                    "on what", "for what", "what did that include", "what's in that", "whats in that"]
+        return pats.contains { l == $0 || l.hasPrefix($0 + " ") || l.hasSuffix(" " + $0) || l == $0 + "?" }
+    }
+
+    /// Grounding built from the most recent deterministic answer's receipts (its
+    /// exact scoped rows). Returns nil when the question isn't an elaboration
+    /// follow-up or no prior receipts exist — the caller then uses the retriever.
+    static func followUpGrounding(_ q: String, in messages: [ChatMessage], currency: String) -> String? {
+        guard isElaborationFollowUp(q),
+              let r = messages.last(where: { $0.role == .assistant && $0.receipts != nil })?.receipts,
+              !r.rows.isEmpty else { return nil }
+        var lines = [
+            "The user is asking about the transactions behind your previous answer: \(r.scopeLabel).",
+            "These are the ONLY transactions relevant — answer strictly from this list, and do not",
+            "mention any merchant or amount not shown here:",
+            "",
+        ]
+        for row in r.rows.prefix(50) {
+            let dir = row.isCredit ? "received" : "spent"
+            lines.append("• \(row.date) — \(row.name) — \(dir) \(Money.format(row.amount, currency: row.currency))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Bare purchase questions ("what did I buy?", "where did my money go?") with
+    /// no scope: the fuzzy retriever matches the word "buy" against small unrelated
+    /// rows and the model describes those. Ground instead on the LARGEST debits —
+    /// the purchases the user actually means — deterministically by amount.
+    static func isBarePurchaseQuery(_ q: String) -> Bool {
+        let l = q.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let triggers = ["what did i buy", "what did i purchase", "what did i spend",
+                        "what have i bought", "where did my money go", "what did i pay for",
+                        "what are my purchases", "show my purchases", "biggest purchases",
+                        "what did my money go on", "what all did i buy"]
+        return triggers.contains { l.contains($0) }
+    }
+
+    static func topPurchasesGrounding(_ rows: [PennyTxnStore.TxnRow], currency: String, k: Int = 15) -> String {
+        let top = rows.filter { $0.debit > 0 }.sorted { $0.debit > $1.debit }.prefix(k)
+        var lines = [
+            "Here are the user's largest purchases (biggest debits) — the notable things they bought.",
+            "Answer what they bought using ONLY these, naming the actual merchants and amounts;",
+            "do not mention any merchant or amount not listed here:",
+            "",
+        ]
+        for r in top {
+            lines.append("• \(r.txnDate) — \(r.descr) [\(r.category)] — spent \(Money.format(r.debit, currency: currency))")
         }
         return lines.joined(separator: "\n")
     }
