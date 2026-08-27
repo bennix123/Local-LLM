@@ -1361,6 +1361,15 @@ final class AppModel: ObservableObject {
     /// The most important case: an out-of-credits 400 must say to add credits, NOT
     /// "couldn't reach Claude — tap to retry" (retrying an unpaid account just fails
     /// again). Also names a bad key and rate limits distinctly.
+    /// True only for categorizer errors the user can resolve themselves — a
+    /// missing/rejected key or exhausted credits. Server/transient errors (5xx,
+    /// 530, "couldn't reach") are NOT actionable and must not raise a banner.
+    nonisolated static func isActionableCategorizeError(_ message: String) -> Bool {
+        let l = message.lowercased()
+        return l.contains("credit") || l.contains("api key") || l.contains("settings")
+            || l.contains("billing") || l.contains("rejected")
+    }
+
     nonisolated static func friendlyAPIError(_ error: Error) -> String {
         if let e = error as? ClaudeCategorizerError {
             switch e {
@@ -1547,11 +1556,14 @@ final class AppModel: ObservableObject {
                                               minConfidence: minConf,
                                               includeCredits: true)
             refined = CategoryMopup.assignConcreteToResidualOther(refined)   // "no Other" guarantee
-            if failed > 0 {
-                // Show the REAL reason (e.g. out of credits / bad key), not a
-                // generic "couldn't reach" — retrying a billing error just fails.
-                let reason = apiError ?? "Couldn't categorize \(failed) merchant\(failed == 1 ? "" : "s") — tap ✨ to retry."
-                self.postToast(reason, kind: .progress)
+            if failed > 0, let apiError, Self.isActionableCategorizeError(apiError) {
+                // Categorization is a background enrichment — the deterministic
+                // sweep above already gave every row a category. Only interrupt
+                // the user for errors they can DO something about (add/replace a
+                // key, top up credits). Transient/server failures (5xx, 530, no
+                // connection) are logged in aiCategorize and left silent — a red
+                // banner for a background retry just alarms without informing.
+                self.postToast(apiError, kind: .warning)
             }
             guard refined != before else {
                 if manual && failed == 0 {
