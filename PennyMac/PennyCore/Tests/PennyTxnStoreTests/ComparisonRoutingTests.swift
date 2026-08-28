@@ -39,6 +39,40 @@ final class ComparisonRoutingTests: XCTestCase {
         FinanceRouter.answer(q, rows: r ?? rows, currency: "GBP", money: money)
     }
 
+    // MARK: - A-or-B merchant comparisons (2026-08-28 manual bug)
+
+    // Real data has "Paid to Birangi Mohana"; the user typed "biranga".
+    private var upiRows: [TxnRow] {
+        [row(1, date: "2026-05-02", descr: "Paid to Anitha M", debit: 30),
+         row(2, date: "2026-05-09", descr: "Paid to Birangi Mohana", debit: 120),
+         row(3, date: "2026-06-14", descr: "Paid to Birangi Mohana", debit: 120),
+         row(4, date: "2026-08-15", descr: "Paid to A Kanchana", debit: 65),
+         row(5, date: "2026-08-16", descr: "Paid to A Kanchana", debit: 20),
+         row(6, date: "2026-08-20", descr: "Paid to Adarsh Shetty", debit: 150)]
+    }
+
+    // "aadarsh" has a doubled letter; the data says "Adarsh Shetty". The single-
+    // merchant list handler must not hijack an explicit comparison (2026-08-28).
+    func testCompareTransactionsOnTwoNamesWithDoubledLetterTypo() throws {
+        let ans = try XCTUnwrap(ask("compare my transactions on kanchana and aadarsh", upiRows))
+        XCTAssertTrue(ans.contains("You spent more at Adarsh"), "\(ans)")
+        XCTAssertTrue(ans.contains("£150.00") && ans.contains("£85.00"), "both sides: \(ans)")
+        XCTAssertFalse(ans.contains("totalling"), "must not be a one-merchant list: \(ans)")
+    }
+
+    func testWhoseTransactionsWereBiggerToleratesLastLetterTypo() throws {
+        let ans = try XCTUnwrap(ask("whose transactions were bigger? anitha or biranga", upiRows))
+        XCTAssertTrue(ans.contains("You spent more at Birangi"), "\(ans)")
+        XCTAssertTrue(ans.contains("£240.00") && ans.contains("£30.00"), "both sides with figures: \(ans)")
+    }
+
+    func testComparisonWithOneUnknownSideIsHonestNotHalfAnswered() throws {
+        let ans = try XCTUnwrap(ask("whose transactions were bigger? anitha or dracula", upiRows))
+        XCTAssertTrue(ans.contains("Anitha") && ans.contains("£30.00"), "\(ans)")
+        XCTAssertTrue(ans.contains("find any transactions matching") && ans.contains("dracula"), "\(ans)")
+        XCTAssertFalse(ans.contains("dracula £") || ans.contains("more at"), "must not fake a comparison: \(ans)")
+    }
+
     // MARK: - ordering fixes
 
     func testTopFiveCategoriesIsABreakdownNotExpenses() throws {
@@ -213,6 +247,26 @@ final class ComparisonRoutingTests: XCTestCase {
         // "sent" now scopes the count to debits (direction-aware counts).
         let ans = try XCTUnwrap(ask("How much have I sent to TESCO, and how many times?"))
         XCTAssertTrue(ans.contains("3 debits") && ans.contains("totalling £290.00"), "\(ans)")
+    }
+
+    // MARK: - mixed merchant-field / description-only scoping (live: "spend on
+    // zara" covered 18 of 23 rows — the field matches hid the descr matches)
+
+    func testMerchantScopeUnionsFieldAndDescriptionRows() throws {
+        let mixed = [
+            TxnRow(txnDate: "2026-06-01", month: "2026-06", year: 2026, monthNo: 6, day: 1,
+                   descr: "UPI/Zara/1", merchant: "Zara", category: "Shopping",
+                   debit: 10, credit: 0, balance: nil, currency: "GBP", seq: 1),
+            TxnRow(txnDate: "2026-06-05", month: "2026-06", year: 2026, monthNo: 6, day: 5,
+                   descr: "CARD 4495 Zara", merchant: "", category: "Shopping",
+                   debit: 20, credit: 0, balance: nil, currency: "GBP", seq: 2),
+            TxnRow(txnDate: "2026-06-08", month: "2026-06", year: 2026, monthNo: 6, day: 8,
+                   descr: "TESCO", merchant: "Tesco", category: "Groceries",
+                   debit: 5, credit: 0, balance: nil, currency: "GBP", seq: 3),
+        ]
+        let ans = try XCTUnwrap(ask("how much did I spend on zara?", mixed))
+        XCTAssertTrue(ans.contains("£30.00") && ans.contains("2 transactions"),
+                      "field row AND description row must both count: \(ans)")
     }
 
     // MARK: - named-subscription lookups (parallel-session handler, pinned here)

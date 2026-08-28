@@ -304,6 +304,59 @@ final class IOSModel: ObservableObject {
         }
     }
 
+    /// "Roast me" (design B): the engine computes facts + a complete template
+    /// roast; Apple's model may rephrase using ONLY those figures; any loop /
+    /// invented number / refusal ships the template instead.
+    func runRoast(_ userText: String) {
+        messages.append(IOSChatMsg(role: .user, text: userText))
+        let rows = mergedRows
+        guard !rows.isEmpty else {
+            messages.append(IOSChatMsg(role: .penny,
+                text: "Add a statement first — I can't roast an empty plate.", engine: "swift engine"))
+            return
+        }
+        let byCur = Dictionary(grouping: rows) { $0.currency }
+        let dominant = byCur.max { $0.value.count < $1.value.count }?.value ?? rows
+        let cur = dominant.first?.currency ?? primaryCurrency
+        guard let roast = RoastEngine.roast(rows: dominant,
+                                            money: { self.money($0, cur) },
+                                            seed: UInt64.random(in: 1...UInt64.max)) else {
+            messages.append(IOSChatMsg(role: .penny,
+                text: "Nothing to roast yet — no spending rows here.", engine: "swift engine"))
+            return
+        }
+        guard PennyLLM.systemModelAvailable else {
+            messages.append(IOSChatMsg(role: .penny, text: roast.fallback, engine: "swift engine"))
+            return
+        }
+        isThinking = true
+        let idx = messages.count
+        messages.append(IOSChatMsg(role: .penny, text: "", engine: nil))
+        let llm = self.llm
+        Task {
+            var garnish = ""
+            do {
+                garnish = try await llm.ask(
+                    question: "Rewrite these true facts as one short, funny, teasing roast (max 110 words). "
+                        + "Charming, never cruel. Use ONLY these numbers, change none of them, "
+                        + "and end with the money-saving tip:\n" + roast.bullets.joined(separator: "\n"),
+                    statementText: "", maxTokens: 300, allowMLXFallback: false,
+                    onToken: { _ in })
+            } catch { garnish = "" }
+            await MainActor.run {
+                guard self.messages.indices.contains(idx) else { self.isThinking = false; return }
+                if RoastEngine.garnishAcceptable(garnish, bullets: roast.bullets) {
+                    self.messages[idx].text = garnish
+                    self.messages[idx].engine = "apple"
+                } else {
+                    self.messages[idx].text = roast.fallback
+                    self.messages[idx].engine = "swift engine"
+                }
+                self.isThinking = false
+            }
+        }
+    }
+
     func wipeAll() {
         statements = []
         messages = []
@@ -324,6 +377,28 @@ final class IOSModel: ObservableObject {
     func send(_ question: String) {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !isThinking else { return }
+        // "Roast me" runs the deterministic roast pipeline (design B — mirrors
+        // the macOS runRoast: engine facts + template, Apple-only garnish).
+        if q.lowercased().contains("roast") { runRoast(q); return }
+        // Typed patterns questions get the composed deterministic analysis
+        // (the Patterns tab shows the same facts as cards).
+        if q.lowercased().range(of: #"spending patterns?|patterns? (?:do you|in my|you) (?:notice|see)|what patterns"#,
+                                options: .regularExpression) != nil {
+            messages.append(IOSChatMsg(role: .user, text: q))
+            let byCur = Dictionary(grouping: mergedRows) { $0.currency }
+            var sections: [String] = []
+            for (cur, part) in byCur.sorted(by: { $0.value.count > $1.value.count }) {
+                let code = cur.isEmpty ? primaryCurrency : cur
+                if let s = FinanceRouter.patternsReport(rows: part, money: { self.money($0, code) }) {
+                    sections.append(byCur.count > 1 ? "**\(code)**\n\(s)" : s)
+                }
+            }
+            messages.append(IOSChatMsg(role: .penny,
+                text: sections.isEmpty ? "Not enough transactions yet to read patterns from."
+                                       : sections.joined(separator: "\n\n"),
+                engine: "swift engine"))
+            return
+        }
         // B4: resolve elliptical follow-ups against the last RESOLVED question,
         // then route/ground/remember the resolved form (the raw fragment still
         // shows in the chat). Resolving against raw fragments would chain
@@ -338,36 +413,53 @@ final class IOSModel: ObservableObject {
             return
         }
 
-        // "From which account did I make THIS transaction?" — resolve the back-
-        // reference against the previous answer's receipt rows and name the
-        // statement(s) containing them (mirrors the macOS pipeline).
+        // Account-dimension questions — direct ("which bank accounts did I use
+        // for zara?") or back-referencing ("from which accounts?", "this
+        // transaction") — answered from the statements themselves (mirrors the
+        // macOS pipeline).
         if q.lowercased().range(
-            of: #"(?:from |in |on )?(?:which|what) (?:account|statement|bank).{0,40}\b(?:this|that|these|those)\b|\b(?:this|that|these|those)\b.{0,40}(?:which|what) (?:account|statement|bank)"#,
-            options: .regularExpression) != nil,
-           let receipts = messages.last(where: { $0.role == .penny })?.receipts,
-           !receipts.rows.isEmpty {
-            var byDoc: [String: Int] = [:]
-            for r in receipts.rows {
-                if let s = statements.first(where: { st in
-                    st.rows.contains {
-                        $0.txnDate == r.date
-                            && (r.isCredit ? $0.credit : $0.debit) == r.amount
-                            && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
-                    }
-                }) { byDoc[s.name, default: 0] += 1 }
-            }
-            if !byDoc.isEmpty {
+            of: #"(?:from |in |on |to )?(?:which|what) (?:bank\s+)?(?:accounts?|statements?|banks?)\b"#,
+            options: .regularExpression) != nil {
+            func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)]) -> Bool {
+                var byDoc: [String: Int] = [:]
+                for r in rows {
+                    if let s = statements.first(where: { st in
+                        st.rows.contains {
+                            $0.txnDate == r.date
+                                && (r.isCredit ? $0.credit : $0.debit) == r.amount
+                                && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
+                        }
+                    }) { byDoc[s.name, default: 0] += 1 }
+                }
+                guard !byDoc.isEmpty else { return false }
                 let text: String
                 if byDoc.count == 1, let only = byDoc.first {
-                    text = receipts.rows.count == 1
+                    text = rows.count == 1
                         ? "**That transaction is from \(only.key).**"
-                        : "**Those \(receipts.totalCount) transactions are all from \(only.key).**"
+                        : "**All \(rows.count) transactions are from \(only.key).**"
                 } else {
                     let parts = byDoc.sorted { $0.value > $1.value }.map { "\($0.key) (\($0.value))" }
                     text = "**Those transactions span \(byDoc.count) statements:** " + parts.joined(separator: " · ")
                 }
                 messages.append(IOSChatMsg(role: .penny, text: text, engine: "swift engine"))
-                return
+                return true
+            }
+            if let ctx = FinanceRouter.context(for: resolvedQ, rows: mergedRows),
+               !ctx.rows.isEmpty, ctx.label != (ctx.directionNote ?? "") {
+                if attribute(ctx.rows.map {
+                    (date: $0.txnDate, name: $0.merchant.isEmpty ? $0.descr : $0.merchant,
+                     amount: $0.credit > 0 ? $0.credit : $0.debit, isCredit: $0.credit > 0)
+                }) { return }
+            }
+            let backRef = q.lowercased().range(of: #"\b(?:this|that|these|those)\b"#,
+                                               options: .regularExpression) != nil
+                || q.split(whereSeparator: { $0.isWhitespace }).count <= 4
+            if backRef,
+               let receipts = messages.last(where: { $0.role == .penny })?.receipts,
+               !receipts.rows.isEmpty {
+                if attribute(receipts.rows.map {
+                    (date: $0.date, name: $0.name, amount: $0.amount, isCredit: $0.isCredit)
+                }) { return }
             }
         }
 

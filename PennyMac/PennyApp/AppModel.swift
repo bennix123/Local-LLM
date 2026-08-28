@@ -2772,6 +2772,19 @@ final class AppModel: ObservableObject {
         let q = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !isThinking else { return }
         errorMessage = nil
+        // A typed "roast" runs the same deterministic roast pipeline as the
+        // sidebar action (design B) — never the raw free-prose model path.
+        if !TestMode.active, q.lowercased().contains("roast") { runRoast(q); return }
+        // Typed patterns questions get the composed deterministic analysis —
+        // this phrasing used to fall to the total-spent catch-all.
+        if !TestMode.active,
+           q.lowercased().range(of: #"spending patterns?|patterns? (?:do you|in my|you) (?:notice|see)|what patterns"#,
+                                options: .regularExpression) != nil {
+            runComposed(FinanceRouter.patternsReport,
+                        userText: q,
+                        empty: "Not enough transactions yet to read patterns from.")
+            return
+        }
         // B4: resolve elliptical follow-ups against the last RESOLVED question;
         // the router and the model grounding see the resolved form, the chat
         // shows what the user typed.
@@ -2788,102 +2801,35 @@ final class AppModel: ObservableObject {
         let txns = selectedTransactions()
         if wantsTransactionTable(q), !txns.isEmpty {
             let l = q.lowercased()
-            // If the question names a category we actually hold — by its full name
-            // ("…of Dental Care") or just one distinctive word ("a dental table") —
-            // narrow the ledger to it rather than dumping every row. We tokenise on
-            // whole words (so "barclays" can't hit a "Bar" category), score each
-            // category by shared words plus a bonus for a verbatim multi-word phrase,
-            // and pick the best (longest name breaks ties, so "Fast Food" beats "Food").
-            func tokens(_ s: String) -> Set<String> {
-                Set(String(s.lowercased().map { $0.isLetter || $0.isNumber ? $0 : " " })
-                    .split(separator: " ").map(String.init).filter { $0.count >= 3 })
-            }
-            let queryTokens = tokens(l)
-            let distinctCategories = Set(txns.compactMap(\.category)).filter { !$0.isEmpty }
-            var scored: [(name: String, score: Int)] = []
-            for cat in distinctCategories {
-                let shared = tokens(cat).intersection(queryTokens).count
-                let phrase = (cat.contains(" ") && l.contains(cat.lowercased())) ? 5 : 0
-                let total = shared + phrase
-                if total > 0 { scored.append((name: cat, score: total)) }
-            }
-            let best = scored.max {
-                $0.score != $1.score ? $0.score < $1.score : $0.name.count < $1.name.count
-            }
-            let matchedCategory = best?.name
-
-            // Resolve any date window first ("from 2026-03-05 to 2026-04-05", "in
-            // March", "last month", "last 7 days") so its words don't leak into the
-            // merchant match below, and so the range narrows whatever scope we pick.
+            // Date window first ("from 2026-03-05 to 2026-04-05", "in March",
+            // "last month", "last 7 days") — narrows whatever scope resolves.
             let range = tableDateRange(q, txns: txns)
 
-            // No category named? Try a merchant/description filter, so "table of this
-            // TFL TRAVEL CHARGE TFL.GOV.UK/CP" narrows to those rows instead of dumping
-            // everything. Strip command/filler words first — a bare "show all
-            // transactions" then leaves nothing to filter on and still shows the lot.
-            // Date vocabulary is stripped too so "table for March" can't merchant-match.
-            let stopwords: Set<String> = [
-                "table", "tables", "list", "show", "give", "see", "view", "display",
-                "generate", "create", "make", "want", "please", "the", "this", "that",
-                "for", "and", "with", "all", "full", "every", "complete", "entire",
-                "whole", "transaction", "transactions", "ledger", "entries", "entry",
-                "data", "statement", "statements", "record", "records",
-                // direction words (handled by the direction filter below) — must
-                // not merchant-match rows whose description contains "CREDIT" etc.
-                "credit", "credits", "debit", "debits", "deposit", "deposits",
-                "withdrawal", "withdrawals",
-                // spend vocabulary — intent words, never merchant names
-                "spending", "spent", "spend", "spends", "payment", "payments",
-                "purchase", "purchases", "charge", "charges", "money", "out",
-                // date words (so "in March", "last month", "last 7 days" don't merchant-match)
-                "last", "past", "previous", "current", "next", "recent", "since", "after",
-                "before", "until", "during", "between", "from", "day", "days", "week",
-                "weeks", "month", "months", "year", "years", "first", "january", "jan",
-                "february", "feb", "march", "mar", "april", "apr", "may", "june", "jun",
-                "july", "jul", "august", "aug", "september", "sep", "sept", "october",
-                "oct", "november", "nov", "december", "dec"]
-            // Also drop pure-number tokens (years/day counts) from merchant matching.
-            let filterTokens = queryTokens.subtracting(stopwords).filter { Int($0) == nil }
-            var matchedMerchant: String?
-            var merchantRows: [PennyCore.Transaction] = []
-            if matchedCategory == nil, !filterTokens.isEmpty {
-                var bestScore = 0
-                var bestShared: Set<String> = []
-                for t in txns {
-                    let shared = tokens(t.description).intersection(filterTokens)
-                    if shared.count > bestScore { bestScore = shared.count; bestShared = shared }
-                }
-                // Guard against filtering on one short, incidental word: need either
-                // two matching words or one distinctive (5+ char) one.
-                let qualifies = bestScore >= 2 || bestShared.contains { $0.count >= 5 }
-                if bestScore >= 1, qualifies {
-                    merchantRows = txns.filter {
-                        tokens($0.description).intersection(filterTokens).count == bestScore
-                    }
-                    if let first = merchantRows.first {
-                        matchedMerchant = first.description.count > 40
-                            ? String(first.description.prefix(39)) + "…" : first.description
-                    }
-                }
-            }
+            // ONE scoping brain: the router's own category / merchant / absent-
+            // target resolution (FinanceRouter.entityScope). The table used to
+            // hand-roll its own token matching, whose private quirks ("Uber" was
+            // one character too short to ever match) produced confident false
+            // zeros the router itself would never produce — and every scoping
+            // fix had to be made twice. The router scopes TxnRows; the table
+            // renders Transactions, so scoped rows map back by identity.
+            let entity = FinanceRouter.entityScope(q, rows: selectedRows())
 
             var rows: [PennyCore.Transaction]
             let scopeLabel: String?
-            if let cat = matchedCategory {
-                rows = txns.filter { $0.category?.caseInsensitiveCompare(cat) == .orderedSame }
-                scopeLabel = cat
-            } else if matchedMerchant != nil, !merchantRows.isEmpty {
-                rows = merchantRows
-                scopeLabel = matchedMerchant
-            } else if let named = filterTokens.max(by: { $0.count < $1.count }),
-                      named.count >= 4 {
-                // The question NAMED something ("netflix", "swiggy") that matches
-                // no category and no row — an honest zero, never the full ledger
-                // (dumping all 127 rows for "list my netflix transactions" when
-                // Netflix isn't here reads as a wrong answer, not a table).
-                let msg = "**No transactions matching “\(named.prefix(1).uppercased() + named.dropFirst())” in the loaded statements.**"
+            if let name = entity.entity {
+                let keys = Set(entity.rows.map {
+                    "\($0.txnDate)|\($0.descr)|\($0.debit)|\($0.credit)"
+                })
+                rows = txns.filter {
+                    keys.contains("\($0.date)|\($0.description)|\($0.debit ?? 0)|\($0.credit ?? 0)")
+                }
+                scopeLabel = name
+            } else if let target = entity.unmatchedTarget {
+                // Named-but-absent ("netflix" with no Netflix rows): an honest
+                // zero, never the full ledger.
+                let msg = "**No transactions matching “\(target)” in the loaded statements.**"
                 messages.append(ChatMessage(role: .assistant, content: msg, engine: "LEDGER"))
-                PennyLog.shared.log("chat", "A (ledger): honest zero for unmatched \(named)")
+                PennyLog.shared.log("chat", "A (ledger): honest zero for unmatched \(target)")
                 return
             } else {
                 rows = txns
@@ -2966,41 +2912,65 @@ final class AppModel: ObservableObject {
             return
         }
 
-        // "From which account did I make THIS transaction?" — resolve the back-
-        // reference against the previous answer's receipt rows and name the
-        // statement(s) that contain them. Deterministic: the docs are the truth.
-        // (Without this, the cross-doc COUNT handler answered "hdfc has the most
-        // transactions: 273" to a question about one specific transaction.)
+        // Account-dimension questions ("from which accounts?", "which bank
+        // accounts did I use for zara?", "from which account did I make THIS
+        // transaction?") — answered from the statements themselves, never a
+        // model guess and never a currency section mislabeled as an account.
         if q.lowercased().range(
-            of: #"(?:from |in |on )?(?:which|what) (?:account|statement|bank).{0,40}\b(?:this|that|these|those)\b|\b(?:this|that|these|those)\b.{0,40}(?:which|what) (?:account|statement|bank)"#,
-            options: .regularExpression) != nil,
-           let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
-           !receipts.rows.isEmpty {
-            var byDoc: [String: Int] = [:]
-            for r in receipts.rows {
-                if let doc = selectedDocs().first(where: { d in
-                    d.rows.contains {
-                        $0.txnDate == r.date
-                            && (r.isCredit ? $0.credit : $0.debit) == r.amount
-                            && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
-                    }
-                }) { byDoc[doc.displayName, default: 0] += 1 }
-            }
-            if !byDoc.isEmpty {
+            of: #"(?:from |in |on |to )?(?:which|what) (?:bank\s+)?(?:accounts?|statements?|banks?)\b"#,
+            options: .regularExpression) != nil {
+            func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)],
+                           noun: String) -> Bool {
+                var byDoc: [String: Int] = [:]
+                for r in rows {
+                    if let doc = selectedDocs().first(where: { d in
+                        d.rows.contains {
+                            $0.txnDate == r.date
+                                && (r.isCredit ? $0.credit : $0.debit) == r.amount
+                                && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
+                        }
+                    }) { byDoc[doc.displayName, default: 0] += 1 }
+                }
+                guard !byDoc.isEmpty else { return false }
                 let content: String
                 if byDoc.count == 1, let only = byDoc.first {
-                    content = receipts.rows.count == 1
-                        ? "**That transaction is from \(only.key).**"
-                        : "**Those \(receipts.totalCount) transactions are all from \(only.key).**"
+                    content = rows.count == 1
+                        ? "**That \(noun) is from \(only.key).**"
+                        : "**All \(rows.count) \(noun)s are from \(only.key).**"
                 } else {
                     let parts = byDoc.sorted { $0.value > $1.value }
                         .map { "\($0.key) (\($0.value))" }
-                    content = "**Those transactions span \(byDoc.count) statements:** "
+                    content = "**Those \(noun)s span \(byDoc.count) statements:** "
                         + parts.joined(separator: " · ")
                 }
                 messages.append(ChatMessage(role: .assistant, content: content, engine: "ANALYTICS"))
-                PennyLog.shared.log("chat", "A (analytics): receipt→account attribution")
-                return
+                PennyLog.shared.log("chat", "A (analytics): account attribution")
+                return true
+            }
+            // 1) The question itself scopes rows ("…did i make zara transactions"):
+            //    group the scoped rows by the statement that holds them.
+            if let ctx = FinanceRouter.context(for: resolvedQ, rows: selectedRows()),
+               !ctx.rows.isEmpty, ctx.label != (ctx.directionNote ?? "") {
+                let rows = ctx.rows.map {
+                    (date: $0.txnDate, name: $0.merchant.isEmpty ? $0.descr : $0.merchant,
+                     amount: $0.credit > 0 ? $0.credit : $0.debit, isCredit: $0.credit > 0)
+                }
+                if attribute(rows, noun: "transaction") { return }
+            }
+            // 2) A back-reference ONLY — "this/that transaction", or a bare
+            //    "from which accounts?" fragment. Longer questions without a
+            //    demonstrative ("which account has the most transactions?") fall
+            //    through to the cross-document handlers below.
+            let backRef = q.lowercased().range(of: #"\b(?:this|that|these|those)\b"#,
+                                               options: .regularExpression) != nil
+                || q.split(whereSeparator: { $0.isWhitespace }).count <= 4
+            if backRef,
+               let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
+               !receipts.rows.isEmpty {
+                let rows = receipts.rows.map {
+                    (date: $0.date, name: $0.name, amount: $0.amount, isCredit: $0.isCredit)
+                }
+                if attribute(rows, noun: "transaction") { return }
             }
         }
 
@@ -3065,12 +3035,23 @@ final class AppModel: ObservableObject {
         // to the model.
         if !Self.isAdvisoryQuestion(q),
            let ctx = FinanceRouter.context(for: resolvedQ, rows: selectedRows()), !ctx.rows.isEmpty {
-            let cur = summary.currency
-            let out = ctx.rows.filter { $0.debit > 0 }.reduce(0) { $0 + $1.debit }
-            let inc = ctx.rows.filter { $0.credit > 0 }.reduce(0) { $0 + $1.credit }
+            // Sums are PER CURRENCY — this used to sum every row and stamp one
+            // symbol on it ("Spent £44,742.29" over rupee rows). ₹ + £ is never
+            // a number.
+            let fallbackCur = summary.currency
+            var outByCur: [String: Double] = [:], incByCur: [String: Double] = [:]
+            for r in ctx.rows {
+                let c = r.currency.isEmpty ? fallbackCur : r.currency
+                if r.debit > 0 { outByCur[c, default: 0] += r.debit }
+                if r.credit > 0 { incByCur[c, default: 0] += r.credit }
+            }
             var body = "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
-            if out > 0 { body += " Spent \(Money.format(out, currency: cur))." }
-            if inc > 0 { body += " Received \(Money.format(inc, currency: cur))." }
+            let outs = outByCur.sorted { $0.value > $1.value }
+                .map { Money.format($0.value, currency: $0.key) }
+            let incs = incByCur.sorted { $0.value > $1.value }
+                .map { Money.format($0.value, currency: $0.key) }
+            if !outs.isEmpty { body += " Spent \(outs.joined(separator: " + "))." }
+            if !incs.isEmpty { body += " Received \(incs.joined(separator: " + "))." }
             messages.append(ChatMessage(role: .assistant, content: body, engine: "ANALYTICS",
                                         receipts: AnswerReceipts(from: ctx)))
             PennyLog.shared.log("chat", "A (search): \(body)")
@@ -3388,16 +3369,114 @@ final class AppModel: ObservableObject {
     /// natural-language prompt. (In FinQuery these route through the SQL/ML engine;
     /// here they go to the on-device model until the analytics layer is ported.)
     func runFlow(_ action: String) {
-        let map: [String: String] = [
-            "roast":    "roast my spending",
-            "ghosts":   "find recurring subscriptions i forgot i had",
-            "patterns": "what spending patterns do you notice?",
-            "forecast": "give me a spending forecast",
-            "compound": "calculate compound savings if i cut back",
-            "reports":  "show my category report",
-            "splurge":  "can i splurge this month?",
-        ]
-        send(map[action] ?? action)
+        switch action {
+        case "roast":
+            runRoast()
+        case "patterns":
+            runComposed(FinanceRouter.patternsReport,
+                        userText: "What spending patterns do you notice? ⚡",
+                        empty: "Not enough transactions yet to read patterns from — upload a statement or two.")
+        case "reports":
+            runComposed(FinanceRouter.fullReport,
+                        userText: "Show my report 📊",
+                        empty: "Nothing to report yet — upload a statement first.")
+        case "ghosts":
+            send("find recurring subscriptions i forgot i had")
+        default:
+            let map: [String: String] = [
+                "forecast": "give me a spending forecast",
+                "compound": "calculate compound savings if i cut back",
+                "splurge":  "can i splurge this month?",
+            ]
+            send(map[action] ?? action)
+        }
+    }
+
+    /// A composed deterministic flow (Patterns / Reports): one section per
+    /// currency, exact figures, no model anywhere in the path.
+    private func runComposed(_ builder: ([TxnRow], @escaping (Double) -> String) -> String?,
+                             userText: String, empty: String) {
+        guard !isThinking else { return }
+        messages.append(ChatMessage(role: .user, content: userText))
+        let rows = selectedRows()
+        var sections: [String] = []
+        if !rows.isEmpty {
+            let byCur = Dictionary(grouping: rows) { $0.currency }
+            for (cur, part) in byCur.sorted(by: { $0.value.count > $1.value.count }) {
+                let code = cur.isEmpty ? summary.currency : cur
+                if let s = builder(part, FinanceRouter.defaultMoney(code)) {
+                    sections.append(byCur.count > 1 ? "**\(code)**\n\(s)" : s)
+                }
+            }
+        }
+        let content = sections.isEmpty ? empty : sections.joined(separator: "\n\n")
+        messages.append(ChatMessage(role: .assistant, content: content, engine: "ANALYTICS"))
+        PennyLog.shared.log("chat", "A (composed): \(userText)")
+    }
+
+    /// "Roast me" (design B): the ENGINE computes the facts and a complete
+    /// template roast; the model may rephrase — but only with the engine's
+    /// figures, and any loop / invented number / refusal ships the template
+    /// instead. The model garnishes; it never cooks.
+    func runRoast(_ userText: String = "Roast my spending 🔥") {
+        guard !isThinking else { return }
+        messages.append(ChatMessage(role: .user, content: userText))
+        let rows = selectedRows()
+        guard !rows.isEmpty else {
+            messages.append(ChatMessage(role: .assistant,
+                content: "Upload a statement first — I can't roast an empty plate.", engine: "ANALYTICS"))
+            return
+        }
+        // Dominant currency's rows only (mixing symbols mixes jokes badly).
+        let byCur = Dictionary(grouping: rows) { $0.currency }
+        let dominant = byCur.max { $0.value.count < $1.value.count }?.value ?? rows
+        let cur = dominant.first?.currency ?? summary.currency
+        let fmt = FinanceRouter.defaultMoney(cur.isEmpty ? summary.currency : cur)
+        guard let roast = RoastEngine.roast(rows: dominant, money: fmt,
+                                            seed: UInt64.random(in: 1...UInt64.max)) else {
+            messages.append(ChatMessage(role: .assistant,
+                content: "Nothing to roast yet — no spending rows in this statement.", engine: "ANALYTICS"))
+            return
+        }
+        // No model, or test mode → the template roast IS the feature.
+        guard !TestMode.active, modelPhase == .ready || PennyLLM.systemModelAvailable else {
+            messages.append(ChatMessage(role: .assistant, content: roast.fallback, engine: "ANALYTICS"))
+            PennyLog.shared.log("chat", "A (roast/template): deterministic roast")
+            return
+        }
+        messages.append(ChatMessage(role: .assistant, content: "", engine: "MLX"))
+        let idx = messages.count - 1
+        isThinking = true
+        let llm = self.llm
+        generateTask = Task { [weak self] in
+            var garnish = ""
+            do {
+                garnish = try await llm.ask(
+                    question: "Rewrite these true facts as one short, funny, teasing roast (max 110 words). "
+                        + "Charming, never cruel. Use ONLY these numbers, change none of them, "
+                        + "and end with the money-saving tip:\n" + roast.bullets.joined(separator: "\n"),
+                    statementText: "", maxTokens: 300,
+                    onEngine: { engine in
+                        Task { @MainActor in
+                            guard let self, self.messages.indices.contains(idx) else { return }
+                            self.messages[idx].engine = engine == "apple" ? "APPLE" : "MLX"
+                        }
+                    },
+                    onToken: { _ in })
+            } catch { garnish = "" }
+            await MainActor.run {
+                guard let self, self.messages.indices.contains(idx) else { return }
+                if RoastEngine.garnishAcceptable(garnish, bullets: roast.bullets) {
+                    self.messages[idx].content = garnish
+                } else {
+                    // The template ships — honestly badged as the engine's work.
+                    self.messages[idx].content = roast.fallback
+                    self.messages[idx].engine = "ANALYTICS"
+                    PennyLog.shared.log("chat", "A (roast): garnish rejected → template")
+                }
+                self.isThinking = false
+            }
+        }
     }
 }
 

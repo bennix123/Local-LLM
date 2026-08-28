@@ -112,7 +112,12 @@ final class BasicsCoverageTests: XCTestCase {
         Case(q: "count of transactions I sent", want: ["debits"], ban: ["14 transactions"]),
         // ---- honest declines (nil → model/decline is CORRECT) ----
         Case(q: "should I be worried about my spending?", want: [], ban: []),
-        Case(q: "can I afford a new car?", want: [], ban: []),
+        // Income £3,000/mo, spending ~£178/mo → surplus ≈ £2,821.68/month.
+        Case(q: "can I afford a new car?", want: ["Tell me the amount"], ban: []),
+        Case(q: "can I afford a £500 monthly EMI?", want: ["Yes — a recurring £500.00/month fits"], ban: []),
+        Case(q: "can I afford a £3,000 monthly EMI?", want: ["No — not on these numbers"], ban: []),
+        Case(q: "can I afford a £400 laptop?", want: ["Yes — comfortably"], ban: []),
+        Case(q: "can I afford a £50,000 car right now?", want: ["more than your latest balance"], ban: []),
         Case(q: "roast my spending", want: [], ban: []),
         Case(q: "is my spending normal for someone my age?", want: ["can't compare you"], ban: ["£534.97"]),
     ]

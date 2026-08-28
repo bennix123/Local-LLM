@@ -36,14 +36,14 @@ final class AppModelLogicTests: XCTestCase {
 
     private func row(_ seq: Int, date: String = "2024-01-05", desc: String = "TESCO STORES",
                      category: String = "Groceries", debit: Double = 0, credit: Double = 0,
-                     balance: Double? = nil) -> TxnRow {
+                     balance: Double? = nil, currency: String = "GBP") -> TxnRow {
         TxnRow(txnDate: date, month: String(date.prefix(7)),
                year: Int(date.prefix(4)) ?? 2024,
                monthNo: Int(date.dropFirst(5).prefix(2)) ?? 1,
                day: Int(date.suffix(2)) ?? 1,
                descr: desc, merchant: desc, category: category,
                debit: debit, credit: credit, balance: balance,
-               currency: "GBP", seq: seq)
+               currency: currency, seq: seq)
     }
 
     private func makeDoc(name: String, text: String = "statement text",
@@ -509,6 +509,49 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply?.content.contains("CHARLIE") == true, "credit row must be filtered out")
     }
 
+    func testDirectWhichAccountForMerchantNamesTheStatement() {
+        // Live (2026-08-28): "from which bank accounts did i make zara
+        // transactions?" answered a keyword-search summary with the WRONG
+        // currency symbol. The direct account-dimension form now groups the
+        // scoped rows by statement.
+        let m = modelWithTwoDocs()
+        m.send("from which bank accounts did i make alpha transactions?")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "ANALYTICS")
+        XCTAssertTrue(reply?.content.localizedCaseInsensitiveContains("chase") == true,
+                      "\(reply?.content.prefix(100) ?? "")")
+    }
+
+    func testBareFromWhichAccountsFollowUp() {
+        // Live: "from which accounts?" after a merchant answer went to the model
+        // and hallucinated "the USD account". Resolves against receipts now.
+        let m = modelWithThreeTxns()
+        m.send("how much did i spend at alpha?")
+        m.send("from which accounts?")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "ANALYTICS", "must not fall to a model")
+        XCTAssertTrue(reply?.content.localizedCaseInsensitiveContains("bank") == true,
+                      "\(reply?.content.prefix(100) ?? "")")
+    }
+
+    func testKeywordFallbackNeverBlendsCurrencies() {
+        // Live: the fallback summed rupee rows and printed them with a £ symbol.
+        let m = freshModel()
+        m.loadForTesting([
+            makeDoc(name: "us.csv", txns: [txn(desc: "ZED STORE", debit: 10)],
+                    rows: [row(1, desc: "ZED STORE", debit: 10, currency: "USD")], currency: "USD"),
+            makeDoc(name: "uk.csv", txns: [txn(desc: "ZED STORE", debit: 20)],
+                    rows: [row(1, desc: "ZED STORE", debit: 20, currency: "GBP")], currency: "GBP"),
+        ])
+        m.recomputeSummary()
+        m.send("anything about zed store?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("$10.00") && reply.contains("£20.00"),
+                      "per-currency sums with their own symbols: \(reply.prefix(140))")
+        XCTAssertFalse(reply.contains("$30.00") || reply.contains("£30.00"),
+                       "must never blend currencies into one figure: \(reply.prefix(140))")
+    }
+
     func testThisTransactionFollowUpNamesTheAccount() {
         // Live session (2026-08-28): "from which account did i make this
         // transaction?" answered "hdfc has the most transactions: 273" — a count,
@@ -545,6 +588,35 @@ final class AppModelLogicTests: XCTestCase {
         let reply = m.messages.last
         XCTAssertEqual(reply?.engine, "ANALYTICS", "named-item question must not fall to MLX")
         XCTAssertTrue(reply?.content.contains("ALPHA") == true, "\(reply?.content.prefix(100) ?? "")")
+    }
+
+    func testLedgerMatchesShortMerchantNames() {
+        // Live (2026-08-28): "show me the transactions of uber" answered "No
+        // transactions matching 'Uber'" while Uber rows were on screen — the
+        // table's private matcher required 5+ characters. It now uses the
+        // router's scoping brain, where "Uber" (4 chars) word-matches fine.
+        let m = freshModel()
+        m.loadForTesting([makeDoc(name: "bank.pdf",
+                          txns: [txn(desc: "UPI/Uber/703766", debit: 10),
+                                 txn(desc: "UPI/Ola Cabs/1", debit: 20)],
+                          rows: [row(1, desc: "UPI/Uber/703766", debit: 10),
+                                 row(2, desc: "UPI/Ola Cabs/1", debit: 20)],
+                          currency: "INR")])
+        m.recomputeSummary()
+        m.send("show me the transactions of uber")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "LEDGER")
+        XCTAssertTrue(reply?.content.contains("Uber") == true, "\(reply?.content.prefix(120) ?? "")")
+        XCTAssertFalse(reply?.content.contains("No transactions matching") == true,
+                       "Uber exists — no false zero: \(reply?.content.prefix(120) ?? "")")
+        XCTAssertFalse(reply?.content.contains("Ola") == true,
+                       "only Uber rows: \(reply?.content.prefix(160) ?? "")")
+
+        // "related" is filler, not a merchant.
+        m.send("show me the transactions related to uber")
+        let reply2 = m.messages.last
+        XCTAssertTrue(reply2?.content.contains("Uber") == true, "\(reply2?.content.prefix(120) ?? "")")
+        XCTAssertFalse(reply2?.content.contains("Related") == true, "\(reply2?.content.prefix(120) ?? "")")
     }
 
     func testLedgerFiltersToNamedMerchant() {
