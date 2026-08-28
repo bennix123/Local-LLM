@@ -231,7 +231,7 @@ struct SidebarView: View {
             .padding(.top, 1)
         } else if editingAPIKey {
             HStack(spacing: 5) {
-                SecureField("sk-ant-…", text: $apiKeyDraft)
+                SecureField("paste API key…", text: $apiKeyDraft)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(9))
                     .onSubmit(saveAPIKey)

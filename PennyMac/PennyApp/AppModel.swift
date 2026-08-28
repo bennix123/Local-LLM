@@ -1384,8 +1384,8 @@ final class AppModel: ObservableObject {
                 if status == 429 { return "Categorization API rate limit hit — wait a moment and tap ✨ to retry." }
                 return "Categorization API error \(status) — tap ✨ to retry."
             case .missingKey:  return "No categorization API key set — add one in settings."
-            case .refused:     return "Claude declined the request."
-            case .badResponse: return "Couldn't read Claude's response — tap ✨ to retry."
+            case .refused:     return "The categorization AI declined the request."
+            case .badResponse: return "Couldn't read the categorizer's response — tap ✨ to retry."
             }
         }
         return "Couldn't reach the categorization API — check your connection and tap ✨ to retry."
@@ -1500,7 +1500,7 @@ final class AppModel: ObservableObject {
                     self?.postToast("All \(totalTxns) transaction\(totalTxns == 1 ? "" : "s") categorized from memory — no API call needed.",
                                     kind: .success)
                 } else {
-                    self?.postToast("Categorizing \(totalTxns) transaction\(totalTxns == 1 ? "" : "s") — asking Claude about \(unknownCount) new merchant\(unknownCount == 1 ? "" : "s")…",
+                    self?.postToast("Categorizing \(totalTxns) transaction\(totalTxns == 1 ? "" : "s") — asking AI about \(unknownCount) new merchant\(unknownCount == 1 ? "" : "s")…",
                                     kind: .progress)
                 }
             }
@@ -1575,7 +1575,7 @@ final class AppModel: ObservableObject {
                                   uniquingKeysWith: { a, _ in a })
             let moved = refined.transactions.filter { prev[$0.id] != $0.enrichment.categoryID?.raw }.count
             self.applyRefinedGraph(refined)
-            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") with Claude.", kind: .success)
+            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") with AI.", kind: .success)
         }
     }
 
