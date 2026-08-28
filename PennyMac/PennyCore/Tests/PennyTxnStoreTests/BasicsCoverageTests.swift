@@ -35,6 +35,10 @@ final class BasicsCoverageTests: XCTestCase {
          row(9, date: "2026-06-07", descr: "TESCO", category: "Groceries", debit: 90, balance: 8790.02),
          row(10, date: "2026-06-11", descr: "NETFLIX", category: "Subscriptions", debit: 9.99, balance: 8780.03),
          row(11, date: "2026-06-18", descr: "UBER", category: "Transport", debit: 45, balance: 8735.03),
+         // Gym is categorized under Subscriptions (like the real data) — the
+         // trap: "gym" questions must scope to the MERCHANT, not the bucket.
+         row(13, date: "2026-05-03", descr: "GYM MEMBERSHIP", category: "Subscriptions", debit: 35, balance: 5935.02),
+         row(14, date: "2026-06-03", descr: "GYM MEMBERSHIP", category: "Subscriptions", debit: 35, balance: 8845.02),
          row(12, date: "2026-06-21", descr: "REFUND ZARA", merchant: "ZARA", credit: 30, balance: 8765.03)]
     }
 
@@ -50,16 +54,16 @@ final class BasicsCoverageTests: XCTestCase {
 
     private let cases: [Case] = [
         // ---- totals & counts ----
-        Case(q: "what's my total spending?", want: ["You spent £464.97"], ban: []),
-        Case(q: "how much did I spend in total?", want: ["You spent £464.97"], ban: []),
+        Case(q: "what's my total spending?", want: ["You spent £534.97"], ban: []),
+        Case(q: "how much did I spend in total?", want: ["You spent £534.97"], ban: []),
         Case(q: "what's my total income?", want: ["You received £9,000", "You received £9000"], ban: []),
-        Case(q: "how many transactions do I have?", want: ["9 transactions", "12 transactions"], ban: []),
-        Case(q: "how many transactions did I receive?", want: ["credits"], ban: ["12 transactions"]),
+        Case(q: "how many transactions do I have?", want: ["14 transactions"], ban: []),
+        Case(q: "how many transactions did I receive?", want: ["credits"], ban: ["14 transactions"]),
         // ---- largest / top ----
         Case(q: "what was my largest transaction?", want: ["largest expense"], ban: ["transactions."]),
         Case(q: "what's my biggest expense?", want: ["largest expense was £120.00"], ban: []),
-        Case(q: "where did i spent most of my money?", want: ["top merchant"], ban: ["You spent £464.97"]),
-        Case(q: "where do I spend the most?", want: ["top merchant"], ban: ["You spent £464.97"]),
+        Case(q: "where did i spent most of my money?", want: ["top merchant"], ban: ["You spent £534.97"]),
+        Case(q: "where do I spend the most?", want: ["top merchant"], ban: ["You spent £534.97"]),
         Case(q: "who is my top merchant?", want: ["top merchant"], ban: []),
         Case(q: "what are my top spending categories?", want: ["Spending by category"], ban: ["expenses"]),
         Case(q: "what's my smallest purchase?", want: ["smallest expense"], ban: []),
@@ -72,16 +76,18 @@ final class BasicsCoverageTests: XCTestCase {
         Case(q: "what do I spend per month on average?", want: ["/month"], ban: []),
         Case(q: "what's my average daily spend?", want: ["/day"], ban: []),
         // ---- merchant lookups ----
-        Case(q: "how much did I spend at Tesco?", want: ["on Tesco", "at TESCO", "on TESCO"], ban: ["£464.97"]),
+        Case(q: "how much did I spend at Tesco?", want: ["on Tesco", "at TESCO", "on TESCO"], ban: ["£534.97"]),
         Case(q: "list my tesco transactions", want: ["TESCO", "totalling"], ban: ["ZARA"]),
         Case(q: "what are my netflix transactions?", want: ["NETFLIX", "totalling"], ban: ["TESCO"]),
-        Case(q: "how much did I spend at Starbucks?", want: ["£0.00 on Starbucks"], ban: ["£464.97"]),
+        Case(q: "how much did I spend at Starbucks?", want: ["£0.00 on Starbucks"], ban: ["£534.97"]),
         Case(q: "when did I last shop at Zara?", want: ["ZARA"], ban: []),
         // ---- subscriptions / recurring ----
         Case(q: "what subscriptions am I paying for?", want: ["Recurring", "No recurring"], ban: []),
         Case(q: "do I have a netflix subscription?", want: ["Yes"], ban: ["Recurring charges"]),
         Case(q: "do I have a spotify subscription?", want: ["No"], ban: []),
         Case(q: "what are my recurring payments?", want: ["Recurring", "No recurring"], ban: []),
+        Case(q: "when did i start going to the gym?", want: ["GYM"], ban: ["Subscriptions:"]),
+        Case(q: "when was my first transaction of gym?", want: ["first transaction at GYM", "GYM MEMBERSHIP"], ban: ["on Subscriptions"]),
         // ---- refunds ----
         Case(q: "did I get any refunds?", want: ["refund"], ban: ["£9,000", "£9000"]),
         // ---- income ----
@@ -93,22 +99,22 @@ final class BasicsCoverageTests: XCTestCase {
         Case(q: "what's my balance?", want: ["balance is £8,765.03", "balance is £8765.03"], ban: []),
         Case(q: "what's the lowest my balance dropped?", want: ["lowest balance"], ban: []),
         // ---- time scopes ----
-        Case(q: "how much did I spend in May?", want: ["in May"], ban: ["£464.97"]),
+        Case(q: "how much did I spend in May?", want: ["in May"], ban: ["£534.97"]),
         Case(q: "how much did I spend last month?", want: ["last month"], ban: []),
-        Case(q: "how much did I spend this year?", want: ["£464.97", "in 2026"], ban: []),
-        Case(q: "how much did I spend in 2019?", want: ["£0.00 in 2019"], ban: ["£464.97"]),
+        Case(q: "how much did I spend this year?", want: ["£534.97", "in 2026"], ban: []),
+        Case(q: "how much did I spend in 2019?", want: ["£0.00 in 2019"], ban: ["£534.97"]),
         // ---- comparisons ----
         Case(q: "did I spend more this month or last month?", want: ["vs"], ban: []),
         Case(q: "weekend vs weekday spending?", want: ["weekend"], ban: []),
         Case(q: "is my spending going up or down?", want: ["trending", "roughly flat"], ban: ["Net"]),
         // ---- direction ----
         Case(q: "show all my debits", want: ["debits"], ban: ["SALARY"]),
-        Case(q: "count of transactions I sent", want: ["debits"], ban: ["12 transactions"]),
+        Case(q: "count of transactions I sent", want: ["debits"], ban: ["14 transactions"]),
         // ---- honest declines (nil → model/decline is CORRECT) ----
         Case(q: "should I be worried about my spending?", want: [], ban: []),
         Case(q: "can I afford a new car?", want: [], ban: []),
         Case(q: "roast my spending", want: [], ban: []),
-        Case(q: "is my spending normal for someone my age?", want: ["can't compare you"], ban: ["£464.97"]),
+        Case(q: "is my spending normal for someone my age?", want: ["can't compare you"], ban: ["£534.97"]),
     ]
 
     func testEveryBasicQuestionGetsTheRightShape() throws {

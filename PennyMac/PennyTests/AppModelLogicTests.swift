@@ -509,6 +509,23 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply?.content.contains("CHARLIE") == true, "credit row must be filtered out")
     }
 
+    func testThisTransactionFollowUpNamesTheAccount() {
+        // Live session (2026-08-28): "from which account did i make this
+        // transaction?" answered "hdfc has the most transactions: 273" — a count,
+        // for a question about ONE specific transaction. Now resolved against the
+        // previous answer's receipt rows.
+        let m = modelWithThreeTxns()
+        m.send("when was the last transaction of alpha?")
+        XCTAssertEqual(m.messages.last?.engine, "ANALYTICS")
+        m.send("from which account did i make this transaction?")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "ANALYTICS")
+        XCTAssertTrue(reply?.content.localizedCaseInsensitiveContains("bank") == true,
+                      "should name the statement: \(reply?.content.prefix(100) ?? "")")
+        XCTAssertFalse(reply?.content.contains("most transactions") == true,
+                       "\(reply?.content.prefix(100) ?? "")")
+    }
+
     func testLargestTransactionIsNotACount() {
         // Parallel-session fix (2af0daa): "which was my largest transaction?"
         // was intercepted by the cross-statement COUNT handler.

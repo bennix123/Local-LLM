@@ -338,6 +338,39 @@ final class IOSModel: ObservableObject {
             return
         }
 
+        // "From which account did I make THIS transaction?" — resolve the back-
+        // reference against the previous answer's receipt rows and name the
+        // statement(s) containing them (mirrors the macOS pipeline).
+        if q.lowercased().range(
+            of: #"(?:from |in |on )?(?:which|what) (?:account|statement|bank).{0,40}\b(?:this|that|these|those)\b|\b(?:this|that|these|those)\b.{0,40}(?:which|what) (?:account|statement|bank)"#,
+            options: .regularExpression) != nil,
+           let receipts = messages.last(where: { $0.role == .penny })?.receipts,
+           !receipts.rows.isEmpty {
+            var byDoc: [String: Int] = [:]
+            for r in receipts.rows {
+                if let s = statements.first(where: { st in
+                    st.rows.contains {
+                        $0.txnDate == r.date
+                            && (r.isCredit ? $0.credit : $0.debit) == r.amount
+                            && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
+                    }
+                }) { byDoc[s.name, default: 0] += 1 }
+            }
+            if !byDoc.isEmpty {
+                let text: String
+                if byDoc.count == 1, let only = byDoc.first {
+                    text = receipts.rows.count == 1
+                        ? "**That transaction is from \(only.key).**"
+                        : "**Those \(receipts.totalCount) transactions are all from \(only.key).**"
+                } else {
+                    let parts = byDoc.sorted { $0.value > $1.value }.map { "\($0.key) (\($0.value))" }
+                    text = "**Those transactions span \(byDoc.count) statements:** " + parts.joined(separator: " · ")
+                }
+                messages.append(IOSChatMsg(role: .penny, text: text, engine: "swift engine"))
+                return
+            }
+        }
+
         // 1) deterministic router — instant, exact, never hallucinates
         let rows = mergedRows
         let cur = primaryCurrency

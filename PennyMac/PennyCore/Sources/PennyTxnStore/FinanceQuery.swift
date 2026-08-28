@@ -1610,6 +1610,20 @@ public enum FinanceRouter {
             // Skip when the synonym is only present as part of a merchant the
             // question names (e.g. "gym" in "how much at Pure Gym").
             if namedMerchants.contains(where: { $0.contains(word) }) { continue }
+            // Skip when the synonym word ITSELF names data — a row's merchant or
+            // description carries it as a whole word ("gym" → the "Gym
+            // Membership" merchant). The user means that payee; scoping to the
+            // category bucket lumped Netflix and Spotify into "when did I start
+            // going to the gym?".
+            let w = word.trimmingCharacters(in: .whitespaces)
+            if w.count >= 3 {
+                let pat = #"\b"# + NSRegularExpression.escapedPattern(for: w) + #"\b"#
+                let namesData = rows.contains {
+                    $0.merchant.lowercased().range(of: pat, options: .regularExpression) != nil
+                        || $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil
+                }
+                if namesData { continue }
+            }
             if let hit = present.first(where: { $0.caseInsensitiveCompare(canonical) == .orderedSame }) {
                 return hit
             }

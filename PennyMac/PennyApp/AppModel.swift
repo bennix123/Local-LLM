@@ -2513,6 +2513,9 @@ final class AppModel: ObservableObject {
         if docs.count > 1, has(#"transactions?"#),
            has(#"\b(most|fewest|least|which statement|which account)\b"#),
            !has(#"\b(largest|biggest|highest|greatest)\s+(single\s+)?transaction\b"#),
+           // "from which account did I make THIS transaction?" refers back to a
+           // specific row from the previous answer — never a count question.
+           !has(#"\b(?:this|that)\s+(?:transaction|payment|charge|purchase)\b"#),
            namedDoc(for: question) == nil {
             let ranked = docs.sorted { $0.rows.count > $1.rows.count }
             let fewest = has(#"\b(fewest|least|lowest)\b"#)
@@ -2541,7 +2544,7 @@ final class AppModel: ObservableObject {
                     return "**\(d.displayName) has the most money in: \(money(moneyIn(d))).**"
                 }
             }
-            if has(#"money out|spent|debited|outflow|total out\b|spending"#) {
+            if has(#"money out|spen[dt]\b|debited|outflow|total out\b|spending"#) {
                 if let d = docs.max(by: { moneyOut($0) < moneyOut($1) }) {
                     return "**\(d.displayName) has the most money out: \(money(moneyOut(d))).**"
                 }
@@ -2961,6 +2964,44 @@ final class AppModel: ObservableObject {
             messages.append(ChatMessage(role: .assistant, content: answer, engine: "ANALYTICS"))
             PennyLog.shared.log("chat", "A (analytics): \(answer)")
             return
+        }
+
+        // "From which account did I make THIS transaction?" — resolve the back-
+        // reference against the previous answer's receipt rows and name the
+        // statement(s) that contain them. Deterministic: the docs are the truth.
+        // (Without this, the cross-doc COUNT handler answered "hdfc has the most
+        // transactions: 273" to a question about one specific transaction.)
+        if q.lowercased().range(
+            of: #"(?:from |in |on )?(?:which|what) (?:account|statement|bank).{0,40}\b(?:this|that|these|those)\b|\b(?:this|that|these|those)\b.{0,40}(?:which|what) (?:account|statement|bank)"#,
+            options: .regularExpression) != nil,
+           let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
+           !receipts.rows.isEmpty {
+            var byDoc: [String: Int] = [:]
+            for r in receipts.rows {
+                if let doc = selectedDocs().first(where: { d in
+                    d.rows.contains {
+                        $0.txnDate == r.date
+                            && (r.isCredit ? $0.credit : $0.debit) == r.amount
+                            && ($0.merchant.isEmpty ? $0.descr : $0.merchant) == r.name
+                    }
+                }) { byDoc[doc.displayName, default: 0] += 1 }
+            }
+            if !byDoc.isEmpty {
+                let content: String
+                if byDoc.count == 1, let only = byDoc.first {
+                    content = receipts.rows.count == 1
+                        ? "**That transaction is from \(only.key).**"
+                        : "**Those \(receipts.totalCount) transactions are all from \(only.key).**"
+                } else {
+                    let parts = byDoc.sorted { $0.value > $1.value }
+                        .map { "\($0.key) (\($0.value))" }
+                    content = "**Those transactions span \(byDoc.count) statements:** "
+                        + parts.joined(separator: " · ")
+                }
+                messages.append(ChatMessage(role: .assistant, content: content, engine: "ANALYTICS"))
+                PennyLog.shared.log("chat", "A (analytics): receipt→account attribution")
+                return
+            }
         }
 
         // Cross-document analytics (per-statement counts/balances, largest credit/
