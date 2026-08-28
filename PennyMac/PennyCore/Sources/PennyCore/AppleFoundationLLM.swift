@@ -246,22 +246,46 @@ enum AppleFoundationLLM {
     /// failing, so the UI never double-answers.
     static func answer(question: String, statementText: String, maxTokens: Int,
                        onToken: @Sendable (String) -> Void) async throws -> String {
-        let clipped = String(statementText.prefix(12_000))
+        // 12,000 chars ≈ 3.5–4k tokens — Apple's on-device window is ~4k TOTAL
+        // (instructions + prompt + response), so big statements exceeded it and
+        // the raw "context window exceeded" error reached a live user. 6,000
+        // chars leaves honest room; the grounding builders put the most relevant
+        // rows first, so the tail we drop is the least relevant.
+        let clipped = String(statementText.prefix(6_000))
         let prompt = """
             BANK STATEMENT TEXT:
             \(clipped)
 
             QUESTION: \(question)
             """
-        let session = LanguageModelSession(instructions: PennyLLM.systemPrompt)
         let options = GenerationOptions(temperature: 0.3, maximumResponseTokens: maxTokens)
         var shown = ""
-        do {
-            for try await snapshot in session.streamResponse(to: prompt, options: options) {
+        func stream(_ text: String) async throws {
+            let session = LanguageModelSession(instructions: PennyLLM.systemPrompt)
+            for try await snapshot in session.streamResponse(to: text, options: options) {
                 let full = snapshot.content                    // cumulative text so far
                 guard full.count > shown.count else { continue }
                 onToken(String(full.suffix(full.count - shown.count)))
                 shown = full
+            }
+        }
+        do {
+            try await stream(prompt)
+        } catch let error as LanguageModelSession.GenerationError {
+            // Window still exceeded (device/OS variation in the real limit):
+            // retry ONCE at half the grounding before giving up — a clipped
+            // answer beats a raw "context window exceeded" in the chat.
+            if case .exceededContextWindowSize = error, shown.isEmpty {
+                let retryPrompt = """
+                    BANK STATEMENT TEXT:
+                    \(String(clipped.prefix(3_000)))
+
+                    QUESTION: \(question)
+                    """
+                do { try await stream(retryPrompt) }
+                catch { if shown.isEmpty { throw error } }
+            } else if shown.isEmpty {
+                throw error
             }
         } catch {
             if shown.isEmpty { throw error }                   // nothing streamed → caller falls back to MLX
