@@ -2209,6 +2209,38 @@ public enum FinanceRouter {
             }
         }
 
+        // ---- "do I have a [merchant] subscription?" -------------------------
+        // A yes/no about ONE named service — NOT a request to enumerate every
+        // recurring charge. Answer specifically about that merchant; only the
+        // merchant-less "what are my subscriptions?" gets the full cadence list.
+        if matches(low, #"\bdo i (?:have|pay|use)\b|\bam i (?:paying|subscribed|still on|on)\b|\bhave i got\b|\bdo i still\b|\bis there a\b"#),
+           matches(low, #"subscription|subscribed|recurr|paying for|\bmember\w*\b|\bplan\b"#) {
+            // Resolve the named service: a real merchant in the data, else the
+            // word the user typed before "subscription/plan/membership" — so an
+            // ABSENT service ("do I have Spotify?") gets an honest "no", not the
+            // generic recurring list.
+            let named = matchMerchant(low, rows: allRows, allowDescription: true)
+                ?? firstGroup(low, #"\b(?:a|an|any|my|the)\s+([a-z][a-z0-9&'. -]{1,28}?)\s+(?:subscriptions?|plans?|memberships?|member)\b"#)?
+                    .trimmingCharacters(in: .whitespaces)
+            if let merch = named, !merch.isEmpty,
+               !["recurring", "monthly", "regular", "active"].contains(merch.lowercased()) {
+                let needle = merch.lowercased()
+                let hits = allRows.filter {
+                    $0.debit > 0 &&
+                    ($0.merchant.caseInsensitiveCompare(merch) == .orderedSame
+                     || $0.merchant.lowercased().contains(needle)
+                     || $0.descr.lowercased().contains(needle))
+                }
+                guard !hits.isEmpty else {
+                    return "**No — I don't see any \(merch) charges in your statements.**"
+                }
+                let total = hits.reduce(0) { $0 + $1.debit }
+                let months = Set(hits.map(\.month)).count
+                let cadence = months >= 2 ? " — looks recurring across \(months) months" : ""
+                return "**Yes — \(grp(hits.count)) \(merch) payment\(hits.count == 1 ? "" : "s") totalling \(money(total))\(cadence).**"
+            }
+        }
+
         // ---- recurring charges & subscriptions ------------------------------
         // Deferred when the question is a direct "how much did I spend on
         // subscriptions" total (a category-spend lookup) OR a count like "how

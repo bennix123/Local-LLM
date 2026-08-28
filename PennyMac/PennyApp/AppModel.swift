@@ -3015,6 +3015,27 @@ final class AppModel: ObservableObject {
         }
         engineRoutingStats.unsupported += 1
 
+        // Keyword-search fallback (P11): the typed handlers had no answer, but if
+        // the question NAMES a specific item (a merchant/category the scope
+        // resolves), show those transactions deterministically — a keyword search
+        // and its results — instead of handing an open-ended query to the model,
+        // which fuzzy-retrieves and often grounds on the wrong rows. Advisory /
+        // open-ended questions ("why…", "should I…", "is it reasonable") still go
+        // to the model.
+        if !Self.isAdvisoryQuestion(q),
+           let ctx = FinanceRouter.context(for: resolvedQ, rows: selectedRows()), !ctx.rows.isEmpty {
+            let cur = summary.currency
+            let out = ctx.rows.filter { $0.debit > 0 }.reduce(0) { $0 + $1.debit }
+            let inc = ctx.rows.filter { $0.credit > 0 }.reduce(0) { $0 + $1.credit }
+            var body = "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
+            if out > 0 { body += " Spent \(Money.format(out, currency: cur))." }
+            if inc > 0 { body += " Received \(Money.format(inc, currency: cur))." }
+            messages.append(ChatMessage(role: .assistant, content: body, engine: "ANALYTICS",
+                                        receipts: AnswerReceipts(from: ctx)))
+            PennyLog.shared.log("chat", "A (search): \(body)")
+            return
+        }
+
         messages.append(ChatMessage(role: .assistant, content: "", engine: "MLX"))
         let idx = messages.count - 1
         isThinking = true
@@ -3286,6 +3307,19 @@ final class AppModel: ObservableObject {
     /// no scope: the fuzzy retriever matches the word "buy" against small unrelated
     /// rows and the model describes those. Ground instead on the LARGEST debits —
     /// the purchases the user actually means — deterministically by amount.
+    /// Open-ended / advisory questions that genuinely want the model's reasoning,
+    /// not a list of matching transactions — these should still reach MLX/Apple
+    /// even when a merchant is named ("why is my Netflix so high?").
+    static func isAdvisoryQuestion(_ q: String) -> Bool {
+        let l = q.lowercased()
+        let pats = ["why ", "why'", "should i", "shall i", "is it worth", "worth it", "roast",
+                    "advice", "advise", "reasonable", "too much", "too high", "too expensive",
+                    "cut ", "cut down", "reduce", "recommend", "opinion", "how can i", "help me",
+                    "what do you think", "am i saving", "am i spending too", "explain why",
+                    "better off", "budget", "afford"]
+        return pats.contains { l.contains($0) }
+    }
+
     static func isBarePurchaseQuery(_ q: String) -> Bool {
         let l = q.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let triggers = ["what did i buy", "what did i purchase", "what did i spend",
