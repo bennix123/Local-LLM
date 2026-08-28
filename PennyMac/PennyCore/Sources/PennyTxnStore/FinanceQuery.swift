@@ -196,7 +196,7 @@ public enum FinanceRouter {
     // "credit card", "credit limit/line/score/rating", "available credit".
     static let creditNounPattern = #"(?<!available\s)\bcredits?\b(?!\s+(?:cards?|limits?|lines?|scores?|ratings?)\b)|\bdeposits?\b|\bincomings?\b|money (?:in|received)\b|paid in\b"#
     static let debitNounPattern = #"\bdebits?\b(?!\s+cards?\b)|\bwithdrawals?\b|\bcharges?\b|\boutgoings?\b|money (?:out|spent)\b|paid out\b"#
-    private static let creditVerbPattern = #"\bcredited\b|\breceived\b|\bincome\b|\bincoming\b|came in\b|come in\b|coming in\b"#
+    private static let creditVerbPattern = #"\bcredited\b|\breceiv(?:e|ed|ing)\b|\bincome\b|\bincoming\b|came in\b|come in\b|coming in\b"#
     private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b|(?:i|we)\s+sent\b|\bsent\s+(?:to|out)\b"#
 
     /// Credit-only / debit-only intent, or nil when neither or both directions
@@ -546,7 +546,7 @@ public enum FinanceRouter {
         // (\b after the noun group: "biggest shop" is a merchant question, but
         // "biggest Shopping charge" is the largest-expense branch's — without the
         // boundary, `shops?` matches the prefix of "shopping".)
-        if matches(low, #"(?:top|biggest|largest|highest|most)\s+(?:\d+\s+)?(?:merchants?|shops?|stores?|retailers?|vendors?|payees?|places?|brands?|compan(?:y|ies))\b|where do i spend (?:the )?most|who(?:m)? do i pay (?:the )?most|most (?:money |often )?(?:spent|spend|goes?) (?:at|to|with)"#),
+        if matches(low, #"(?:top|biggest|largest|highest|most)\s+(?:\d+\s+)?(?:merchants?|shops?|stores?|retailers?|vendors?|payees?|places?|brands?|compan(?:y|ies))\b|where (?:do|did|does|have) i (?:spend|spent|been spending) (?:the )?most|where did (?:the )?most of my money go|where did i spen[dt] most|who(?:m)? do i pay (?:the )?most|most (?:money |often )?(?:spent|spend|goes?) (?:at|to|with)"#),
            !debits.isEmpty {
             var byMerchant: [String: (total: Double, count: Int)] = [:]
             for r in debits {
@@ -2104,7 +2104,10 @@ public enum FinanceRouter {
                                            money: (Double) -> String) -> String? {
         // Gate: only enter for savings / income / trend / risk / consistency /
         // recurring questions (mirrors analytics.py's trigger regex).
-        let gate = #"\bsav(?:e|ed|es|ing|ings)?\b|runway|survive|income stop|\brisky?\b|overspent|deficit|in the red|financ|consisten|stable|steady|volatil|erratic|fluctuat|predictab|\bvary\b|variab|earning|\bincome\b|salary|subscription|recurr|repeat\w*|\btrend\b|spending profile|spending style|last\s+\d+\s+months?"#
+        // "plan"/"membership" open the gate so the named-subscription handler is
+        // reachable for "do I have an EE plan / gym membership?" phrasings (its
+        // own trigger re-checks; unrelated "plan" questions fall through to nil).
+        let gate = #"\bsav(?:e|ed|es|ing|ings)?\b|runway|survive|income stop|\brisky?\b|overspent|deficit|in the red|financ|consisten|stable|steady|volatil|erratic|fluctuat|predictab|\bvary\b|variab|earning|\bincome\b|salary|subscription|recurr|repeat\w*|\btrend\b|spending profile|spending style|last\s+\d+\s+months?|\bmembership\b|\bmember\b|\bplan\b"#
         guard matches(low, gate) else { return nil }
 
         // Period-only scope (never category/merchant): these questions are account-wide.
@@ -2224,12 +2227,17 @@ public enum FinanceRouter {
                     .trimmingCharacters(in: .whitespaces)
             if let merch = named, !merch.isEmpty,
                !["recurring", "monthly", "regular", "active"].contains(merch.lowercased()) {
-                let needle = merch.lowercased()
+                // Whole-word match, not substring: "do I have an EE plan?" must
+                // not count every COFFEE row as an EE charge.
+                let pat = #"\b"# + NSRegularExpression.escapedPattern(for: merch.lowercased())
+                    .replacingOccurrences(of: #"\ "#, with: #"\s+"#) + #"\b"#
+                func names(_ s: String) -> Bool {
+                    s.lowercased().range(of: pat, options: .regularExpression) != nil
+                }
                 let hits = allRows.filter {
                     $0.debit > 0 &&
                     ($0.merchant.caseInsensitiveCompare(merch) == .orderedSame
-                     || $0.merchant.lowercased().contains(needle)
-                     || $0.descr.lowercased().contains(needle))
+                     || names($0.merchant) || names($0.descr))
                 }
                 guard !hits.isEmpty else {
                     return "**No — I don't see any \(merch) charges in your statements.**"

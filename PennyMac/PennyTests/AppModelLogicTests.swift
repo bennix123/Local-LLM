@@ -509,6 +509,27 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply?.content.contains("CHARLIE") == true, "credit row must be filtered out")
     }
 
+    func testLargestTransactionIsNotACount() {
+        // Parallel-session fix (2af0daa): "which was my largest transaction?"
+        // was intercepted by the cross-statement COUNT handler.
+        let m = modelWithThreeTxns()
+        m.send("which was my largest transaction?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("Largest") || reply.contains("largest"), "\(reply.prefix(100))")
+        XCTAssertTrue(reply.contains("BRAVO"), "BRAVO (20) is the largest debit: \(reply.prefix(100))")
+        XCTAssertFalse(reply.contains("most transactions"), "\(reply.prefix(100))")
+    }
+
+    func testKeywordFallbackAnswersNamedItemDeterministically() {
+        // Parallel-session P11: a router-declined question naming a merchant gets
+        // a deterministic keyword-search answer, never a model fallback.
+        let m = modelWithThreeTxns()
+        m.send("anything about ALPHA?")
+        let reply = m.messages.last
+        XCTAssertEqual(reply?.engine, "ANALYTICS", "named-item question must not fall to MLX")
+        XCTAssertTrue(reply?.content.contains("ALPHA") == true, "\(reply?.content.prefix(100) ?? "")")
+    }
+
     func testLedgerFiltersToNamedMerchant() {
         let m = modelWithThreeTxns()
         m.send("list my alpha transactions")

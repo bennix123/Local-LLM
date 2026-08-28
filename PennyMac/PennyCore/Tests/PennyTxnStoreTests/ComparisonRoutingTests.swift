@@ -215,6 +215,33 @@ final class ComparisonRoutingTests: XCTestCase {
         XCTAssertTrue(ans.contains("3 debits") && ans.contains("totalling £290.00"), "\(ans)")
     }
 
+    // MARK: - named-subscription lookups (parallel-session handler, pinned here)
+
+    func testNamedSubscriptionPresentIsYes() throws {
+        let ans = try XCTUnwrap(ask("do I have a netflix subscription?"))
+        XCTAssertTrue(ans.contains("Yes") && ans.contains("NETFLIX")
+                      || ans.contains("Yes") && ans.contains("netflix")
+                      || ans.contains("Yes — 2"), "\(ans)")
+        XCTAssertFalse(ans.contains("Recurring charges"), "specific, not the generic list: \(ans)")
+    }
+
+    func testNamedSubscriptionAbsentIsHonestNo() throws {
+        let ans = try XCTUnwrap(ask("do I have a spotify subscription?"))
+        XCTAssertTrue(ans.contains("No") && ans.contains("spotify") || ans.contains("Spotify"), "\(ans)")
+    }
+
+    func testShortNameSubscriptionNeverSubstringMatches() throws {
+        var r = rows
+        r.append(row(40, date: "2026-06-20", descr: "COFFEE HOUSE 12", category: "Dining", debit: 4))
+        let ans = try XCTUnwrap(ask("do I have an EE plan?", r))
+        XCTAssertTrue(ans.contains("No"), "'EE' must not match COFFEE: \(ans)")
+    }
+
+    func testGenericSubscriptionsQuestionStillListsAll() throws {
+        let ans = try XCTUnwrap(ask("what are my subscriptions?"))
+        XCTAssertTrue(ans.contains("Recurring") || ans.contains("No recurring"), "\(ans)")
+    }
+
     // MARK: - must-not-change
 
     func testWhatAreMyMerchantTransactionsIsAList() throws {
