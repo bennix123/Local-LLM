@@ -157,6 +157,25 @@ public final class TxnIngester {
             }
         }
 
+        // Universal record-block reader — bank-agnostic, runs only when every
+        // parser above abstained, and only keeps output the document itself
+        // verifies (balance chain or printed totals), so it can never regress
+        // a parsed statement nor ship unverified rows.
+        if txns.isEmpty {
+            var pages = (0..<doc.pageCount).compactMap { doc.page($0)?.text }
+            // No text layer (scan/photo PDF) → on-device OCR, same line shape.
+            if ScannedPDFText.looksScanned(pages, pageCount: doc.pageCount) {
+                pages = ScannedPDFText.ocrPages(path: path)
+            }
+            if let uni = UniversalRecordIngest.parse(pages: pages, categories: categories) {
+                txns = uni.rows
+                confidence = "universal-\(uni.verification)"
+                if detectedCur.isEmpty || uni.currency != "INR" || detectedCur == "INR" {
+                    detectedCur = uni.currency
+                }
+            }
+        }
+
         // category hints folded into the description tail
         for i in 0..<txns.count {
             let (cleanDesc, hint) = Describe.extractCategoryHint(txns[i].descr)

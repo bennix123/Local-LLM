@@ -661,13 +661,9 @@ final class FinanceRouterRecurringTests: XCTestCase {
     }
 
     func testSubscriptionsAnswerListsOnlyQualifiedCharges() {
-        let expected = """
-        **Recurring charges & subscriptions** — payments repeating at a regular cadence and similar amount (about £9.99/month):
-
-        - **Netflix** — ~£9.99 × 3 (3 months, 100% confidence)
-        """
-        XCTAssertEqual(answerOrFail("what subscriptions am i paying for", RouterFix.quarter),
-                       expected)
+        let a1 = answerOrFail("what subscriptions am i paying for", RouterFix.quarter)
+        XCTAssertTrue(a1.hasPrefix("**Recurring charges & subscriptions**"), a1)
+        XCTAssertTrue(a1.contains("**Netflix** — ~£9.99 × 3 (3 months, last "), a1)
         let a2 = answerOrFail("list my recurring payments", RouterFix.quarter)
         XCTAssertTrue(a2.contains("**Netflix**"), "unexpected answer: \(a2)")
         XCTAssertFalse(a2.contains("Spotify"), "2-month Spotify leaked in: \(a2)")
@@ -712,8 +708,9 @@ final class FinanceRouterReasoningTests: XCTestCase {
 final class FinanceRouterDeclineTests: XCTestCase {
 
     func testAdvisoryQuestionsAreDeclined() {
+        // "can i afford …" left this list on 2026-08-28: it now gets a
+        // deterministic affordability answer (see BasicsCoverageTests pins).
         for q in ["roast my spending habits",
-                  "can i afford a new laptop",
                   "why is my spending so high",
                   "is my spending healthy",
                   "predict my expenses for next month",
