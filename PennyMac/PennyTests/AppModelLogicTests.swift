@@ -702,6 +702,25 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(cfg.key, PennyBackend.appToken)
     }
 
+    // Aggregator statements (Paytm-style) must surface the UNDERLYING banks —
+    // the user's "bank name is union bank" is about where the money moved
+    // (2026-08-29).
+    func testBankNameNamesUnderlyingAccountsForAggregators() {
+        let m = freshModel()
+        let text = """
+        Paytm Statement for
+        Payment received
+        Union Bank Of India - 49 Rs.44,119.16
+        Canara Bank - 41 Rs.345
+        """
+        m.loadForTesting([makeDoc(name: "paytm.pdf", text: text, rows: [row(1)], detectedIssuer: "Paytm")])
+        m.send("whats the bank name?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("Paytm"), reply)
+        XCTAssertTrue(reply.contains("Union Bank Of India -49") || reply.contains("Union Bank Of India - 49"), reply)
+        XCTAssertTrue(reply.contains("Canara Bank -41") || reply.contains("Canara Bank - 41"), reply)
+    }
+
     // "whats the bank name?" was hijacked by keyword search matching the word
     // "bank" inside descriptions ("Union Bank Of India") → "Found 10
     // transactions at Bank" (2026-08-29). Roster answers; search never fires.

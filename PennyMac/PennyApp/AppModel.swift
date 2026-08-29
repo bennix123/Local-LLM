@@ -186,6 +186,11 @@ struct LoadedDoc: Identifiable, Equatable {
             // also appears in UPI transaction lines). Note "axis" is matched only
             // as "Axis Bank" — the IFSC prefix "utib"/handles like "@sliceaxis"
             // must NOT read as an Axis statement.
+            // The Paytm APP export's letterhead reads "Paytm Statement for …" —
+            // that's the Paytm app, not the (defunct) Payments Bank, and it sits
+            // at the very top so earliest-match prefers it over the PPBL
+            // footnote lower down.
+            (#"paytm (?:upi )?statement\b"#,              "Paytm"),
             (#"\bppbl\b|paytm payments bank"#,            "Paytm Payments Bank"),
             (#"\baxis bank\b"#,                           "Axis Bank"),
             (#"\bhdfc\b"#,                                "HDFC Bank"),
@@ -2479,13 +2484,38 @@ final class AppModel: ObservableObject {
         // must answer before any keyword fallback can grab it.
         if has(#"\bbank names?\b|(?:what|which|whats|what's|name|names) (?:is |are |of )?(?:the |my |these |those )?banks?\b"#),
            !has(#"transactions?|txns?|spen[dt]|balance|charge"#) {
+            // Aggregator statements (Paytm/GPay exports) reveal the UNDERLYING
+            // bank accounts the money moved through ("Union Bank Of India - 49")
+            // — that's usually the bank the user is asking about, so name both.
+            func underlyingAccounts(_ d: LoadedDoc) -> [String] {
+                let rx = try! NSRegularExpression(
+                    pattern: #"((?:[A-Z][A-Za-z&.]+ ){0,3}Bank(?: [A-Z][A-Za-z]+){0,3}) *[-–] *(\d{1,4})"#)
+                let t = String(d.text.prefix(4_000))
+                var seen: [String] = []
+                rx.enumerateMatches(in: t, range: NSRange(t.startIndex..., in: t)) { m, _, _ in
+                    guard let m, let r1 = Range(m.range(at: 1), in: t),
+                          let r2 = Range(m.range(at: 2), in: t) else { return }
+                    let label = "\(t[r1].trimmingCharacters(in: .whitespaces)) -\(t[r2])"
+                    if !seen.contains(label), seen.count < 4 { seen.append(label) }
+                }
+                return seen
+            }
             let lines = docs.map { d -> String in
                 let cnt = d.rows.count
-                return "- **\(d.displayName)** — \(d.currency.isEmpty ? "" : d.currency + ", ")\(cnt) transaction\(cnt == 1 ? "" : "s")"
+                var line = "- **\(d.displayName)** — \(d.currency.isEmpty ? "" : d.currency + ", ")\(cnt) transaction\(cnt == 1 ? "" : "s")"
+                let subs = underlyingAccounts(d)
+                if !subs.isEmpty { line += " · via \(subs.joined(separator: ", "))" }
+                return line
             }
-            let head = docs.count == 1 ? "**This statement is from \(docs[0].displayName).**"
-                                       : "**Your \(docs.count) statements:**"
-            return docs.count == 1 ? head : head + "\n" + lines.joined(separator: "\n")
+            if docs.count == 1 {
+                let subs = underlyingAccounts(docs[0])
+                var head = "**This statement is from \(docs[0].displayName).**"
+                if !subs.isEmpty {
+                    head += " Payments moved through: \(subs.joined(separator: ", "))."
+                }
+                return head
+            }
+            return "**Your \(docs.count) statements:**\n" + lines.joined(separator: "\n")
         }
 
         // ---- how many statements / accounts / files ------------------------
