@@ -202,7 +202,8 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             stat("Statements", "\(app.docs.count)")
             stat("Transactions", "\(app.transactionCount)")
-            apiKeyRow
+            // Categorizer/key row removed by request (2026-08-29) — the proxy
+            // categorizes for everyone; key management is not a user concern.
             if app.recheckableMerchantCount > 0 { categorizeButton }
             if app.showUpgradeNudge { upgradeNudge }
         }

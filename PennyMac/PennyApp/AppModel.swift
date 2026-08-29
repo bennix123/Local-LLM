@@ -413,8 +413,11 @@ final class AppModel: ObservableObject {
     /// there is neither a local key nor a configured proxy — then categorization is
     /// a no-op and rows keep their deterministic placeholders.
     var categorizerConfig: (key: String, endpoint: ClaudeCategorizer.Endpoint)? {
-        if let k = claudeAPIKey, !k.isEmpty { return (k, .anthropic) }
+        // Proxy FIRST: it's the product path and its key lives server-side. A
+        // stale personal key must never shadow a healthy proxy (it produced
+        // "key was rejected" toasts while the proxy sat working).
         if let url = PennyBackend.proxyURL { return (PennyBackend.appToken, .proxy(url)) }
+        if let k = claudeAPIKey, !k.isEmpty { return (k, .anthropic) }
         return nil
     }
 

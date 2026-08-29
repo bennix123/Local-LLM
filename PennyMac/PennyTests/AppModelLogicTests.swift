@@ -691,6 +691,17 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("**USD**"), "per-ACCOUNT, not per-currency: \(reply)")
     }
 
+    // A stale personal key in the Keychain must never shadow the healthy proxy
+    // (2026-08-29: "key was rejected" toasts while the local proxy sat working).
+    func testProxyOutranksStalePersonalKey() throws {
+        let m = AppModel()
+        m.claudeAPIKey = "sk-dead-key-from-months-ago"
+        let cfg = try XCTUnwrap(m.categorizerConfig)
+        XCTAssertNotEqual(cfg.endpoint, .anthropic,
+                          "personal key must not send traffic to Anthropic when a proxy is configured")
+        XCTAssertEqual(cfg.key, PennyBackend.appToken)
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",
