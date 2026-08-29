@@ -17,6 +17,10 @@ struct IOSStatement: Identifiable {
     let isCard: Bool
     let closingBalance: Double?
     let rows: [TxnRow]
+
+    /// What lists show: the bank if known, else a cleaned filename — never
+    /// raw "\*.csv"/"\*.pdf" technical names.
+    var displayName: String { bankName ?? StatementName.pretty(name) }
 }
 
 struct IOSChatMsg: Identifiable, Equatable {

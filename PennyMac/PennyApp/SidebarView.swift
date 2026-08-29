@@ -231,7 +231,7 @@ struct SidebarView: View {
             .padding(.top, 1)
         } else if editingAPIKey {
             HStack(spacing: 5) {
-                SecureField("paste API key…", text: $apiKeyDraft)
+                SecureField("paste key…", text: $apiKeyDraft)
                     .textFieldStyle(.plain)
                     .font(Theme.mono(9))
                     .onSubmit(saveAPIKey)
@@ -262,7 +262,7 @@ struct SidebarView: View {
             .padding(.top, 1)
         } else {
             Button { editingAPIKey = true } label: {
-                Text(MD.inline("🔑 **add API key** — categories need it"))
+                Text(MD.inline("🔑 **connect categorizer** — categories need it"))
                     .font(Theme.font(9.5, .semibold))
                     .foregroundStyle(Theme.coral)
                     .multilineTextAlignment(.leading)

@@ -292,13 +292,14 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(makeDoc(name: "f.pdf", text: "no brands here",
                                bank: "HDFC Bank").displayName,
                        "HDFC Bank")
-        // 4. non-bank-like parser name (filename-derived junk) → filename
+        // 4. non-bank-like parser name (filename-derived junk) → cleaned
+        // filename, never the raw technical name (2026-08-29 request)
         XCTAssertEqual(makeDoc(name: "Sample_Statement_acct.pdf", text: "no brands here",
                                bank: "Sample").displayName,
-                       "Sample_Statement_acct.pdf")
-        // 5. no bank at all → filename
+                       "Sample")
+        // 5. no bank at all → cleaned filename, no extension
         XCTAssertEqual(makeDoc(name: "plain.pdf", text: "no brands here").displayName,
-                       "plain.pdf")
+                       "Plain")
     }
 
     func testDetectIssuerEarliestBrandWins() {
@@ -684,8 +685,9 @@ final class AppModelLogicTests: XCTestCase {
         let m = modelWithTwoDocs()
         m.send("whats the total count of transactions in individual accounts?")
         let reply = m.messages.last?.content ?? ""
-        XCTAssertTrue(reply.contains("chase") && reply.contains("2")
-                      && reply.contains("barclays") && reply.contains("1"), "\(reply)")
+        XCTAssertTrue(reply.contains("Chase") && reply.contains("2")
+                      && reply.contains("Barclays") && reply.contains("1"), "\(reply)")
+        XCTAssertFalse(reply.contains(".csv"), "no technical filenames in answers: \(reply)")
         XCTAssertFalse(reply.contains("**USD**"), "per-ACCOUNT, not per-currency: \(reply)")
     }
 

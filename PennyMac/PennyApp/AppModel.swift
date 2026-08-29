@@ -147,7 +147,10 @@ struct LoadedDoc: Identifiable, Equatable {
         if let detectedIssuer { return detectedIssuer }
         if let issuer = Self.detectIssuer(in: text) { return issuer }
         if let bank, Self.looksLikeBankName(bank) { return bank }
-        return name
+        // The filename itself often names the issuer ("chase.csv"); failing
+        // that, show a cleaned label — never a raw filename with extensions.
+        if let issuer = Self.detectIssuer(in: name) { return issuer }
+        return StatementName.pretty(name)
     }
 
     static func looksLikeBankName(_ s: String) -> Bool {
@@ -426,7 +429,7 @@ final class AppModel: ObservableObject {
         guard !key.isEmpty else { return }
         claudeAPIKey = key
         APIKeyStore.save(key)
-        postToast("API key saved — categorizing with the API…", kind: .success)
+        postToast("Key saved — categorizing…", kind: .success)
         refineCategoriesForLoadedStatements(manual: true)
     }
 
@@ -434,7 +437,7 @@ final class AppModel: ObservableObject {
     func clearClaudeAPIKey() {
         claudeAPIKey = nil
         APIKeyStore.clear()
-        postToast("API key removed.", kind: .progress)
+        postToast("Key removed.", kind: .progress)
     }
 
     /// Bytes actually sent to Anthropic this session (AI categorization + the
@@ -1376,14 +1379,14 @@ final class AppModel: ObservableObject {
             case .http(let status, let body):
                 let low = body.lowercased()
                 if low.contains("credit balance") || low.contains("billing") {
-                    return "Categorization API credits exhausted — top up the provider account to categorize the rest."
+                    return "Categorizer out of credits — top up the provider account to categorize the rest."
                 }
                 if status == 401 || low.contains("authentication") || low.contains("invalid x-api-key") {
-                    return "The categorization API key was rejected — re-enter it in settings."
+                    return "The categorizer key was rejected — re-enter it in the sidebar."
                 }
-                if status == 429 { return "Categorization API rate limit hit — wait a moment and tap ✨ to retry." }
-                return "Categorization API error \(status) — tap ✨ to retry."
-            case .missingKey:  return "No categorization API key set — add one in settings."
+                if status == 429 { return "Categorizer rate limit hit — wait a moment and tap ✨ to retry." }
+                return "Categorizer error \(status) — tap ✨ to retry."
+            case .missingKey:  return "No categorizer key set — add one in the sidebar."
             case .refused:     return "The categorization AI declined the request."
             case .badResponse: return "Couldn't read the categorizer's response — tap ✨ to retry."
             }
