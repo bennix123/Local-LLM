@@ -21,6 +21,18 @@ final class StatementNameTests: XCTestCase {
         XCTAssertFalse(out.contains(".pdf") || out.contains("_"))
     }
 
+    func testUnderlyingAccountsHarvest() {
+        let text = """
+        Paytm Statement for
+        Union Bank Of India - 49 Rs.44,119.16
+        Canara Bank - 41 Rs.345
+        Union Bank Of India - 49 Rs.102
+        """
+        XCTAssertEqual(StatementName.underlyingAccounts(in: text),
+                       ["Union Bank Of India -49", "Canara Bank -41"])
+        XCTAssertEqual(StatementName.underlyingAccounts(in: "just a normal statement"), [])
+    }
+
     func testAllDigitsNameSurvives() {
         // Nothing nameable — must still return something non-empty, no extension.
         let out = StatementName.pretty("2026-01.csv")

@@ -2487,18 +2487,10 @@ final class AppModel: ObservableObject {
             // Aggregator statements (Paytm/GPay exports) reveal the UNDERLYING
             // bank accounts the money moved through ("Union Bank Of India - 49")
             // — that's usually the bank the user is asking about, so name both.
+            // Shared harvester (PennyTxnStore) — iOS uses the same one at
+            // import time; the Mac keeps page text so it can ask lazily here.
             func underlyingAccounts(_ d: LoadedDoc) -> [String] {
-                let rx = try! NSRegularExpression(
-                    pattern: #"((?:[A-Z][A-Za-z&.]+ ){0,3}Bank(?: [A-Z][A-Za-z]+){0,3}) *[-–] *(\d{1,4})"#)
-                let t = String(d.text.prefix(4_000))
-                var seen: [String] = []
-                rx.enumerateMatches(in: t, range: NSRange(t.startIndex..., in: t)) { m, _, _ in
-                    guard let m, let r1 = Range(m.range(at: 1), in: t),
-                          let r2 = Range(m.range(at: 2), in: t) else { return }
-                    let label = "\(t[r1].trimmingCharacters(in: .whitespaces)) -\(t[r2])"
-                    if !seen.contains(label), seen.count < 4 { seen.append(label) }
-                }
-                return seen
+                StatementName.underlyingAccounts(in: d.text)
             }
             let lines = docs.map { d -> String in
                 let cnt = d.rows.count

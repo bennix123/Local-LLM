@@ -15,6 +15,9 @@ public struct IngestOutput {
     /// Credit-card semantics: the balance is money OWED, charges are debits and
     /// "payment received" credits are transfers, not income.
     public var isCard: Bool = false
+    /// Underlying bank accounts an aggregator export names in its summary
+    /// (see StatementName.underlyingAccounts) — [] for plain statements.
+    public var underlyingAccounts: [String] = []
 
     /// Public initializer (matches the memberwise shape) so out-of-module callers —
     /// e.g. the v1→v2 persistence migration rebuilding `IngestOutput` from stored
@@ -238,10 +241,12 @@ public final class TxnIngester {
             }
         }
 
-        return IngestOutput(rows: txns, bankName: bankName, confidence: confidence,
-                            detectedCurrency: detectedCur,
-                            closingBalance: cardSummary?.closingBalance,
-                            isCard: cardSummary?.isCard ?? false)
+        var output = IngestOutput(rows: txns, bankName: bankName, confidence: confidence,
+                                  detectedCurrency: detectedCur,
+                                  closingBalance: cardSummary?.closingBalance,
+                                  isCard: cardSummary?.isCard ?? false)
+        output.underlyingAccounts = StatementName.underlyingAccounts(in: early)
+        return output
     }
 
     /// Parse a CSV statement/export into canonical rows — ingest_csv() from

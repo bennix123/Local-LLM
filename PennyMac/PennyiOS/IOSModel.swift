@@ -16,6 +16,9 @@ struct IOSStatement: Identifiable {
     let currency: String
     let isCard: Bool
     let closingBalance: Double?
+    /// Underlying bank accounts an aggregator export reveals (harvested at
+    /// import by shared core; iOS keeps no page text, so this is persisted).
+    var accounts: [String] = []
     let rows: [TxnRow]
 
     /// What lists show: the bank if known, else a cleaned filename — never
@@ -290,7 +293,8 @@ final class IOSModel: ObservableObject {
                     statements.append(IOSStatement(
                         name: url.lastPathComponent, bankName: out.bankName,
                         currency: out.detectedCurrency.isEmpty ? "GBP" : out.detectedCurrency,
-                        isCard: out.isCard, closingBalance: out.closingBalance, rows: out.rows))
+                        isCard: out.isCard, closingBalance: out.closingBalance,
+                        accounts: out.underlyingAccounts, rows: out.rows))
                     // Animate the counter up like the mockup's sync screen — but
                     // counting rows that were actually parsed, not invented ones.
                     let target = mergedRows.count
@@ -469,6 +473,35 @@ final class IOSModel: ObservableObject {
             }
         }
 
+        // Bank-name roster ("whats the bank name?") — session metadata, never
+        // a merchant search; the word "bank" lives inside countless payment
+        // descriptions. Mirrors the macOS gate, including the underlying
+        // accounts an aggregator export names (harvested at import by core).
+        if q.lowercased().range(
+            of: #"\bbank names?\b|(?:what|which|whats|what's|name|names) (?:is |are |of )?(?:the |my |these |those )?banks?\b"#,
+            options: .regularExpression) != nil,
+           q.lowercased().range(of: #"transactions?|txns?|spen[dt]|balance|charge"#,
+                                options: .regularExpression) == nil {
+            let text: String
+            if statements.count == 1 {
+                let s = statements[0]
+                var head = "**This statement is from \(s.displayName).**"
+                if !s.accounts.isEmpty {
+                    head += " Payments moved through: \(s.accounts.joined(separator: ", "))."
+                }
+                text = head
+            } else {
+                let lines = statements.map { s -> String in
+                    var line = "- **\(s.displayName)** — \(s.currency), \(s.rows.count) transaction\(s.rows.count == 1 ? "" : "s")"
+                    if !s.accounts.isEmpty { line += " · via \(s.accounts.joined(separator: ", "))" }
+                    return line
+                }
+                text = "**Your \(statements.count) statements:**\n" + lines.joined(separator: "\n")
+            }
+            messages.append(IOSChatMsg(role: .penny, text: text, engine: "swift engine"))
+            return
+        }
+
         // 1) deterministic router — instant, exact, never hallucinates
         let rows = mergedRows
         let cur = primaryCurrency
@@ -601,6 +634,7 @@ final class IOSModel: ObservableObject {
     private struct StatementDTO: Codable {
         var name: String, bankName: String?, currency: String
         var isCard: Bool, closingBalance: Double?
+        var accounts: [String]?          // nil in pre-existing stores
         var rows: [RowDTO]
     }
 
@@ -615,6 +649,7 @@ final class IOSModel: ObservableObject {
         let dtos = statements.map { s in
             StatementDTO(name: s.name, bankName: s.bankName, currency: s.currency,
                          isCard: s.isCard, closingBalance: s.closingBalance,
+                         accounts: s.accounts.isEmpty ? nil : s.accounts,
                          rows: s.rows.map(RowDTO.init))
         }
         if let data = try? JSONEncoder().encode(dtos) {
@@ -628,7 +663,7 @@ final class IOSModel: ObservableObject {
         statements = dtos.map { d in
             IOSStatement(name: d.name, bankName: d.bankName, currency: d.currency,
                          isCard: d.isCard, closingBalance: d.closingBalance,
-                         rows: d.rows.map(\.row))
+                         accounts: d.accounts ?? [], rows: d.rows.map(\.row))
         }
         importedRowCount = mergedRows.count
     }

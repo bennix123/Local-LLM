@@ -5,6 +5,25 @@ import Foundation
 /// no extensions, no underscores, no date junk. Used by BOTH apps as the last
 /// resort when no real issuer/bank name was detected for a document.
 public enum StatementName {
+
+    /// Underlying bank accounts an aggregator statement (Paytm/GPay-style
+    /// export) reveals in its summary — "Union Bank Of India - 49" → the
+    /// banks the money actually moved through. Empty for plain single-bank
+    /// statements. Used by BOTH apps to answer "whats the bank name?".
+    public static func underlyingAccounts(in text: String) -> [String] {
+        let rx = try! NSRegularExpression(
+            pattern: #"((?:[A-Z][A-Za-z&.]+ ){0,3}Bank(?: [A-Z][A-Za-z]+){0,3}) *[-–] *(\d{1,4})"#)
+        let t = String(text.prefix(4_000))
+        var seen: [String] = []
+        rx.enumerateMatches(in: t, range: NSRange(t.startIndex..., in: t)) { m, _, _ in
+            guard let m, let r1 = Range(m.range(at: 1), in: t),
+                  let r2 = Range(m.range(at: 2), in: t) else { return }
+            let label = "\(t[r1].trimmingCharacters(in: .whitespaces)) -\(t[r2])"
+            if !seen.contains(label), seen.count < 4 { seen.append(label) }
+        }
+        return seen
+    }
+
     public static func pretty(_ raw: String) -> String {
         var s = raw
         // Drop a short trailing extension (.csv, .pdf, .xlsx …) — but not a
