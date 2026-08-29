@@ -702,6 +702,18 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(cfg.key, PennyBackend.appToken)
     }
 
+    // "whats the bank name?" was hijacked by keyword search matching the word
+    // "bank" inside descriptions ("Union Bank Of India") → "Found 10
+    // transactions at Bank" (2026-08-29). Roster answers; search never fires.
+    func testWhatsTheBankNameIsARosterNotASearch() {
+        let m = modelWithTwoDocs()
+        m.send("whats the bank name?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("statements:") || reply.contains("statement is from"), reply)
+        XCTAssertFalse(reply.contains("Found"), "must not be a keyword search: \(reply)")
+        XCTAssertFalse(reply.contains("at Bank"), reply)
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",

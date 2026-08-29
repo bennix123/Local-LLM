@@ -329,7 +329,9 @@ final class IOSModel: ObservableObject {
                 text: "Nothing to roast yet — no spending rows here.", engine: "swift engine"))
             return
         }
-        guard PennyLLM.systemModelAvailable else {
+        // Empty bullets = nothing roastable: the model would free-style with no
+        // facts and the gate can't catch a ramble that invents no figures.
+        guard PennyLLM.systemModelAvailable, !roast.bullets.isEmpty else {
             messages.append(IOSChatMsg(role: .penny, text: roast.fallback, engine: "swift engine"))
             return
         }

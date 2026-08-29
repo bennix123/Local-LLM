@@ -1861,6 +1861,10 @@ public enum FinanceRouter {
     /// Words that are intent/filler, not a merchant name — dropped before matching
     /// the question against transaction descriptions.
     private static let merchantStopwords: Set<String> = [
+        // "bank" is session metadata, never a payee — the word appears inside
+        // countless descriptions ("Union Bank Of India") and grabbing it turned
+        // "whats the bank name?" into a merchant search (2026-08-29).
+        "bank", "banks",
         "how", "much", "many", "did", "does", "the", "and", "for", "from", "with",
         "spend", "spent", "spending", "pay", "paid", "total", "all", "was", "are",
         "have", "has", "get", "got", "this", "that", "last", "per", "average", "avg",

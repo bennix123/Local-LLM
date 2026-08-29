@@ -2473,6 +2473,21 @@ final class AppModel: ObservableObject {
         func moneyOut(_ d: LoadedDoc) -> Double { d.rows.filter { $0.debit > 0 }.reduce(0) { $0 + $1.debit } }
         func has(_ pat: String) -> Bool { low.range(of: pat, options: .regularExpression) != nil }
 
+        // ---- bank roster ("whats the bank name?", "which banks are these?") -
+        // Session metadata, never a merchant search: the literal word "bank"
+        // lives inside countless descriptions ("Union Bank Of India"), so this
+        // must answer before any keyword fallback can grab it.
+        if has(#"\bbank names?\b|(?:what|which|whats|what's|name|names) (?:is |are |of )?(?:the |my |these |those )?banks?\b"#),
+           !has(#"transactions?|txns?|spen[dt]|balance|charge"#) {
+            let lines = docs.map { d -> String in
+                let cnt = d.rows.count
+                return "- **\(d.displayName)** — \(d.currency.isEmpty ? "" : d.currency + ", ")\(cnt) transaction\(cnt == 1 ? "" : "s")"
+            }
+            let head = docs.count == 1 ? "**This statement is from \(docs[0].displayName).**"
+                                       : "**Your \(docs.count) statements:**"
+            return docs.count == 1 ? head : head + "\n" + lines.joined(separator: "\n")
+        }
+
         // ---- how many statements / accounts / files ------------------------
         if has(#"\bhow many\b|\bnumber of\b|\bhow much\b"#), has(#"\b(statements?|accounts?|files?|uploads?|banks?)\b"#),
            !has(#"transactions?|txns?"#) {
@@ -3444,8 +3459,13 @@ final class AppModel: ObservableObject {
                 content: "Nothing to roast yet — no spending rows in this statement.", engine: "ANALYTICS"))
             return
         }
-        // No model, or test mode → the template roast IS the feature.
-        guard !TestMode.active, modelPhase == .ready || PennyLLM.systemModelAvailable else {
+        // No model, test mode, or NOTHING ROASTABLE → the template IS the
+        // feature. With empty bullets the model has no facts to rewrite and
+        // free-styles rambles the gate can't catch (no figures to reject) —
+        // never ask it. (2026-08-29 manual bug: clean statement produced a
+        // template line followed by a model ramble.)
+        guard !TestMode.active, !roast.bullets.isEmpty,
+              modelPhase == .ready || PennyLLM.systemModelAvailable else {
             messages.append(ChatMessage(role: .assistant, content: roast.fallback, engine: "ANALYTICS"))
             PennyLog.shared.log("chat", "A (roast/template): deterministic roast")
             return
