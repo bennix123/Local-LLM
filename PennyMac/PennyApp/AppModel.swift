@@ -2510,6 +2510,17 @@ final class AppModel: ObservableObject {
             return "**Your \(docs.count) statements:**\n" + lines.joined(separator: "\n")
         }
 
+        // ---- account dimension / senders / self-transfers ------------------
+        // "how much did I pay from Union Bank?", "who sent me money?", "did I
+        // transfer between my own accounts?" — deterministic, from per-row
+        // account + self-transfer data the parsers capture. Shared logic in
+        // PennyTxnStore (iOS calls the same one). Must run before the router:
+        // a bank name in the question would otherwise keyword-match one
+        // stray description and answer "1 transaction at Union".
+        if let acct = AccountQuery.answer(question, rows: docs.flatMap(\.rows), money: money) {
+            return acct
+        }
+
         // ---- how many statements / accounts / files ------------------------
         if has(#"\bhow many\b|\bnumber of\b|\bhow much\b"#), has(#"\b(statements?|accounts?|files?|uploads?|banks?)\b"#),
            !has(#"transactions?|txns?"#) {
@@ -3088,13 +3099,21 @@ final class AppModel: ObservableObject {
                 if r.debit > 0 { outByCur[c, default: 0] += r.debit }
                 if r.credit > 0 { incByCur[c, default: 0] += r.credit }
             }
-            var body = "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
-            let outs = outByCur.sorted { $0.value > $1.value }
-                .map { Money.format($0.value, currency: $0.key) }
-            let incs = incByCur.sorted { $0.value > $1.value }
-                .map { Money.format($0.value, currency: $0.key) }
-            if !outs.isEmpty { body += " Spent \(outs.joined(separator: " + "))." }
-            if !incs.isEmpty { body += " Received \(incs.joined(separator: " + "))." }
+            var body: String
+            if AccountQuery.isTimingQuestion(resolvedQ) {
+                // "WHEN did X pay me?" wants dates, not a count — the generic
+                // found-N phrasing read as a non-answer (2026-08-31 manual bug).
+                body = AccountQuery.timingAnswer(matched: ctx.rows, label: ctx.label,
+                                                 money: { Money.format($0, currency: fallbackCur) })
+            } else {
+                body = "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
+                let outs = outByCur.sorted { $0.value > $1.value }
+                    .map { Money.format($0.value, currency: $0.key) }
+                let incs = incByCur.sorted { $0.value > $1.value }
+                    .map { Money.format($0.value, currency: $0.key) }
+                if !outs.isEmpty { body += " Spent \(outs.joined(separator: " + "))." }
+                if !incs.isEmpty { body += " Received \(incs.joined(separator: " + "))." }
+            }
             messages.append(ChatMessage(role: .assistant, content: body, engine: "ANALYTICS",
                                         receipts: AnswerReceipts(from: ctx)))
             PennyLog.shared.log("chat", "A (search): \(body)")

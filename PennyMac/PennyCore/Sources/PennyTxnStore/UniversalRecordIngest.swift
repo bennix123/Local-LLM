@@ -113,6 +113,16 @@ public enum UniversalRecordIngest {
 
     // MARK: - main
 
+    // A record's own bank footer ("Canara Bank␤- 41", "Union Bank␤Of India
+    // - 49", or the whole thing on one line) names the account the money
+    // moved through. Harvested from those FOOTER LINES ONLY — the record's
+    // description can name a DESTINATION account ("Transferred to Self,
+    // Canara Bank - 1441"), which must not win, and tag/desc words next to
+    // a bank name in joined text would contaminate the label.
+    private static let bankNameLineRe = re(#"^(?:[A-Z][A-Za-z&.]+ ){0,3}Bank(?: [A-Za-z]+){0,3} ?$"#)
+    private static let bankNumFragRe = re(#"^(?:(?:[A-Z][A-Za-z]+ ){1,3})?[-–] ?\d{1,4}$"#)
+    private static let bankInlineRe = re(#"^(?:[A-Z][A-Za-z&.]+ ){0,3}Bank(?: [A-Za-z]+){0,3} ?[-–] ?\d{1,4}$"#)
+
     public static func parse(pages: [String], categories: Categories) -> Output? {
         guard !pages.isEmpty else { return nil }
         let pageLines: [[String]] = pages.map {
@@ -121,11 +131,34 @@ public enum UniversalRecordIngest {
         }
 
         // Furniture: identical lines repeated across most pages are headers/
-        // footers, not data. (Only meaningful with 3+ pages.)
+        // footers, not data. Three defences against eating record structure
+        // (2026-08-31: the 50%-of-pages rule silently swallowed every "Tag:"
+        // and "Union Bank" footer of a 36-page export, losing per-record data):
+        //  (1) true furniture repeats on essentially EVERY page (≥90%);
+        //  (2) it appears ~once per page, not many times;
+        //  (3) a line carrying record SEMANTICS — a date anchor, a money
+        //      token, a tag, a bank-footer fragment — is never furniture,
+        //      however often it repeats.
+        func isStructural(_ l: String) -> Bool {
+            if dateAnchor(l) != nil { return true }
+            if !moneyTokens(l).isEmpty { return true }
+            let lowL = l.lowercased()
+            if lowL.hasPrefix("#") || wholeMatch(re(#"^tags?\s*:$"#), lowL) != nil { return true }
+            return wholeMatch(bankInlineRe, l) != nil || wholeMatch(bankNameLineRe, l) != nil
+                || wholeMatch(bankNumFragRe, l) != nil
+        }
         var lineFreq: [String: Int] = [:]
-        for lines in pageLines { for l in Set(lines) { lineFreq[l, default: 0] += 1 } }
-        let furnitureFloor = max(3, Int(Double(pageLines.count) * 0.5))
-        let furniture = Set(lineFreq.filter { pageLines.count >= 3 && $0.value >= furnitureFloor }.map(\.key))
+        var lineTotal: [String: Int] = [:]
+        for lines in pageLines {
+            for l in Set(lines) { lineFreq[l, default: 0] += 1 }
+            for l in lines { lineTotal[l, default: 0] += 1 }
+        }
+        let furnitureFloor = max(3, Int((Double(pageLines.count) * 0.9).rounded(.up)))
+        let furniture = Set(lineFreq.filter {
+            pageLines.count >= 3 && $0.value >= furnitureFloor
+                && lineTotal[$0.key, default: 0] <= pageLines.count * 2
+                && !isStructural($0.key)
+        }.map(\.key))
 
         let allText = pages.joined(separator: "\n")
         let low = allText.lowercased()
@@ -164,16 +197,6 @@ public enum UniversalRecordIngest {
             periodEnd = (y, mo)
         }
 
-        func inferYear(month: Int) -> Int {
-            if let s = periodStart, let e = periodEnd, s.y != e.y {
-                // Two-year window: months >= start-month belong to the first year.
-                return month >= s.m ? s.y : e.y
-            }
-            if let e = periodEnd { return e.y }
-            if let s = periodStart { return s.y }
-            return years.max() ?? Calendar.current.component(.year, from: Date())
-        }
-
         // ---- segment into records at date-anchor lines --------------------
         struct Record { var date: DateHit; var lines: [String] }
         var records: [Record] = []
@@ -190,6 +213,48 @@ public enum UniversalRecordIngest {
         }
         guard records.count >= 3 else { return nil }
 
+        // ---- year assignment: document-order monotonicity ------------------
+        // Bare "23 Aug" anchors carry no year. A month-threshold rule breaks on
+        // windows that open and close in the same month a year apart (27 Aug'25
+        // – 26 Aug'26: the closing Aug days belong to the LATER year). Records
+        // appear in date order (either direction), so walk the document and
+        // carry the year across Dec↔Jan wraps (|Δmonth| ≥ 7, gated by the
+        // document's direction so sparse same-year gaps don't trigger it).
+        // Explicit years re-pin the walk wherever they appear.
+        var recYears = [Int](repeating: 0, count: records.count)
+        do {
+            var fwd = 0, back = 0
+            for i in 1..<records.count {
+                let a = records[i - 1].date, b = records[i].date
+                let d = (b.month * 32 + b.day) - (a.month * 32 + a.day)
+                if d > 0 { fwd += 1 } else if d < 0 { back += 1 }
+            }
+            let descending = back > fwd
+            func seedYear(month: Int) -> Int {
+                if let s = periodStart, let e = periodEnd, s.y != e.y {
+                    // First record = latest date when descending, earliest when
+                    // ascending — pick the period edge it belongs to.
+                    if descending { return month <= e.m ? e.y : s.y }
+                    return month >= s.m ? s.y : e.y
+                }
+                if let e = periodEnd { return e.y }
+                if let s = periodStart { return s.y }
+                return years.max() ?? Calendar.current.component(.year, from: Date())
+            }
+            var y = records[0].date.year ?? seedYear(month: records[0].date.month)
+            recYears[0] = y
+            for i in 1..<records.count {
+                if let explicit = records[i].date.year {
+                    y = explicit
+                } else {
+                    let delta = records[i].date.month - records[i - 1].date.month
+                    if !descending, delta <= -7 { y += 1 }      // …Dec → Jan…
+                    else if descending, delta >= 7 { y -= 1 }   // …Jan → Dec…
+                }
+                recYears[i] = y
+            }
+        }
+
         // ---- interpret each record ----------------------------------------
         struct Parsed {
             let iso: String; let y: Int; let m: Int; let d: Int
@@ -197,20 +262,55 @@ public enum UniversalRecordIngest {
             let amount: Double; let isCredit: Bool
             let balance: Double?
             let isSelfTransfer: Bool
+            let account: String?
         }
         var parsed: [Parsed] = []
-        for rec in records {
+        for (ri, rec) in records.enumerated() {
             var toks: [MoneyTok] = []
             var descLines: [String] = []
             var hint: String? = nil
+            var isSelf = false
+            var pendingTag = false
+            var footerParts: [String] = []
             for l in rec.lines {
-                if wholeMatch(timeRe, l.lowercased()) != nil { continue }
-                if firstMatch(idLineRe, l.lowercased()) != nil { continue }
-                let lineToks = moneyTokens(l)
-                if let g = firstMatch(re(#"^tags?\s*:?\s*#?\s*(.+)$"#), l.lowercased()), let h = g[1] {
-                    hint = h.trimmingCharacters(in: .whitespaces)
+                let lowL = l.lowercased()
+                if wholeMatch(timeRe, lowL) != nil { continue }
+                if firstMatch(idLineRe, lowL) != nil { continue }
+                // Dangling layout filler ("on" between the ref line and the
+                // date) reads as description and produced "…@ptybl on on 23 Aug".
+                if wholeMatch(re(#"^(?:on|at|to|via|by)$"#), lowL) != nil { continue }
+                // Tag values arrive with "#" and often an emoji ("#✈️ Travel").
+                func cleanTag(_ s: String) -> String {
+                    String(s.unicodeScalars.filter { CharacterSet.letters.contains($0) || $0 == " " })
+                        .trimmingCharacters(in: .whitespaces)
+                }
+                if pendingTag {
+                    pendingTag = false
+                    if lowL.hasPrefix("#") {
+                        let cleaned = cleanTag(l)
+                        if !cleaned.isEmpty { hint = cleaned }
+                        continue
+                    }
+                    // not a tag value after all — fall through as a normal line
+                }
+                // "Tag:" with the value on the NEXT line (Paytm app export), or
+                // inline "Tag: #Food" on one line.
+                if wholeMatch(re(#"^tags?\s*:$"#), lowL) != nil { pendingTag = true; continue }
+                if let g = firstMatch(re(#"^tags?\s*:?\s*#?\s*(.+)$"#), lowL), let h = g[1] {
+                    let cleaned = cleanTag(h)
+                    if !cleaned.isEmpty { hint = cleaned }
                     continue
                 }
+                // Explicit self-transfer note some exports print per record.
+                if lowL.contains("not included in the total") { isSelf = true; continue }
+                // Bank-footer fragments: collected for the account harvest,
+                // kept out of the description.
+                if wholeMatch(bankInlineRe, l) != nil || wholeMatch(bankNameLineRe, l) != nil
+                    || wholeMatch(bankNumFragRe, l) != nil {
+                    footerParts.append(l)
+                    continue
+                }
+                let lineToks = moneyTokens(l)
                 if !lineToks.isEmpty {
                     toks.append(contentsOf: lineToks)
                     // A money line can still carry words ("Amount Rs.60 Cashback") —
@@ -220,6 +320,7 @@ public enum UniversalRecordIngest {
                 descLines.append(l)
             }
             guard !toks.isEmpty else { continue }
+            let account = StatementName.underlyingAccounts(in: footerParts.joined(separator: " ")).first
 
             // Amount: the signed token when present; else the first. Balance:
             // when a record shows an unsigned token AFTER the amount, treat it
@@ -239,16 +340,20 @@ public enum UniversalRecordIngest {
             default:
                 isCredit = firstMatch(re(#"received|credited|refund|cashback|deposit|interest earned"#), textLow) != nil
             }
-            let isSelf = firstMatch(re(#"self[- ]?transfer|own account|added to wallet"#), textLow) != nil
+            if firstMatch(re(#"self[- ]?transfer|transferred to self|own account|added to wallet"#), textLow) != nil
+                || hint?.lowercased().contains("self transfer") == true {
+                isSelf = true
+            }
 
-            let y = rec.date.year ?? inferYear(month: rec.date.month)
+            let y = rec.date.year ?? recYears[ri]
             let iso = String(format: "%04d-%02d-%02d", y, rec.date.month, rec.date.day)
             let descr = descLines.prefix(3).joined(separator: " ")
             guard !descr.isEmpty else { continue }
             parsed.append(Parsed(iso: iso, y: y, m: rec.date.month, d: rec.date.day,
                                  descr: descr, hint: hint,
                                  amount: amountTok.value, isCredit: isCredit,
-                                 balance: balance, isSelfTransfer: isSelf))
+                                 balance: balance, isSelfTransfer: isSelf,
+                                 account: account))
         }
         guard parsed.count >= 3 else { return nil }
 
@@ -305,6 +410,8 @@ public enum UniversalRecordIngest {
                              credit: p.isCredit ? p.amount : 0,
                              balance: p.balance, currency: currency, seq: i)
             if let rawCat { row.rawCategory = rawCat }
+            row.account = p.account
+            row.isSelfTransfer = p.isSelfTransfer
             rows.append(row)
         }
         return Output(rows: rows, currency: currency, verification: verification)

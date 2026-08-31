@@ -102,7 +102,10 @@ public enum ModelAssembler {
         let enrichment = Enrichment(
             merchantID: merchantID,
             cleanDescription: nil,       // legacy has none; Phase 2.2 produces it
-            categoryID: categoryID)      // tags / recurring / transfer / confidence ← Phase 2
+            categoryID: categoryID,      // recurring / transfer-pair / confidence ← Phase 2
+            // Statement-stated self-transfers ARE the internal-transfer fact —
+            // carried as the canonical tag so it survives persistence.
+            tags: row.isSelfTransfer ? [.internalTransfer] : [])
 
         return Transaction(
             id: ModelIdentity.transactionID(statementID: statement.id, seq: row.seq,
@@ -115,6 +118,7 @@ public enum ModelAssembler {
             balance: DecimalBridge.money(row.balance),
             currency: Currency(row.currency.isEmpty ? account.currency.code : row.currency),
             fx: parsedFX(row, accountCurrency: account.currency),
+            subAccount: row.account,
             enrichment: enrichment)
     }
 

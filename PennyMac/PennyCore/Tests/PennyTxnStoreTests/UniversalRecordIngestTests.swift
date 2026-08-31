@@ -64,8 +64,10 @@ final class UniversalRecordIngestTests: XCTestCase {
         XCTAssertEqual(debits.count, 3)
         XCTAssertEqual(debits.reduce(0) { $0 + $1.debit }, 510, accuracy: 0.001)
         XCTAssertEqual(out.rows.filter { $0.credit > 0 }.reduce(0) { $0 + $1.credit }, 200, accuracy: 0.001)
-        // Bare "23 Aug" in an AUG'25–AUG'26 period → 2025.
-        XCTAssertEqual(out.rows[0].txnDate, "2025-08-23")
+        // Bare "23 Aug" at the TOP of a newest-first AUG'25–AUG'26 export sits
+        // near the period END — 2026. (The old month>=start rule said 2025,
+        // which stamped a year's worth of closing rows wrong; 2026-08-31 fix.)
+        XCTAssertEqual(out.rows[0].txnDate, "2026-08-23")
         // ID lines dropped from descriptions; Tag became a category hint.
         XCTAssertFalse(out.rows[0].descr.contains("623573163635"))
     }

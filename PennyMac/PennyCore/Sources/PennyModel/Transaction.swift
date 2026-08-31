@@ -51,6 +51,14 @@ public struct Transaction: Identifiable, Equatable, Codable, Sendable {
     /// reconstructs this. Consumed by: Phase 4 foreign KPIs. Optional.
     public let fx: FXInfo?
 
+    /// The user's own account this row moved through, when the statement
+    /// PRINTS it per record — aggregator exports (Paytm/GPay) span several
+    /// underlying bank accounts inside one statement ("Union Bank Of India
+    /// -49"). A parsed fact, not enrichment. nil when unstated. (A future
+    /// phase may model these as first-class `Account` entities; this keeps
+    /// the printed fact until then.) Optional-decodes for pre-existing stores.
+    public let subAccount: String?
+
     // MARK: Enriched (empty at parse time; filled in Phase 2)
 
     /// The detector output — merchant, clean description, category, tags, links,
@@ -68,7 +76,7 @@ public struct Transaction: Identifiable, Equatable, Codable, Sendable {
     public init(id: TransactionID, accountID: AccountID, statementID: StatementID,
                 date: CalendarDate, processDate: CalendarDate? = nil,
                 rawDescription: String, amount: Money, balance: Money? = nil, currency: Currency,
-                fx: FXInfo? = nil, enrichment: Enrichment = .empty) {
+                fx: FXInfo? = nil, subAccount: String? = nil, enrichment: Enrichment = .empty) {
         self.id = id
         self.accountID = accountID
         self.statementID = statementID
@@ -79,6 +87,7 @@ public struct Transaction: Identifiable, Equatable, Codable, Sendable {
         self.balance = balance
         self.currency = currency
         self.fx = fx
+        self.subAccount = subAccount
         self.enrichment = enrichment
     }
 }

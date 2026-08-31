@@ -502,6 +502,15 @@ final class IOSModel: ObservableObject {
             return
         }
 
+        // Account dimension / senders / self-transfers ("how much did I pay
+        // from Union Bank?", "who sent me money?", "did I transfer between my
+        // own accounts?") — shared deterministic gate, mirrors macOS.
+        if let acct = AccountQuery.answer(q, rows: mergedRows,
+                                          money: { self.money($0, self.primaryCurrency) }) {
+            messages.append(IOSChatMsg(role: .penny, text: acct, engine: "swift engine"))
+            return
+        }
+
         // 1) deterministic router — instant, exact, never hallucinates
         let rows = mergedRows
         let cur = primaryCurrency
@@ -518,6 +527,17 @@ final class IOSModel: ObservableObject {
             let receipts = FinanceRouter.context(for: resolvedQ, rows: rows)
                 .flatMap { AnswerReceipts(from: $0) }
             messages.append(IOSChatMsg(role: .penny, text: det, engine: "swift engine", receipts: receipts))
+            return
+        }
+
+        // Timing questions ("when did X pay me?") get dates from the matched
+        // rows, not a generic count and not the model — parity with macOS.
+        if AccountQuery.isTimingQuestion(resolvedQ),
+           let ctx = FinanceRouter.context(for: resolvedQ, rows: rows), !ctx.rows.isEmpty {
+            let text = AccountQuery.timingAnswer(matched: ctx.rows, label: ctx.label,
+                                                 money: { self.money($0, cur) })
+            messages.append(IOSChatMsg(role: .penny, text: text, engine: "swift engine",
+                                       receipts: AnswerReceipts(from: ctx)))
             return
         }
 
@@ -619,16 +639,22 @@ final class IOSModel: ObservableObject {
         var descr: String, merchant: String, category: String
         var debit: Double, credit: Double, balance: Double?
         var currency: String, seq: Int
+        var account: String?             // nil in pre-existing stores
+        var selfTransfer: Bool?          // nil in pre-existing stores
         init(_ r: TxnRow) {
             date = r.txnDate; month = r.month; year = r.year; monthNo = r.monthNo; day = r.day
             descr = r.descr; merchant = r.merchant; category = r.category
             debit = r.debit; credit = r.credit; balance = r.balance
             currency = r.currency; seq = r.seq
+            account = r.account; selfTransfer = r.isSelfTransfer ? true : nil
         }
         var row: TxnRow {
-            TxnRow(txnDate: date, month: month, year: year, monthNo: monthNo, day: day,
-                   descr: descr, merchant: merchant, category: category,
-                   debit: debit, credit: credit, balance: balance, currency: currency, seq: seq)
+            var r = TxnRow(txnDate: date, month: month, year: year, monthNo: monthNo, day: day,
+                           descr: descr, merchant: merchant, category: category,
+                           debit: debit, credit: credit, balance: balance, currency: currency, seq: seq)
+            r.account = account
+            r.isSelfTransfer = selfTransfer ?? false
+            return r
         }
     }
     private struct StatementDTO: Codable {

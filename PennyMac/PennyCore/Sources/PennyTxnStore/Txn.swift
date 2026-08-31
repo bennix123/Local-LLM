@@ -18,6 +18,14 @@ public struct TxnRow: Equatable, Sendable {
     public var seq: Int
     public var rawCategory: String? = nil   // hint stripped from the description
 
+    /// Which of the user's accounts this row moved through, when the statement
+    /// states it per record (aggregator exports print a bank footer per
+    /// transaction, e.g. "Union Bank Of India -49"). nil when not stated.
+    public var account: String? = nil
+    /// True when the statement itself marks the row as a transfer between the
+    /// user's own accounts/wallets (not real spending or income).
+    public var isSelfTransfer: Bool = false
+
     // Foreign-exchange detail, when the statement itemizes a foreign spend on the
     // row (e.g. Amex "Foreign Spend" column + FX detail line). Populated by the
     // parsers that read it; nil on domestic rows. ModelAssembler maps these into

@@ -171,15 +171,18 @@ enum StatementStore {
         let rows = record.transactions.enumerated().map { i, t -> TxnRow in
             let amt = t.amount.amount
             let iso = String(format: "%04d-%02d-%02d", t.date.year, t.date.month, t.date.day)
-            return TxnRow(txnDate: iso, month: String(iso.prefix(7)),
-                          year: t.date.year, monthNo: t.date.month, day: t.date.day,
-                          descr: t.rawDescription,
-                          merchant: t.enrichment.merchantID.flatMap { merchantName[$0] } ?? "",
-                          category: t.enrichment.categoryID?.raw ?? "",
-                          debit: amt < 0 ? double(-amt) : 0,
-                          credit: amt > 0 ? double(amt) : 0,
-                          balance: t.balance.map { double($0.amount) },
-                          currency: t.currency.code, seq: i)
+            var r = TxnRow(txnDate: iso, month: String(iso.prefix(7)),
+                           year: t.date.year, monthNo: t.date.month, day: t.date.day,
+                           descr: t.rawDescription,
+                           merchant: t.enrichment.merchantID.flatMap { merchantName[$0] } ?? "",
+                           category: t.enrichment.categoryID?.raw ?? "",
+                           debit: amt < 0 ? double(-amt) : 0,
+                           credit: amt > 0 ? double(amt) : 0,
+                           balance: t.balance.map { double($0.amount) },
+                           currency: t.currency.code, seq: i)
+            r.account = t.subAccount
+            r.isSelfTransfer = t.enrichment.tags.contains(.internalTransfer)
+            return r
         }
         return LoadedDoc(name: record.statement.sourceName, text: record.text,
                          transactions: rows.map(DeterministicIngest.toTransaction), rows: rows,

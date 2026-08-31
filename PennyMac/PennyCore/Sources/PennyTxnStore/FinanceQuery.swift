@@ -546,7 +546,9 @@ public enum FinanceRouter {
         // (\b after the noun group: "biggest shop" is a merchant question, but
         // "biggest Shopping charge" is the largest-expense branch's — without the
         // boundary, `shops?` matches the prefix of "shopping".)
-        if matches(low, #"(?:top|biggest|largest|highest|most)\s+(?:\d+\s+)?(?:merchants?|shops?|stores?|retailers?|vendors?|payees?|places?|brands?|compan(?:y|ies))\b|where (?:do|did|does|have) i (?:spend|spent|been spending) (?:the )?most|where did (?:the )?most of my money go|where did i spen[dt] most|who(?:m)? do i pay (?:the )?most|most (?:money |often )?(?:spent|spend|goes?) (?:at|to|with)"#),
+        // ("where did most of my money GO" is a category question — the
+        //  by-category breakdown below owns it; 2026-08-31 manual bug.)
+        if matches(low, #"(?:top|biggest|largest|highest|most)\s+(?:\d+\s+)?(?:merchants?|shops?|stores?|retailers?|vendors?|payees?|places?|brands?|compan(?:y|ies))\b|where (?:do|did|does|have) i (?:spend|spent|been spending) (?:the )?most|where did i spen[dt] most|who(?:m)? do i pay (?:the )?most|most (?:money |often )?(?:spent|spend|goes?) (?:at|to|with)"#),
            !debits.isEmpty {
             var byMerchant: [String: (total: Double, count: Int)] = [:]
             for r in debits {
@@ -598,6 +600,9 @@ public enum FinanceRouter {
            // "biggest/highest category", "rank my categories" are breakdown
            // questions, not a single-transaction lookup — let them fall through.
            !matches(low, #"\bcategor|\brank\b"#),
+           // "highest-spending MONTH" is the month group-by's superlative, not
+           // a single transaction (2026-08-31 manual bug).
+           !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
            let t = debits.max(by: { $0.debit < $1.debit }) {
             return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
         }
@@ -607,6 +612,7 @@ public enum FinanceRouter {
            matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
            !matches(low, #"\bcategor|\brank\b"#),
+           !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
            let t = debits.min(by: { $0.debit < $1.debit }) {
             return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
         }
@@ -745,7 +751,12 @@ public enum FinanceRouter {
         // ---- monthly breakdown ("spend each month", "monthly summary") -------
         // A1 class 2: the group-by capability, dimension = month. "Each month"
         // used to fall into the target-extractor and answer "£0.00 on Each".
-        if matches(low, #"(?:each|every|per|by)\s+month|month(?:ly)?\s*(?:breakdown|summary|report|totals?|spend(?:ing)?)|month[\s-]?wise|over the months|month (?:by|on) month"#),
+        if matches(low, #"(?:each|every|per|by)\s+month|month(?:ly)?\s*(?:breakdown|summary|report|totals?|spend(?:ing)?)|month[\s-]?wise|over the months|month (?:by|on) month"#)
+            // Superlative projection of the same group-by: "which month did I
+            // spend the most?", "my highest/lowest-spending month" (2026-08-31
+            // manual bug: these fell through to the whole-period spend total).
+            || (matches(low, #"(?:which|what)\s+month\b|month did i\b|spending month\b"#)
+                && matches(low, #"\bmost\b|\bleast\b|highest|lowest|biggest|smallest|expensive|cheapest"#)),
            !matches(low, #"\baverage\b|\bavg\b|\bmean\b|\btypical\b"#),
            // "on Swiggy each month" with no Swiggy rows is an honest zero, not a
            // full breakdown; "where's my money going each month" is a category
@@ -762,6 +773,21 @@ public enum FinanceRouter {
             if byMonth.count == 1, let only = byMonth.first {
                 let sp = only.value.reduce(0) { $0 + $1.debit }
                 return "**Everything here falls in \(prettyMonth(only.key))** — \(money(sp)) spent\(scope.label). Add another month's statement for a month-by-month view."
+            }
+            // Superlative asked → name the one month, don't list them all.
+            let wantsLeast = matches(low, #"\bleast\b|lowest|smallest|cheapest"#)
+            if wantsLeast || matches(low, #"\bmost\b|highest|biggest|expensive"#),
+               matches(low, #"(?:which|what)\s+month\b|month did i\b|spending month\b"#) {
+                let ranked = byMonth.map { (m: $0.key, sp: $0.value.reduce(0) { $0 + $1.debit }) }
+                    .sorted { $0.sp > $1.sp }
+                if let pick = wantsLeast ? ranked.last : ranked.first {
+                    let runner = wantsLeast ? ranked.dropLast().last : ranked.dropFirst().first
+                    var out = "**\(prettyMonth(pick.m)) was your \(wantsLeast ? "lowest" : "highest")-spending month\(scope.label) — \(money(pick.sp)).**"
+                    if let r = runner {
+                        out += " \(wantsLeast ? "Next lowest" : "Runner-up"): \(prettyMonth(r.m)) at \(money(r.sp))."
+                    }
+                    return out
+                }
             }
             // "how much am I SAVING each month" wants the kept amount, not just
             // the raw spent/received pair — show it whenever income is present.
@@ -827,6 +853,22 @@ public enum FinanceRouter {
                 lines.append("_Includes \(money(cardRepayments)) of card repayments — your own money, not income._")
             }
             return lines.joined(separator: "\n")
+        }
+
+        // ---- spend-vs-income comparison ------------------------------------
+        // "Did I spend more than I received?" is the NET question, not an
+        // income total — but "received" used to pull it into the income
+        // handler below (2026-08-31 manual bug). Both orderings and both
+        // comparatives are read; the answer states both sides plus the net.
+        if matches(low, #"(?:spen[dt]|pa(?:y|id)(?:\s+out)?).{0,30}\b(?:more|less)\s+than\b.{0,30}(?:receiv|earn|made|got|came in)|(?:receiv\w*|earn\w*|made|got).{0,30}\b(?:more|less)\s+than\b.{0,30}(?:spen[dt]|paid)"#) {
+            let recvFirst = matches(low, #"(?:receiv\w*|earn\w*|made|got).{0,30}\b(?:more|less)\s+than\b"#)
+            let wantsLess = matches(low, #"\bless\s+than\b"#)
+            let lhs = recvFirst ? income : spent
+            let rhs = recvFirst ? spent : income
+            let yes = wantsLess ? lhs < rhs : lhs > rhs
+            let net = income - spent
+            return "**\(yes ? "Yes" : "No") — you spent \(money(spent)) and received \(money(income))\(scope.label).** "
+                + (net >= 0 ? "You came out \(money(net)) ahead." : "You overspent by \(money(-net)).")
         }
 
         // ---- income / credits ----------------------------------------------
@@ -1873,6 +1915,11 @@ public enum FinanceRouter {
         "account", "balance", "statement", "card", "credit", "credits", "debit",
         "debits", "withdrawal", "withdrawals", "deposited", "what", "whats",
         "times", "time", "use", "used", "using", "order", "ordered", "buy", "bought", "most",
+        // Superlative adjectives are intent words, never payees — NLTagger reads
+        // some as plain adjectives, so "lowest-spending month" grew a phantom
+        // "£0.00 on Lowest" target (2026-08-31).
+        "least", "lowest", "highest", "biggest", "smallest", "largest", "cheapest",
+        "priciest", "expensive",
         "biggest", "largest", "smallest", "any", "some", "there", "give", "show", "tell",
         // verbs of spending/visiting that are never merchant names
         "shop", "shopping", "shops", "store", "stores", "visit", "visited", "visiting",
@@ -2108,21 +2155,30 @@ public enum FinanceRouter {
         // whole-category total. Exception: bare "may" is ambiguous with the modal
         // verb, so for an EMPTY month only honour it when there's clear month
         // context ("in May", "during May", "May 2026") — otherwise require data.
+        // EVERY month the question names is honoured — "May and August
+        // combined" is a two-month scope, not a May question (2026-08-31
+        // manual bug: only the first named month was kept).
+        var monthHits: [(name: String, no: Int)] = []
         for (name, no) in monthNames where matches(low, #"\b"# + name + #"\b"#) {
-            var inMonth = rows.filter { $0.monthNo == no }
+            let mayIsMonth = name != "may"
+                || matches(low, #"\b(?:in|during|for|of|through|this|last|next)\s+may\b|\bmay\s+(?:20\d\d|month)\b|\bmay\s+and\b|\band\s+may\b"#)
+            if rows.contains(where: { $0.monthNo == no }) || mayIsMonth {
+                monthHits.append((name, no))
+            }
+        }
+        if !monthHits.isEmpty {
+            let nos = Set(monthHits.map(\.no))
+            var inMonths = rows.filter { nos.contains($0.monthNo) }
             // Honor an explicit year ("September 2024") so a statement spanning two
             // years scopes to the right one; ignored when that year has no such month.
             var yearLabel = ""
             if let r = low.range(of: #"\b20\d\d\b"#, options: .regularExpression),
                let y = Int(low[r]) {
-                let byYear = inMonth.filter { $0.year == y }
-                if !byYear.isEmpty { inMonth = byYear; yearLabel = " \(y)" }
+                let byYear = inMonths.filter { $0.year == y }
+                if !byYear.isEmpty { inMonths = byYear; yearLabel = " \(y)" }
             }
-            let mayIsMonth = name != "may"
-                || matches(low, #"\b(?:in|during|for|of|through|this|last|next)\s+may\b|\bmay\s+(?:20\d\d|month)\b"#)
-            if !inMonth.isEmpty || mayIsMonth {
-                return (inMonth, "in " + name.prefix(1).uppercased() + name.dropFirst() + yearLabel)
-            }
+            let names = monthHits.map { $0.name.prefix(1).uppercased() + $0.name.dropFirst() }
+            return (inMonths, "in " + names.joined(separator: " + ") + yearLabel)
         }
         // quarter: "Q2 2025", "second quarter of 2025" — three calendar months,
         // year-filtered when named. An empty result still scopes (honest zero).
