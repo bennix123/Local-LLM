@@ -733,6 +733,16 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("at Bank"), reply)
     }
 
+    func testWhichMonthDidISpendTheMostIsAMonthAnswerNotAStatementComparison() {
+        // 2026-08-31 manual bug: the cross-statement money-out comparer stole
+        // this and replied "Paytm has the most money out: ₹44,885.16".
+        let m = modelWithDatedTxns()
+        m.send("which month did i spend the most?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("highest-spending month"), reply)
+        XCTAssertFalse(reply.contains("has the most money out"), reply)
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",

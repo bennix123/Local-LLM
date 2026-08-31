@@ -2591,7 +2591,11 @@ final class AppModel: ObservableObject {
         }
 
         // ---- highest money in / out (never a category or single-txn question)
-        if !has(#"categor|largest (credit|debit|expense|transaction|payment)"#),
+        // This compares STATEMENTS — it needs more than one, and the subject
+        // must not be a time period ("which MONTH did I spend the most?" was
+        // answered "Paytm has the most money out"; 2026-08-31 manual bug).
+        if docs.count > 1,
+           !has(#"categor|largest (credit|debit|expense|transaction|payment)|\bmonth\b|\bday\b|\bweek\b|\byear\b"#),
            has(#"\b(most|highest|largest|greatest)\b"#) || has(#"which (account|statement|bank)"#) {
             if has(#"money in|received|credited|income|inflow|paid in|total in\b"#), !has(#"salary"#) {
                 if let d = docs.max(by: { moneyIn($0) < moneyIn($1) }) {
