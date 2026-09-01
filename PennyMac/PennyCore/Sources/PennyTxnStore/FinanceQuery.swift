@@ -197,7 +197,7 @@ public enum FinanceRouter {
     static let creditNounPattern = #"(?<!available\s)\bcredits?\b(?!\s+(?:cards?|limits?|lines?|scores?|ratings?)\b)|\bdeposits?\b|\bincomings?\b|money (?:in|received)\b|paid in\b"#
     static let debitNounPattern = #"\bdebits?\b(?!\s+cards?\b)|\bwithdrawals?\b|\bcharges?\b|\boutgoings?\b|money (?:out|spent)\b|paid out\b"#
     private static let creditVerbPattern = #"\bcredited\b|\breceiv(?:e|ed|ing)\b|\bincome\b|\bincoming\b|came in\b|come in\b|coming in\b"#
-    private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b|(?:i|we)\s+sent\b|\bsent\s+(?:to|out)\b"#
+    private static let debitVerbPattern = #"\bdebited\b|\bspent\b|\bspending\b|\bcharged\b|\bwithdrew\b|\bwithdrawn\b|(?:i|we)\s+sent\b|\bsent\s+(?:to|out)\b|payments?[^.?!]{0,12}\b(?:make|made)\b|\bsen[dt]\s+out\b"#
 
     /// Credit-only / debit-only intent, or nil when neither or both directions
     /// are named ("credits and debits" scopes nothing).
@@ -593,7 +593,7 @@ public enum FinanceRouter {
 
         // ---- single largest expense (not "biggest spending DAY" — see below) --
         // Also fires on "the most I've paid … in one go/transaction".
-        if matches(low, #"\b(biggest|largest|highest|most expensive|priciest|dearest|top)\b"#)
+        if matches(low, #"\b(biggest|largest|highest|most expensive|priciest|dearest|costliest|top)\b"#)
             || matches(low, #"\bmost\b.{0,26}\bin one (?:go|transaction|purchase|payment)\b|most i'?ve? (?:paid|spent)"#),
            matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|paid|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
@@ -602,7 +602,7 @@ public enum FinanceRouter {
            !matches(low, #"\bcategor|\brank\b"#),
            // "highest-spending MONTH" is the month group-by's superlative, not
            // a single transaction (2026-08-31 manual bug).
-           !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
+           !matches(low, #"spend(?:ing)?[- ](?:month|year)|(?:which|what)\s+(?:month|year)\b"#),
            let t = debits.max(by: { $0.debit < $1.debit }) {
             return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(prettyDate(t.txnDate))."
         }
@@ -612,7 +612,7 @@ public enum FinanceRouter {
            matches(low, #"expen[cs]\w*|spend|spent|cost|transaction|payment|purchase|debit|buy|bought|item|thing|charge|amount|trip|ride|journey|meal|drink|coffee|visit"#),
            !matches(low, #"\bday\b|\bdate\b"#),
            !matches(low, #"\bcategor|\brank\b"#),
-           !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
+           !matches(low, #"spend(?:ing)?[- ](?:month|year)|(?:which|what)\s+(?:month|year)\b"#),
            let t = debits.min(by: { $0.debit < $1.debit }) {
             return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(prettyDate(t.txnDate))."
         }
@@ -1154,7 +1154,7 @@ public enum FinanceRouter {
         // Year-aware: each named month keeps the year written right after it, so
         // a multi-year statement never sums July 2024 + July 2025 into one side,
         // and the SAME month in two different years is a valid comparison.
-        if matches(low, #"\bcompare\b|\bvs\.?\b|versus|more in|less in|higher in|which month|\bthan\b|difference between"#) {
+        if matches(low, #"\bcompare\b|\bvs\.?\b|versus|more in|less in|higher in|which month|\bthan\b|difference between|\bor\b|\bmore\b|\bless\b"#) {
             var pairs: [(mo: Int, yr: Int?)] = []
             if let re = try? NSRegularExpression(pattern: #"\b([a-z]{3,9})\.?(?:\s+((?:19|20)\d\d))?\b"#) {
                 for m in re.matches(in: low, range: NSRange(low.startIndex..., in: low)) {
@@ -1931,7 +1931,8 @@ public enum FinanceRouter {
         // some as plain adjectives, so "lowest-spending month" grew a phantom
         // "£0.00 on Lowest" target (2026-08-31).
         "least", "lowest", "highest", "biggest", "smallest", "largest", "cheapest",
-        "priciest", "expensive", "amount", "amounts",
+        "priciest", "expensive", "amount", "amounts", "peak", "peaks", "maximum",
+        "minimum", "max", "min", "costliest", "bottom", "wht", "wich", "waht",
         "biggest", "largest", "smallest", "any", "some", "there", "give", "show", "tell",
         // verbs of spending/visiting that are never merchant names
         "shop", "shopping", "shops", "store", "stores", "visit", "visited", "visiting",
@@ -2331,8 +2332,8 @@ public enum FinanceRouter {
     private static func dimensionSuperlative(_ low: String, sr: [TxnRow], scope: Scope,
                                              debits: [TxnRow], credits: [TxnRow],
                                              money: (Double) -> String) -> String? {
-        let wantsLeast = matches(low, #"\bleast\b|\bless\b|lowest|smallest|cheapest"#)
-        let wantsMost = matches(low, #"\bmost\b|\bmore\b|highest|biggest|\btop\b|expensive"#)
+        let wantsLeast = matches(low, #"\bleast\b|\bless\b|lowest|smallest|cheapest|minimum|\bmin\b|\bbottom\b"#)
+        let wantsMost = matches(low, #"\bmost\b|\bmore\b|highest|biggest|\btop\b|expensive|costliest|priciest|\bpeak\w*\b|maximum|\bmax\b"#)
         guard wantsLeast || wantsMost else { return nil }
         guard scope.unmatchedTarget == nil else { return nil }
 
@@ -2359,10 +2360,10 @@ public enum FinanceRouter {
         if matches(low, #"\bdays?\b|\bdate\b|\bweek\w*"#) { return nil }
         // It must actually be ABOUT the dimension ("which month…", "where did
         // I…", "highest-spending month"), not merely mention it.
-        guard matches(low, #"(?:which|what)\s+(?:months?|years?|accounts?|banks?|categor\w+|merchants?|shops?|stores?|places?)\b|(?:months?|years?|accounts?|banks?) did i\b|spending (?:month|year|categor\w+)\b|(?:month|year) was\b|\bwhere (?:do|did|does|have) i\b|\bwho(?:m)? (?:do|did) i\b"#)
+        guard matches(low, #"(?:which|what)\s+(?:months?|years?|accounts?|banks?|categor\w+|merchants?|shops?|stores?|places?)\b|(?:months?|years?|accounts?|banks?) did i\b|spending (?:month|year|categor\w+)\b|(?:month|year) was\b|\bwhere (?:do|did|does|have) i\b|\bwho(?:m)? (?:do|did) i\b|(?:months?|years?)\s*\??\s*$"#)
         else { return nil }
 
-        let wantsCredit = matches(low, #"receiv|\bincome\b|credited|came in|come in|\bearn|deposit|paid in|money in\b|\bgot\b"#)
+        let wantsCredit = matches(low, #"receiv|\bincome\b|credited|came in|come in|\bearn|deposit|paid in|money in\b|\bgot\b|\bget\b|getting"#)
         let side = wantsCredit ? credits : debits
         func amt(_ r: TxnRow) -> Double { wantsCredit ? r.credit : r.debit }
 
