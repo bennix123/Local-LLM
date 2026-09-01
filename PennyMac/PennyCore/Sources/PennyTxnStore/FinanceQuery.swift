@@ -1169,17 +1169,34 @@ public enum FinanceRouter {
                 func label(_ p: (mo: Int, yr: Int?)) -> String {
                     monthAbbr(p.mo) + (p.yr.map { " \($0)" } ?? "")
                 }
+                // The question's category/merchant scope applies INSIDE the
+                // comparison — the month partition is ours, but "which month
+                // did I spend more ON PHARMACY?" must compare pharmacy rows,
+                // not all spending (2026-09-01 manual bug: it returned the
+                // whole-ledger totals while the receipts showed 4 rows).
+                var base = rows
+                var entityLabel = ""
+                if scope.hasCategory, let cat = scope.entity {
+                    base = rows.filter { $0.category.caseInsensitiveCompare(cat) == .orderedSame }
+                    entityLabel = " on \(cat)"
+                } else if scope.hasMerchant, let merch = scope.entity {
+                    base = merchantRows(merch, in: rows)
+                    entityLabel = " at \(merch)"
+                }
                 var parts: [String] = []
                 var totals: [((mo: Int, yr: Int?), Double)] = []
                 for p in pairs {
-                    let t = rows.filter { $0.monthNo == p.mo && (p.yr == nil || $0.year == p.yr!)
+                    let t = base.filter { $0.monthNo == p.mo && (p.yr == nil || $0.year == p.yr!)
                                           && $0.debit > 0 }
                         .reduce(0) { $0 + $1.debit }
                     totals.append((p, t))
                     parts.append("\(label(p)) \(money(t))")
                 }
                 let hi = totals.max(by: { $0.1 < $1.1 })!
-                var out = "**You spent more in \(label(hi.0)) (\(money(hi.1))).** " + parts.joined(separator: " vs ") + "."
+                if hi.1 == 0, !entityLabel.isEmpty {
+                    return "**Nothing spent\(entityLabel) in \(pairs.map(label).joined(separator: " or ")).**"
+                }
+                var out = "**You spent more\(entityLabel) in \(label(hi.0)) (\(money(hi.1))).** " + parts.joined(separator: " vs ") + "."
                 if totals.count == 2 {
                     out += " Difference: \(money(abs(totals[0].1 - totals[1].1)))."
                 }

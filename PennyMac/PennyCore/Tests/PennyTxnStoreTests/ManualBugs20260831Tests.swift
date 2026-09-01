@@ -164,6 +164,28 @@ final class ManualBugs20260831Tests: XCTestCase {
         XCTAssertFalse(a.contains("top merchant"), a)
     }
 
+    func testMonthComparisonHonoursCategoryScope() throws {
+        // 2026-09-01 manual bug: "…on pharmacy?" returned the SAME totals as
+        // the unscoped comparison (whole-ledger sums) while its receipts
+        // correctly showed only the pharmacy rows.
+        let rows = [row(1, date: "2026-08-05", descr: "MEDPLUS", category: "Pharmacy", debit: 100),
+                    row(2, date: "2026-08-09", descr: "UBER", category: "Transport", debit: 500),
+                    row(3, date: "2026-09-03", descr: "MEDPLUS", category: "Pharmacy", debit: 250),
+                    row(4, date: "2026-09-10", descr: "ZARA", category: "Shopping", debit: 900)]
+        let money: (Double) -> String = { "₹" + String(format: "%.2f", $0) }
+        let scoped = try XCTUnwrap(FinanceRouter.answer(
+            "between august and september which month did i spend more on pharmacy?",
+            rows: rows, currency: "INR", money: money))
+        XCTAssertTrue(scoped.contains("on Pharmacy") && scoped.contains("September")
+                        && scoped.contains("₹250.00") && scoped.contains("₹100.00"), scoped)
+        XCTAssertFalse(scoped.contains("₹600.00") || scoped.contains("₹1150.00"),
+                       "whole-ledger totals must not leak in: \(scoped)")
+        let unscoped = try XCTUnwrap(FinanceRouter.answer(
+            "between august and september which month did i spend more?",
+            rows: rows, currency: "INR", money: money))
+        XCTAssertTrue(unscoped.contains("₹600.00") && unscoped.contains("₹1150.00"), unscoped)
+    }
+
     func testLargestExpenseStillWorks() throws {
         let a = try XCTUnwrap(ask("What was my largest expense?"))
         XCTAssertTrue(a.contains("largest expense") && a.contains("₹400.00"), a)
