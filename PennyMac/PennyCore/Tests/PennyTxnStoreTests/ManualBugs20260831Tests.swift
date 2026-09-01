@@ -269,6 +269,29 @@ final class ManualBugs20260831Tests: XCTestCase {
         XCTAssertTrue(f.contains("top merchant"), f)
     }
 
+    func testCategoryComparisonToleratesTypos() throws {
+        // 2026-09-01 manual bug (exact phrasing): "gorceries" resolved no rows
+        // (transposition typo + sides only searched descriptions), so the
+        // comparison collapsed into a one-sided Retail total.
+        let rows = [row(1, date: "2026-05-02", descr: "BIG BAZAAR", category: "Retail", debit: 3400),
+                    row(2, date: "2026-05-05", descr: "DMART", category: "Groceries", debit: 1200),
+                    row(3, date: "2026-05-09", descr: "DMART", category: "Groceries", debit: 800)]
+        let money: (Double) -> String = { "₹" + String(format: "%.2f", $0) }
+        let a = try XCTUnwrap(FinanceRouter.answer("did i spend more on gorceries or retail?",
+                                                   rows: rows, currency: "INR", money: money))
+        XCTAssertTrue(a.contains("₹3400.00") && a.contains("₹2000.00"),
+                      "both sides must be compared: \(a)")
+        // Typo'd single-category scope resolves too (general matchCategory fix).
+        let b = try XCTUnwrap(FinanceRouter.answer("how much did I spend on gorceries?",
+                                                   rows: rows, currency: "INR", money: money))
+        XCTAssertTrue(b.contains("₹2000.00") && b.contains("Groceries"), b)
+        // A genuinely absent side stays honest.
+        let c = try XCTUnwrap(FinanceRouter.answer("did i spend more on dracula or retail?",
+                                                   rows: rows, currency: "INR", money: money))
+        XCTAssertTrue(c.lowercased().contains("dracula")
+                        && c.contains("couldn't find any transactions matching"), c)
+    }
+
     func testLargestExpenseStillWorks() throws {
         let a = try XCTUnwrap(ask("What was my largest expense?"))
         XCTAssertTrue(a.contains("largest expense") && a.contains("₹400.00"), a)

@@ -1286,7 +1286,20 @@ public enum FinanceRouter {
                     allDebits.filter { $0.descr.lowercased().range(of: pat, options: .regularExpression) != nil }
                 }
                 let exact = hits(#"\b"# + t + (t.count >= 5 ? "" : #"\b"#))
-                if !exact.isEmpty || t.count < 5 { return (exact, merchantDisplay(t)) }
+                if !exact.isEmpty { return (exact, merchantDisplay(t)) }
+                // A side can be a CATEGORY ("groceries or retail") — category
+                // names live in r.category, not descriptions, and tolerate one
+                // small typo ("gorceries"). 2026-09-01 manual bug: both sides
+                // resolved empty and the comparison fell into a one-sided total.
+                if let catHit = allDebits.first(where: { r in
+                    !r.category.isEmpty && r.category != "Payments"
+                        && (r.category.lowercased() == t || nearMatch(t, r.category)
+                            || r.category.lowercased().split(whereSeparator: { !$0.isLetter })
+                                .contains { String($0) == t || ($0.count >= 5 && nearMatch(t, String($0))) })
+                })?.category {
+                    return (allDebits.filter { $0.category == catHit }, catHit)
+                }
+                if t.count < 5 { return (exact, merchantDisplay(t)) }
                 let collapsed = t.reduce(into: "") { if $0.last != $1 { $0.append($1) } }
                 for stem in [String(t.dropLast()), collapsed, String(collapsed.dropLast())]
                 where stem.count >= 4 && stem != t {
@@ -1782,6 +1795,34 @@ public enum FinanceRouter {
         ("subscription", "Subscriptions"), ("subs ", "Subscriptions"), ("recurring", "Subscriptions"),
     ]
 
+    /// Damerau-Levenshtein within a length-scaled budget: 1 edit for words of
+    /// 5+ letters, 2 for 9+ — so "gorceries" reaches Groceries and "trasnport"
+    /// reaches Transport, while short words ("cab"/"car") never fuzzy-match.
+    /// Adjacent transpositions count as ONE edit (the most common typo).
+    static func nearMatch(_ a: String, _ b: String) -> Bool {
+        let al = a.lowercased(), bl = b.lowercased()
+        if al == bl { return true }
+        let x = Array(al), y = Array(bl)
+        let n = x.count, m = y.count
+        let maxDist = min(n, m) >= 9 ? 2 : (min(n, m) >= 5 ? 1 : 0)
+        guard maxDist > 0, abs(n - m) <= maxDist else { return false }
+        var prev2 = [Int](repeating: 0, count: m + 1)
+        var prev = Array(0...m)
+        var cur = [Int](repeating: 0, count: m + 1)
+        for i in 1...n {
+            cur[0] = i
+            for j in 1...m {
+                let cost = x[i - 1] == y[j - 1] ? 0 : 1
+                cur[j] = Swift.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+                if i > 1, j > 1, x[i - 1] == y[j - 2], x[i - 2] == y[j - 1] {
+                    cur[j] = Swift.min(cur[j], prev2[j - 2] + 1)
+                }
+            }
+            (prev2, prev, cur) = (prev, cur, prev2)
+        }
+        return prev[m] <= maxDist
+    }
+
     private static func matchCategory(_ low: String, rows: [TxnRow]) -> String? {
         // "Payments" is the internal card-repayment bucket, never a user-facing
         // spend category — excluding it stops "two largest payments" / "Dojo
@@ -1853,6 +1894,20 @@ public enum FinanceRouter {
                 return !namedMerchants.contains { m in shared.contains(where: m.contains) }
             }
             if hits.count == 1 { return hits.first }
+        }
+        // fuzzy: one small typo in a category word ("gorceries", "trasnport")
+        // must still scope — Damerau-Levenshtein against the present category
+        // names, their words, and the synonym keys. ≥5 letters, and never a
+        // word the user used to name a merchant.
+        for q in qWords where q.count >= 5 && !namedMerchants.contains(where: { $0.contains(q) }) {
+            if let hit = present.first(where: { cat in
+                nearMatch(q, cat) || cat.lowercased().split(whereSeparator: { !$0.isLetter })
+                    .contains { $0.count >= 5 && nearMatch(q, String($0)) }
+            }) { return hit }
+            if let syn = categorySynonyms.first(where: { $0.0.count >= 5 && nearMatch(q, $0.0) }),
+               let hit = present.first(where: { $0.caseInsensitiveCompare(syn.1) == .orderedSame }) {
+                return hit
+            }
         }
         return nil
     }

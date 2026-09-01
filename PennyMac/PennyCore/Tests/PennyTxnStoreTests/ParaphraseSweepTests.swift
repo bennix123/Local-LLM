@@ -144,6 +144,18 @@ final class ParaphraseSweepTests: XCTestCase {
                             "what was my highest spending year"],
                 expect: ["2025", "₹1950.00"], forbid: ["₹3670.00"]),
 
+            SweepCase(intent: "category-typo-scope-pharmacy",
+                phrasings: ["total spent on pharamcy?", "how much did i spend on pharmcy"],
+                expect: ["₹700.00"], forbid: ["₹3670.00", "₹0.00"]),
+
+            SweepCase(intent: "category-typo-scope-transport",
+                phrasings: ["how much on trasnport?"],
+                expect: ["₹150.00"], forbid: ["₹3670.00", "₹0.00"]),
+
+            SweepCase(intent: "category-typo-comparison",
+                phrasings: ["did i spend more on shoping or pharmacy?"],
+                expect: ["₹2000.00", "₹700.00"], forbid: ["₹3670.00"]),
+
             SweepCase(intent: "category-superlative-least",
                 phrasings: ["where did i spent my least amount in?", "which category did I spend the least on?",
                             "where did i spend the least", "what category costs me the least",
