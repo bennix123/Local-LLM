@@ -2615,14 +2615,14 @@ final class AppModel: ObservableObject {
            has(#"credit|deposit|money (in|received)|income|inflow"#), !has(#"limit|card"#) {
             let all = docs.flatMap { d in d.rows.filter { $0.credit > 0 }.map { ($0, d) } }
             if let (r, d) = all.max(by: { $0.0.credit < $1.0.credit }) {
-                return "**Largest credit: \(money(r.credit))** — \(r.descr) (\(d.displayName), \(r.txnDate))."
+                return "**Largest credit: \(money(r.credit))** — \(r.descr) (\(d.displayName), \(PrettyDate.long(r.txnDate)))."
             }
         }
         if !has(#"categor"#), has(#"\b(largest|biggest|highest|greatest)\b"#),
            has(#"debit|expense|spend|payment|withdrawal|money out|outflow|charge"#) {
             let all = docs.flatMap { d in d.rows.filter { $0.debit > 0 }.map { ($0, d) } }
             if let (r, d) = all.max(by: { $0.0.debit < $1.0.debit }) {
-                return "**Largest debit: \(money(r.debit))** — \(r.descr) (\(d.displayName), \(r.txnDate))."
+                return "**Largest debit: \(money(r.debit))** — \(r.descr) (\(d.displayName), \(PrettyDate.long(r.txnDate)))."
             }
         }
 
@@ -2666,7 +2666,7 @@ final class AppModel: ObservableObject {
             for (r, d) in hits.prefix(50) {
                 let amt = r.debit > 0 ? r.debit : r.credit
                 let dir = r.debit > 0 ? "out" : "in"
-                lines.append("- \(money(amt)) \(dir) — \(r.descr) (\(d.displayName), \(r.txnDate))")
+                lines.append("- \(money(amt)) \(dir) — \(r.descr) (\(d.displayName), \(PrettyDate.long(r.txnDate)))")
             }
             return lines.joined(separator: "\n")
         }

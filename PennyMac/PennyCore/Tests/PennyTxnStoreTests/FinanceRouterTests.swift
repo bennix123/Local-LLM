@@ -50,7 +50,7 @@ private enum RouterFix {
             debit: 80.00, balance: 2895.51, seq: 8),
     ]
 
-    /// Three months (Apr–Jun 2026). Netflix £9.99 in all 3 months (recurring);
+    /// Three months (Apr–June 2026). Netflix £9.99 in all 3 months (recurring);
     /// Spotify 3× but in only 2 distinct months (must NOT be recurring);
     /// Corner Cafe in 3 months but £5/£30/£90 (CV ≈ 0.86, must NOT be recurring).
     /// Salary £2000/month. Debits: Apr £38.97, May £51.98, Jun £99.99 = £190.94.
@@ -139,19 +139,19 @@ final class FinanceRouterBalanceTests: XCTestCase {
 
     func testBalanceAsOfDayWithTransaction() {
         XCTAssertEqual(answerOrFail("what was my balance on 10 june", RouterFix.june),
-                       "**Your balance at the end of 10 Jun 2026 was £2914.26.**",
+                       "**Your balance at the end of 10th June 2026 was £2914.26.**",
                        "as-of balance must be the running balance of the last row on/before that day")
     }
 
     func testBalanceAsOfDayBetweenTransactions() {
         // No txn on 7 June — must fall back to the last balance on or before it (5 June).
         XCTAssertEqual(answerOrFail("what was my balance on 7 june", RouterFix.june),
-                       "**Your balance at the end of 7 Jun 2026 was £2944.51.**")
+                       "**Your balance at the end of 7th June 2026 was £2944.51.**")
     }
 
     func testBalanceAsOfDayBeforeStatementOpens() {
         XCTAssertEqual(answerOrFail("what was my balance on 1 may 2026", RouterFix.june),
-                       "This statement doesn't show a running balance on or before 1 May 2026.",
+                       "This statement doesn't show a running balance on or before 1st May 2026.",
                        "a date before the first row must NOT invent a balance")
     }
 
@@ -437,7 +437,7 @@ final class FinanceRouterSpendScopeTests: XCTestCase {
     func testSpendOnExactDayPhrasingVariants() {
         // day-first, month-first, ordinal-of, and numeric UK day/month order —
         // year resolved from the data when the question omits it.
-        let expected = "**You spent £45.50 on 4 Jun 2026** across 1 transaction."
+        let expected = "**You spent £45.50 on 4th June 2026** across 1 transaction."
         for q in ["how much did i spend on 4 june",
                   "how much did i spend on june 4th",
                   "how much did i spend on the 4th of june 2026",
@@ -448,7 +448,7 @@ final class FinanceRouterSpendScopeTests: XCTestCase {
 
     func testSpendOnDayWithNoTransactionsIsExactZero() {
         XCTAssertEqual(answerOrFail("how much did i spend on 7 june", RouterFix.june),
-                       "**You spent £0.00 on 7 Jun 2026** across 0 transactions.",
+                       "**You spent £0.00 on 7th June 2026** across 0 transactions.",
                        "an empty day is a valid exact answer (zero), not a decline")
     }
 }
@@ -525,22 +525,22 @@ final class FinanceRouterAggregateTests: XCTestCase {
     }
 
     func testLargestSingleExpense() {
-        let expected = "**Your largest expense was £120.00** — AMAZON MARKETPLACE on 2026-06-12."
+        let expected = "**Your largest expense was £120.00** — AMAZON MARKETPLACE on 12th June 2026."
         XCTAssertEqual(answerOrFail("what was my biggest expense", RouterFix.june), expected)
         XCTAssertEqual(answerOrFail("most expensive purchase", RouterFix.june), expected)
     }
 
     func testLargestExpenseScopedToMonth() {
         XCTAssertEqual(answerOrFail("biggest expense in april", RouterFix.quarter),
-                       "**Your largest expense in April was £11.99** — SPOTIFY LTD on 2026-04-03.")
+                       "**Your largest expense in April was £11.99** — SPOTIFY LTD on 3rd April 2026.")
     }
 
     func testTopThreeExpensesOrdered() {
         let expected = """
         **Your top 3 expenses:**
-        1. £120.00 — AMAZON MARKETPLACE (2026-06-12)
-        2. £80.00 — BRITISH GAS DD (2026-06-25)
-        3. £45.50 — TESCO STORES 1234 (2026-06-04)
+        1. £120.00 — AMAZON MARKETPLACE (12th June 2026)
+        2. £80.00 — BRITISH GAS DD (25th June 2026)
+        3. £45.50 — TESCO STORES 1234 (4th June 2026)
         """
         XCTAssertEqual(answerOrFail("what were my top 3 expenses", RouterFix.june), expected)
     }
@@ -564,8 +564,8 @@ final class FinanceRouterAggregateTests: XCTestCase {
     func testTopNScopedToMerchant() {
         let expected = """
         **Your top 2 expenses at Tesco:**
-        1. £45.50 — TESCO STORES 1234 (2026-06-04)
-        2. £30.25 — TESCO STORES 1234 (2026-06-10)
+        1. £45.50 — TESCO STORES 1234 (4th June 2026)
+        2. £30.25 — TESCO STORES 1234 (10th June 2026)
         """
         XCTAssertEqual(answerOrFail("top 3 expenses at tesco", RouterFix.june), expected)
     }
@@ -694,12 +694,12 @@ final class FinanceRouterReasoningTests: XCTestCase {
     func testNoRiskyMonthsWhenIncomeAlwaysWins() {
         XCTAssertEqual(
             answerOrFail("which months were financially risky", RouterFix.quarter),
-            "**No risky months** — income exceeded spending every month. Tightest: Jun 2026 (net £1900.01), May 2026 (net £1948.02), Apr 2026 (net £1961.03).")
+            "**No risky months** — income exceeded spending every month. Tightest: June 2026 (net £1900.01), May 2026 (net £1948.02), April 2026 (net £1961.03).")
     }
 
     func testRiskyMonthsFlagsOverspending() {
         XCTAssertEqual(answerOrFail("was i in the red any months", RouterFix.overspend),
-                       "**Financially risky months** (spending beat income): Jun 2026 (£-40.00)")
+                       "**Financially risky months** (spending beat income): June 2026 (£-40.00)")
     }
 }
 
@@ -916,7 +916,7 @@ final class FinanceRouterBankAccountTests: XCTestCase {
     // Running-balance queries on a current account.
     func testBalanceAsOfDateOnCurrentAccount() {
         XCTAssertEqual(ask("what was my balance on 26 January 2026", Self.acct),
-                       "**Your balance at the end of 26 Jan 2026 was £2500.00.**")
+                       "**Your balance at the end of 26th January 2026 was £2500.00.**")
         XCTAssertEqual(ask("what is my latest balance", Self.acct),
                        "**Your latest balance is £1600.00.**")
     }

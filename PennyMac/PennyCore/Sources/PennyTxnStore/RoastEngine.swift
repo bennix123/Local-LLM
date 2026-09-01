@@ -97,9 +97,9 @@ public enum RoastEngine {
         // ---- biggest single splurge ------------------------------------------
         if let big = vices.max(by: { $0.debit < $1.debit }) {
             let name = big.merchant.isEmpty ? big.descr : big.merchant
-            bullets.append("Biggest single splurge: \(money(big.debit)) at \(name) on \(big.txnDate)")
+            bullets.append("Biggest single splurge: \(money(big.debit)) at \(name) on \(PrettyDate.long(big.txnDate))")
             lines.append(pick([
-                "And \(big.txnDate): \(money(big.debit)) at \(name), in one go. I hope it was worth it. It wasn't, but I hope.",
+                "And \(PrettyDate.long(big.txnDate)): \(money(big.debit)) at \(name), in one go. I hope it was worth it. It wasn't, but I hope.",
                 "One transaction. \(money(big.debit)). \(name). I'm not angry, I'm impressed — mostly at the confidence.",
             ]))
         }

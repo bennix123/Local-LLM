@@ -76,8 +76,8 @@ final class ManualBugs20260831Tests: XCTestCase {
         let out = try parseFixture()
         let byMonth = Dictionary(grouping: out.rows, by: \.month)
         // Closing August belongs to the LATER year, opening months to the earlier.
-        XCTAssertNotNil(byMonth["2026-08"], "Aug rows at the top are Aug 2026")
-        XCTAssertNotNil(byMonth["2025-09"], "Sep rows at the bottom are Sep 2025")
+        XCTAssertNotNil(byMonth["2026-08"], "Aug rows at the top are August 2026")
+        XCTAssertNotNil(byMonth["2025-09"], "Sep rows at the bottom are September 2025")
         XCTAssertNil(byMonth["2025-08"], "no rows may fall into the OPENING August")
         XCTAssertEqual(out.rows.map(\.txnDate).max()?.prefix(4), "2026")
     }
@@ -148,7 +148,7 @@ final class ManualBugs20260831Tests: XCTestCase {
         XCTAssertTrue(hi.contains("May 2026") && hi.contains("₹400.00"), hi)
         XCTAssertFalse(hi.contains("largest expense"), "must not answer a single transaction: \(hi)")
         let lo = try XCTUnwrap(ask("What was my lowest-spending month?"))
-        XCTAssertTrue(lo.contains("Aug 2026") && lo.contains("₹50.00"), lo)
+        XCTAssertTrue(lo.contains("August 2026") && lo.contains("₹50.00"), lo)
         XCTAssertFalse(lo.contains("smallest expense"), lo)
     }
 
@@ -227,6 +227,6 @@ final class ManualBugs20260831Tests: XCTestCase {
         let matched = acctRows.filter { $0.descr.contains("Subbireddy") }
         let a = AccountQuery.timingAnswer(matched: matched, label: "at Subbireddy · money in",
                                           money: { "₹" + String(format: "%.2f", $0) })
-        XCTAssertTrue(a.contains("On 8 May 2026") && a.contains("came in"), a)
+        XCTAssertTrue(a.contains("On 8th May 2026") && a.contains("came in"), a)
     }
 }

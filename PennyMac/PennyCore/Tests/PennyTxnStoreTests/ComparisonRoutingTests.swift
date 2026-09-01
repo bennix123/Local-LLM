@@ -17,7 +17,7 @@ final class ComparisonRoutingTests: XCTestCase {
                       debit: debit, credit: credit, balance: nil, currency: "GBP", seq: seq)
     }
 
-    // Three months (Apr–Jun 2026). June 1 2026 is a Monday, so 2026-06-06 and
+    // Three months (Apr–June 2026). June 1 2026 is a Monday, so 2026-06-06 and
     // 2026-06-13 are Saturdays. Spending rises month over month (100 → 200 → 400).
     private var rows: [TxnRow] {
         [row(1, date: "2026-04-01", descr: "SALARY ACME", category: "Income", credit: 3000),
@@ -117,14 +117,14 @@ final class ComparisonRoutingTests: XCTestCase {
 
     func testThisMonthVsLastMonth() throws {
         let ans = try XCTUnwrap(ask("How much did I spend this month vs last month?"))
-        XCTAssertTrue(ans.contains("Jun 2026") && ans.contains("May 2026"), "\(ans)")
+        XCTAssertTrue(ans.contains("June 2026") && ans.contains("May 2026"), "\(ans)")
         // June: 150 + 9.99 + 9.99 + 160 + 70 = 399.98 · May: 120 + 80 = 200.
         XCTAssertTrue(ans.contains("£399.98") && ans.contains("£200.00"), "\(ans)")
     }
 
     func testThisMonthVsSameMonthLastYearWithoutDataIsHonest() throws {
         let ans = try XCTUnwrap(ask("This month vs same month last year"))
-        XCTAssertTrue(ans.contains("No data for Jun 2025"), "\(ans)")
+        XCTAssertTrue(ans.contains("No data for June 2025"), "\(ans)")
     }
 
     func testFirstVsSecondHalfOfMonth() throws {
@@ -210,10 +210,10 @@ final class ComparisonRoutingTests: XCTestCase {
         var r = rows
         r.append(row(30, date: "2025-06-15", descr: "OLD ZARA", debit: 5000))
         let ans = try XCTUnwrap(ask("Did I spend more in June 2026 than May 2026?", r))
-        XCTAssertTrue(ans.contains("Jun 2026") && ans.contains("£399.98"),
+        XCTAssertTrue(ans.contains("June 2026") && ans.contains("£399.98"),
                       "June 2025's £5000 must not leak into June 2026: \(ans)")
         let yoy = try XCTUnwrap(ask("Compare June 2026 vs June 2025", r))
-        XCTAssertTrue(yoy.contains("Jun 2025") && yoy.contains("£5000.00"), "\(yoy)")
+        XCTAssertTrue(yoy.contains("June 2025") && yoy.contains("£5000.00"), "\(yoy)")
     }
 
     // MARK: - balance extremes, POS-gate targets, benchmark decline
@@ -223,7 +223,7 @@ final class ComparisonRoutingTests: XCTestCase {
         for i in r.indices { r[i].balance = 1000 + Double(i) }
         r[3].balance = 42.42
         let ans = try XCTUnwrap(ask("What's the lowest my balance dropped, and when?", r))
-        XCTAssertTrue(ans.contains("£42.42") && ans.contains("10 May 2026"), "\(ans)")
+        XCTAssertTrue(ans.contains("£42.42") && ans.contains("10th May 2026"), "\(ans)")
     }
 
     func testBrandNamesSurviveThePOSTagger() throws {
@@ -323,7 +323,7 @@ final class ComparisonRoutingTests: XCTestCase {
 
     func testBiggestSpendingDayStillACalendarDate() throws {
         let ans = try XCTUnwrap(ask("What was my biggest spending day?"))
-        XCTAssertTrue(ans.contains("13 Jun 2026"), "single date, not a weekday: \(ans)")
+        XCTAssertTrue(ans.contains("13th June 2026"), "single date, not a weekday: \(ans)")
     }
 
     func testPaidOffCardStillNotPayday() {

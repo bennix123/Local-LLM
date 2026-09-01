@@ -182,11 +182,5 @@ public enum AccountQuery {
         return lines.joined(separator: "\n")
     }
 
-    private static func prettyISO(_ iso: String) -> String {
-        let p = iso.split(separator: "-")
-        guard p.count == 3, let m = Int(p[1]), (1...12).contains(m), let d = Int(p[2]) else { return iso }
-        let months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return "\(d) \(months[m]) \(p[0])"
-    }
+    private static func prettyISO(_ iso: String) -> String { PrettyDate.long(iso) }
 }

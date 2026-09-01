@@ -57,20 +57,20 @@ final class FinanceRouterCrossTests: XCTestCase {
         XCTAssertEqual(last?.contains("£15.00"), true, "last: \(last ?? "nil")")
         XCTAssertEqual(last?.contains("HOTEL"), true)
         // "when was my first purchase" → date-focused phrasing still resolves.
-        XCTAssertEqual(ask("when was my first purchase")?.contains("1 Jun 2026"), true)
+        XCTAssertEqual(ask("when was my first purchase")?.contains("1st June 2026"), true)
     }
 
     func testBiggestSpendingDayByAmount() {
         // 8 June is the biggest by £ (£100), even though 15 June has more transactions.
         let a = ask("which day did i spend the most")
-        XCTAssertEqual(a?.contains("8 Jun 2026"), true, "biggest £ day: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("8th June 2026"), true, "biggest £ day: \(a ?? "nil")")
         XCTAssertEqual(a?.contains("£100.00"), true)
     }
 
     func testBusiestDayByCount() {
         // 15 June is busiest by COUNT (3 transactions), not the biggest by £.
         let a = ask("which day had the most transactions")
-        XCTAssertEqual(a?.contains("15 Jun 2026"), true, "busiest day: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("15th June 2026"), true, "busiest day: \(a ?? "nil")")
         XCTAssertEqual(a?.contains("3 transactions"), true)
     }
 
@@ -134,7 +134,7 @@ final class FinanceRouterCrossTests: XCTestCase {
     func testBusiestDayTransactionCount() {
         // 15 June has 3 transactions — asked as a "how many" question.
         let a = ask("how many transactions on my busiest day")
-        XCTAssertEqual(a?.contains("15 Jun 2026"), true, "busiest count: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("15th June 2026"), true, "busiest count: \(a ?? "nil")")
         XCTAssertEqual(a?.contains("3 transactions"), true)
     }
 
@@ -157,7 +157,7 @@ final class FinanceRouterCrossTests: XCTestCase {
     func testAmountReverseLookup() {
         let a = ask("what was the £100 charge")
         XCTAssertEqual(a?.contains("DELTA"), true, "amount lookup: \(a ?? "nil")")
-        XCTAssertEqual(a?.contains("8 Jun 2026"), true)
+        XCTAssertEqual(a?.contains("8th June 2026"), true)
         // absent amount → honest no, never a guess
         XCTAssertEqual(ask("what was the £77.77 charge")?.contains("No transaction for £77.77"), true)
     }
@@ -170,7 +170,7 @@ final class FinanceRouterCrossTests: XCTestCase {
     func testLeastSpentDay() {
         // Day totals: 1 Jun £10, 2 Jun £25, 8 Jun £100, 15 Jun £40, 20 Jun £15.
         let a = ask("which day did i spend the least")
-        XCTAssertEqual(a?.contains("1 Jun 2026"), true, "least day: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("1st June 2026"), true, "least day: \(a ?? "nil")")
         XCTAssertEqual(a?.contains("£10.00"), true)
     }
 
@@ -198,7 +198,7 @@ final class FinanceRouterCrossTests: XCTestCase {
 
     func testWhenDidIDateLookup() {
         let a = ask("when did i pay delta")
-        XCTAssertEqual(a?.contains("8 Jun 2026"), true, "date lookup: \(a ?? "nil")")
+        XCTAssertEqual(a?.contains("8th June 2026"), true, "date lookup: \(a ?? "nil")")
     }
 
     func testCategoryComparison() {

@@ -36,7 +36,7 @@ final class RouterGeneralFixTests: XCTestCase {
     func testEachMonthIsNotAMerchant() throws {
         let ans = try XCTUnwrap(ask("How much do I spend each month?"))
         XCTAssertFalse(ans.contains("on Each"), "grammar word became a target: \(ans)")
-        XCTAssertTrue(ans.contains("May 2026") && ans.contains("Jun 2026"),
+        XCTAssertTrue(ans.contains("May 2026") && ans.contains("June 2026"),
                       "should be a month-by-month breakdown: \(ans)")
     }
 
@@ -70,7 +70,7 @@ final class RouterGeneralFixTests: XCTestCase {
     func testMonthlyBreakdownFigures() throws {
         let ans = try XCTUnwrap(ask("Give me a monthly breakdown"))
         XCTAssertTrue(ans.contains("May 2026") && ans.contains("£175.00"), "\(ans)")
-        XCTAssertTrue(ans.contains("Jun 2026") && ans.contains("£6280.00"), "\(ans)")
+        XCTAssertTrue(ans.contains("June 2026") && ans.contains("£6280.00"), "\(ans)")
     }
 
     // MARK: class 3 — refunds by evidence

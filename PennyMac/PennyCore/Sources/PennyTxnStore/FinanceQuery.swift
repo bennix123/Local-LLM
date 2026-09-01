@@ -575,7 +575,7 @@ public enum FinanceRouter {
             let top = debits.sorted { $0.debit > $1.debit }.prefix(n)
             var lines = ["**Your top \(top.count) \(top.count == 1 ? "expense" : "expenses")\(scope.label):**"]
             for (i, t) in top.enumerated() {
-                lines.append("\(i + 1). \(money(t.debit)) — \(t.descr) (\(t.txnDate))")
+                lines.append("\(i + 1). \(money(t.debit)) — \(t.descr) (\(prettyDate(t.txnDate)))")
             }
             return lines.joined(separator: "\n")
         }
@@ -588,7 +588,7 @@ public enum FinanceRouter {
            debits.count >= n {
             let t = debits.sorted { $0.debit > $1.debit }[n - 1]
             let word = ["", "", "second", "third", "fourth", "fifth"][n]
-            return "**Your \(word)-largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
+            return "**Your \(word)-largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(prettyDate(t.txnDate))."
         }
 
         // ---- single largest expense (not "biggest spending DAY" — see below) --
@@ -604,7 +604,7 @@ public enum FinanceRouter {
            // a single transaction (2026-08-31 manual bug).
            !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
            let t = debits.max(by: { $0.debit < $1.debit }) {
-            return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
+            return "**Your largest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(prettyDate(t.txnDate))."
         }
 
         // ---- single smallest expense ---------------------------------------
@@ -614,7 +614,7 @@ public enum FinanceRouter {
            !matches(low, #"\bcategor|\brank\b"#),
            !matches(low, #"spend(?:ing)?[- ]month|(?:which|what)\s+month\b"#),
            let t = debits.min(by: { $0.debit < $1.debit }) {
-            return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(t.txnDate)."
+            return "**Your smallest expense\(scope.label) was \(money(t.debit))** — \(t.descr) on \(prettyDate(t.txnDate))."
         }
 
         // ---- first / last (earliest / latest) transaction -------------------
@@ -764,12 +764,7 @@ public enum FinanceRouter {
            scope.unmatchedTarget == nil,
            !matches(low, #"where\b.{0,26}(?:money|it).{0,10}go(?:ing)?"#) {
             let byMonth = Dictionary(grouping: sr, by: \.month).sorted { $0.key < $1.key }
-            func prettyMonth(_ m: String) -> String {
-                let parts = m.split(separator: "-")
-                guard parts.count == 2, let no = Int(parts[1]), (1...12).contains(no) else { return m }
-                return ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug",
-                        "Sep", "Oct", "Nov", "Dec"][no] + " " + parts[0]
-            }
+            func prettyMonth(_ m: String) -> String { PrettyDate.month(m) }
             if byMonth.count == 1, let only = byMonth.first {
                 let sp = only.value.reduce(0) { $0 + $1.debit }
                 return "**Everything here falls in \(prettyMonth(only.key))** — \(money(sp)) spent\(scope.label). Add another month's statement for a month-by-month view."
@@ -1741,10 +1736,8 @@ public enum FinanceRouter {
         guard y > 0 else { return nil }
 
         let iso = String(format: "%04d-%02d-%02d", y, m, d)
-        let abbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m]
         let scoped = rows.filter { $0.year == y && $0.monthNo == m && $0.day == d }
-        return (scoped, "\(d) \(abbr) \(y)", iso)
+        return (scoped, PrettyDate.long(iso), iso)
     }
 
     /// Common category words → the canonical category, but only if that category
@@ -2097,7 +2090,7 @@ public enum FinanceRouter {
             guard y > 0 else { continue }
             let iso = String(format: "%04d-%02d-%02d", y, mo, d)
             let dayLbl = d == 31 && matches(tail, #"^\s*(?:the\s+)?end of\b"#)
-                ? "the end of \(monthAbbr(mo))" : "\(d) \(monthAbbr(mo))"
+                ? "the end of \(monthAbbr(mo))" : "\(PrettyDate.ordinal(d)) \(monthAbbr(mo))"
             switch kind {
             case "since":  return (inRange(iso, maxD), " since \(dayLbl)")
             case "after":  return (inRange(addDays(iso, 1), maxD), " after \(dayLbl)")
@@ -2125,7 +2118,7 @@ public enum FinanceRouter {
         let y2 = rows.filter { $0.monthNo == mo2 }.map(\.year).max() ?? y1
         let start = String(format: "%04d-%02d-%02d", y1, mo1, d1)
         let end = String(format: "%04d-%02d-%02d", y2, mo2, d2)
-        let label = " between \(d1) \(monthAbbr(mo1)) and \(d2) \(monthAbbr(mo2))"
+        let label = " between \(PrettyDate.ordinal(d1)) \(monthAbbr(mo1)) and \(PrettyDate.ordinal(d2)) \(monthAbbr(mo2))"
         return (inRange(start, end), label)
     }
 
@@ -2307,12 +2300,7 @@ public enum FinanceRouter {
     }
 
     /// "2026-06" → "Jun 2026".
-    private static func mlabel(_ ym: String) -> String {
-        let p = ym.split(separator: "-")
-        guard p.count == 2, let mo = Int(p[1]), (1...12).contains(mo) else { return ym }
-        let abbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][mo]
-        return "\(abbr) \(p[0])"
-    }
+    private static func mlabel(_ ym: String) -> String { PrettyDate.month(ym) }
 
     private static func signedPct(_ a: Double, _ b: Double) -> String {
         let v = b != 0 ? (a - b) / b * 100 : 0
@@ -2655,18 +2643,16 @@ public enum FinanceRouter {
         return String(format: "%04d-%02d-%02d", e.year ?? 0, e.month ?? 0, e.day ?? 0)
     }
 
-    private static let monthAbbrs = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
     private static func monthAbbr(_ m: Int) -> String {
-        (1...12).contains(m) ? monthAbbrs[m] : "\(m)"
+        // Full month names since 2026-09-01 (the name is historical): every
+        // month rendered in an answer goes through the shared PrettyDate table.
+        (1...12).contains(m) ? PrettyDate.monthNamesFull[m] : "\(m)"
     }
 
-    /// "2026-02-17" → "17 Feb 2026".
+    /// "2026-02-17" → "17th February 2026" (2026-09-01: dates in answers name
+    /// the month with an ordinal day — one shared brain, both platforms).
     private static func prettyDate(_ iso: String) -> String {
-        let p = iso.split(separator: "-").compactMap { Int($0) }
-        guard p.count == 3, (1...12).contains(p[1]) else { return iso }
-        return "\(p[2]) \(monthAbbrs[p[1]]) \(p[0])"
+        PrettyDate.long(iso)
     }
 
     private static func matches(_ s: String, _ pattern: String) -> Bool {

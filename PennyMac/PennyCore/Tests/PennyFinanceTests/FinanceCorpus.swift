@@ -102,7 +102,7 @@ enum FinanceCorpus {
             query: "biggest expense",
             expectedQuery: Query(filters: [.direction(.debit)], aggregate: .max),
             expectedResult: .money(dec("600.00"), citations: 1),
-            expectedRouter: "**Your largest expense was £600.00** — ACME LETTINGS on 2026-07-12."),
+            expectedRouter: "**Your largest expense was £600.00** — ACME LETTINGS on 12th July 2026."),
 
         CorpusEntry(
             intent: "topN_expenses",
@@ -110,7 +110,7 @@ enum FinanceCorpus {
             expectedQuery: Query(filters: [.direction(.debit)], aggregate: .topN(3),
                                  sort: [SortKey(.amount, .descending)]),
             expectedResult: .rows(magnitudes: [dec("600.00"), dec("120.00"), dec("45.50")]),
-            expectedRouter: "**Your top 3 expenses:**\n1. £600.00 — ACME LETTINGS (2026-07-12)\n2. £120.00 — AMAZON (2026-06-10)\n3. £45.50 — TESCO (2026-06-01)"),
+            expectedRouter: "**Your top 3 expenses:**\n1. £600.00 — ACME LETTINGS (12th July 2026)\n2. £120.00 — AMAZON (10th June 2026)\n3. £45.50 — TESCO (1st June 2026)"),
 
         CorpusEntry(
             intent: "spend_by_category",
@@ -126,7 +126,7 @@ enum FinanceCorpus {
             expectedResult: .groups(["2026-06": dec("165.50"), "2026-07": dec("600.00")]),
             // A1 class 2: the router now has a real month-by-month capability —
             // the previous expectation pinned its old fallback (the bare total).
-            expectedRouter: "**Month by month:**\n- Jun 2026 — spent £165.50, received £2500.00\n- Jul 2026 — spent £600.00"),
+            expectedRouter: "**Month by month:**\n- June 2026 — spent £165.50, received £2500.00\n- July 2026 — spent £600.00"),
     ]
 
     // MARK: Wave A2 — balances & recurring
@@ -164,7 +164,7 @@ enum FinanceCorpus {
             query: "what was my balance on 30 June 2026?",
             expectedQuery: Query(aggregate: .balance(.atDate(CalendarDate(year: 2026, month: 6, day: 30)))),
             expectedResult: .money(dec("2940.02"), citations: 1),
-            expectedRouter: "**Your balance at the end of 30 Jun 2026 was £2940.02.**",
+            expectedRouter: "**Your balance at the end of 30th June 2026 was £2940.02.**",
             fixture: .balances, bridgeExpected: false),
 
         // The engine consumes the RecurringAnalyzer output (3 NETFLIX debits). The
@@ -205,7 +205,7 @@ enum FinanceCorpus {
             query: "what did I spend on 15 June 2026",
             expectedQuery: Query(filters: [day(2026, 6, 15), .direction(.debit)], aggregate: .sum),
             expectedResult: .money(dec("30.00"), citations: 1),
-            expectedRouter: "**You spent £30.00 on 15 Jun 2026** across 1 transaction.", fixture: .scope),
+            expectedRouter: "**You spent £30.00 on 15th June 2026** across 1 transaction.", fixture: .scope),
 
         CorpusEntry(
             intent: "scope_month",
