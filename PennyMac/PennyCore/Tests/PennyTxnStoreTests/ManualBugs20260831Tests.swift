@@ -186,6 +186,89 @@ final class ManualBugs20260831Tests: XCTestCase {
         XCTAssertTrue(unscoped.contains("₹600.00") && unscoped.contains("₹1150.00"), unscoped)
     }
 
+    func testWhichMonthSpentMoreOnCategoryIsAScopedSuperlative() throws {
+        // 2026-09-01 manual bug: with no months named, "which month did I
+        // spend MORE on pharmacy?" fell to the plain category total.
+        let rows = [row(1, date: "2026-08-05", descr: "MEDPLUS", category: "Pharmacy", debit: 100),
+                    row(2, date: "2026-08-09", descr: "UBER", category: "Transport", debit: 500),
+                    row(3, date: "2026-09-03", descr: "MEDPLUS", category: "Pharmacy", debit: 250)]
+        let a = try XCTUnwrap(FinanceRouter.answer(
+            "which month did I spend more on pharmacy?",
+            rows: rows, currency: "INR", money: { "₹" + String(format: "%.2f", $0) }))
+        XCTAssertTrue(a.contains("September 2026") && a.contains("highest-spending month")
+                        && a.contains("Pharmacy") && a.contains("₹250.00"), a)
+        XCTAssertFalse(a.contains("across 3 transactions"), "must not be the category total: \(a)")
+    }
+
+    // The FAMILY the dimension-superlative resolver owns — every combination
+    // of dimension × direction × superlative/comparative answers the same
+    // group-by, so no new phrasing can fall into a total handler again.
+    func testDimensionSuperlativeFamily() throws {
+        var rows = [row(1, date: "2026-04-05", descr: "SALARY", category: "Income", credit: 3000),
+                    row(2, date: "2026-04-10", descr: "TESCO", category: "Groceries", debit: 100),
+                    row(3, date: "2026-05-10", descr: "ZARA", debit: 400),
+                    row(4, date: "2026-05-12", descr: "REFUND", category: "Income", credit: 50),
+                    row(5, date: "2025-06-10", descr: "OLDYEAR", debit: 900),
+                    row(6, date: "2026-08-09", descr: "UBER", category: "Transport", debit: 50)]
+        rows[1].account = "Union Bank Of India -49"
+        rows[2].account = "Canara Bank -41"
+        rows[4].account = "Union Bank Of India -49"
+        rows[5].account = "Union Bank Of India -49"
+        let money: (Double) -> String = { "₹" + String(format: "%.2f", $0) }
+        func ask(_ q: String) -> String? {
+            FinanceRouter.answer(q, rows: rows, currency: "INR", money: money)
+        }
+        // comparative == superlative, spend side
+        let a = try XCTUnwrap(ask("which month did I spend more?"))
+        XCTAssertTrue(a.contains("May 2026") && a.contains("highest-spending month"), a)
+        // receive side
+        let b = try XCTUnwrap(ask("which month did I receive the most money?"))
+        XCTAssertTrue(b.contains("April 2026") && b.contains("highest-income month") && b.contains("₹3000.00"), b)
+        // year dimension
+        let c = try XCTUnwrap(ask("which year did I spend the most?"))
+        XCTAssertTrue(c.contains("2025") && c.contains("highest-spending year") && c.contains("₹900.00"), c)
+        // account dimension (per-row accounts from the parser)
+        let d = try XCTUnwrap(ask("which bank did I pay the most from?"))
+        XCTAssertTrue(d.contains("Union Bank Of India -49") && d.contains("₹1050.00")
+                        && d.contains("3 payments"), d)
+        // account dimension without account data → honest, not a misroute
+        let plain = [row(1, date: "2026-04-10", descr: "TESCO", category: "Groceries", debit: 100),
+                     row(2, date: "2026-05-10", descr: "ZARA", debit: 400)]
+        let e = try XCTUnwrap(FinanceRouter.answer("which account did I spend the most from?",
+                                                   rows: plain, currency: "INR", money: money))
+        XCTAssertTrue(e.contains("doesn't say which of your accounts"), e)
+        // named months still belong to the month-vs-month comparer
+        let f = try XCTUnwrap(ask("did I spend more in april or may?"))
+        XCTAssertTrue(f.contains("vs"), f)
+    }
+
+    func testWhereSpentLeastFamily() throws {
+        // 2026-09-01 manual bug (exact phrasing, typo included): answered with
+        // the whole-ledger spend total. Category/merchant are dimensions of
+        // the same superlative family.
+        let rows = [row(1, date: "2026-04-10", descr: "TESCO", category: "Groceries", debit: 100),
+                    row(2, date: "2026-05-10", descr: "ZARA", category: "Shopping", debit: 400),
+                    row(3, date: "2026-08-09", descr: "UBER", category: "Transport", debit: 50)]
+        func ask(_ q: String) -> String? {
+            FinanceRouter.answer(q, rows: rows, currency: "INR",
+                                 money: { "₹" + String(format: "%.2f", $0) })
+        }
+        let a = try XCTUnwrap(ask("where did i spent my least amount in?"))
+        XCTAssertTrue(a.contains("least") && a.contains("Transport") && a.contains("₹50.00"), a)
+        XCTAssertFalse(a.contains("₹550.00"), "must not be the whole-ledger total: \(a)")
+        let b = try XCTUnwrap(ask("which category did I spend the least on?"))
+        XCTAssertTrue(b.contains("Transport") && b.contains("₹50.00"), b)
+        let c = try XCTUnwrap(ask("where did I spend the least at?"))
+        XCTAssertTrue(c.contains("UBER") && c.contains("₹50.00"), c)
+        let d = try XCTUnwrap(ask("who did I pay the most?"))
+        XCTAssertTrue(d.contains("ZARA") && d.contains("₹400.00"), d)
+        // The dedicated handlers keep their claims:
+        let e = try XCTUnwrap(ask("where did most of my money go?"))
+        XCTAssertTrue(e.contains("categor") || e.contains("Categor"), e)
+        let f = try XCTUnwrap(ask("what's my top merchant?"))
+        XCTAssertTrue(f.contains("top merchant"), f)
+    }
+
     func testLargestExpenseStillWorks() throws {
         let a = try XCTUnwrap(ask("What was my largest expense?"))
         XCTAssertTrue(a.contains("largest expense") && a.contains("₹400.00"), a)

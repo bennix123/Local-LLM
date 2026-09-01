@@ -2483,7 +2483,9 @@ final class AppModel: ObservableObject {
         // lives inside countless descriptions ("Union Bank Of India"), so this
         // must answer before any keyword fallback can grab it.
         if has(#"\bbank names?\b|(?:what|which|whats|what's|name|names) (?:is |are |of )?(?:the |my |these |those )?banks?\b"#),
-           !has(#"transactions?|txns?|spen[dt]|balance|charge"#) {
+           // Money questions ABOUT a bank/account ("which bank did I pay most
+           // from?") are the router's dimension-superlative, not a roster.
+           !has(#"transactions?|txns?|spen[dt]|balance|charge|pa(?:y|id)|receiv|\bmost\b|\bleast\b|\bmore\b|\bless\b|highest|lowest"#) {
             // Aggregator statements (Paytm/GPay exports) reveal the UNDERLYING
             // bank accounts the money moved through ("Union Bank Of India - 49")
             // — that's usually the bank the user is asking about, so name both.

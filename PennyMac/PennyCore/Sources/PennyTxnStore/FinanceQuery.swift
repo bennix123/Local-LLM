@@ -751,12 +751,7 @@ public enum FinanceRouter {
         // ---- monthly breakdown ("spend each month", "monthly summary") -------
         // A1 class 2: the group-by capability, dimension = month. "Each month"
         // used to fall into the target-extractor and answer "£0.00 on Each".
-        if matches(low, #"(?:each|every|per|by)\s+month|month(?:ly)?\s*(?:breakdown|summary|report|totals?|spend(?:ing)?)|month[\s-]?wise|over the months|month (?:by|on) month"#)
-            // Superlative projection of the same group-by: "which month did I
-            // spend the most?", "my highest/lowest-spending month" (2026-08-31
-            // manual bug: these fell through to the whole-period spend total).
-            || (matches(low, #"(?:which|what)\s+month\b|month did i\b|spending month\b"#)
-                && matches(low, #"\bmost\b|\bleast\b|highest|lowest|biggest|smallest|expensive|cheapest"#)),
+        if matches(low, #"(?:each|every|per|by)\s+month|month(?:ly)?\s*(?:breakdown|summary|report|totals?|spend(?:ing)?)|month[\s-]?wise|over the months|month (?:by|on) month"#),
            !matches(low, #"\baverage\b|\bavg\b|\bmean\b|\btypical\b"#),
            // "on Swiggy each month" with no Swiggy rows is an honest zero, not a
            // full breakdown; "where's my money going each month" is a category
@@ -768,21 +763,6 @@ public enum FinanceRouter {
             if byMonth.count == 1, let only = byMonth.first {
                 let sp = only.value.reduce(0) { $0 + $1.debit }
                 return "**Everything here falls in \(prettyMonth(only.key))** — \(money(sp)) spent\(scope.label). Add another month's statement for a month-by-month view."
-            }
-            // Superlative asked → name the one month, don't list them all.
-            let wantsLeast = matches(low, #"\bleast\b|lowest|smallest|cheapest"#)
-            if wantsLeast || matches(low, #"\bmost\b|highest|biggest|expensive"#),
-               matches(low, #"(?:which|what)\s+month\b|month did i\b|spending month\b"#) {
-                let ranked = byMonth.map { (m: $0.key, sp: $0.value.reduce(0) { $0 + $1.debit }) }
-                    .sorted { $0.sp > $1.sp }
-                if let pick = wantsLeast ? ranked.last : ranked.first {
-                    let runner = wantsLeast ? ranked.dropLast().last : ranked.dropFirst().first
-                    var out = "**\(prettyMonth(pick.m)) was your \(wantsLeast ? "lowest" : "highest")-spending month\(scope.label) — \(money(pick.sp)).**"
-                    if let r = runner {
-                        out += " \(wantsLeast ? "Next lowest" : "Runner-up"): \(prettyMonth(r.m)) at \(money(r.sp))."
-                    }
-                    return out
-                }
             }
             // "how much am I SAVING each month" wants the kept amount, not just
             // the raw spent/received pair — show it whenever income is present.
@@ -814,9 +794,31 @@ public enum FinanceRouter {
                 // by accident; the A1 target gates removed that accident.)
                 && !matches(low, #"£\s?\d|\d+\.\d{1,2}\b|\d+\s*(?:pounds|quid|pence|dollars|bucks|euros|rupees)\b"#)
                 && scope.unmatchedTarget == nil && !scope.hasCategory && !scope.hasMerchant),
+           // A LEAST question wants one named category, not a ranked list that
+           // may cut off before the answer — the dimension resolver below owns it.
+           !matches(low, #"\bleast\b|\bless\b|lowest|smallest|cheapest"#),
            !debits.isEmpty {
             return categoryBreakdown(debits, total: spent, scopeLabel: scope.label,
                                      limit: topN(low) ?? 8, money: money)
+        }
+
+        // ---- dimension superlative (ONE brain, root cause of a bug class) ----
+        // "Which month did I spend the most?" / "…receive more?" / "…on
+        // pharmacy?" / "which year…" / "which account did I pay most from?" /
+        // "where did I spend my least amount in?" is ALWAYS the same
+        // computation: group the scoped, direction-filtered rows by the named
+        // dimension (month, year, account, category, merchant) and take the
+        // max/min. Before 2026-09-01 each phrasing was patched into whichever
+        // handler it happened to hit (largest expense, income total, category
+        // total…) — this resolver owns the whole family. It sits AFTER the
+        // dedicated top-merchant/category-breakdown handlers, so their pinned
+        // phrasings keep their exact answers and everything else in the family
+        // lands here instead of a whole-ledger total. Comparatives without
+        // named sides ("more", "less") mean the same as superlatives;
+        // questions that NAME months belong to the month-vs-month comparer.
+        if let dimAnswer = dimensionSuperlative(low, sr: sr, scope: scope,
+                                                debits: debits, credits: credits, money: money) {
+            return dimAnswer
         }
 
         // ---- itemised credit / debit list -----------------------------------
@@ -1929,7 +1931,7 @@ public enum FinanceRouter {
         // some as plain adjectives, so "lowest-spending month" grew a phantom
         // "£0.00 on Lowest" target (2026-08-31).
         "least", "lowest", "highest", "biggest", "smallest", "largest", "cheapest",
-        "priciest", "expensive",
+        "priciest", "expensive", "amount", "amounts",
         "biggest", "largest", "smallest", "any", "some", "there", "give", "show", "tell",
         // verbs of spending/visiting that are never merchant names
         "shop", "shopping", "shops", "store", "stores", "visit", "visited", "visiting",
@@ -2318,6 +2320,103 @@ public enum FinanceRouter {
 
     /// "2026-06" → "Jun 2026".
     private static func mlabel(_ ym: String) -> String { PrettyDate.month(ym) }
+
+    /// ONE brain for "which {month|year|account} did I {spend|receive}
+    /// {most|more|least|less|highest|…}" — a group-by over the scoped,
+    /// direction-filtered rows plus an arg-max/arg-min. Owns the entire
+    /// family so no phrasing can fall into a total/expense handler again
+    /// (2026-09-01 root-cause request). Comparatives with NAMED months
+    /// ("feb or march") stay with the month-vs-month comparer; time words
+    /// like day/week keep their dedicated handlers.
+    private static func dimensionSuperlative(_ low: String, sr: [TxnRow], scope: Scope,
+                                             debits: [TxnRow], credits: [TxnRow],
+                                             money: (Double) -> String) -> String? {
+        let wantsLeast = matches(low, #"\bleast\b|\bless\b|lowest|smallest|cheapest"#)
+        let wantsMost = matches(low, #"\bmost\b|\bmore\b|highest|biggest|\btop\b|expensive"#)
+        guard wantsLeast || wantsMost else { return nil }
+        guard scope.unmatchedTarget == nil else { return nil }
+
+        // Dimension named as the subject. Time grains outrank account, which
+        // outranks category/merchant; "where … at/to" reads as a merchant,
+        // any other "where" as a category (Penny's own convention: "where did
+        // my money go" is the category view).
+        let merchantNoun = matches(low, #"\bmerchants?\b|\bshops?\b|\bstores?\b|\bretailers?\b|\bvendors?\b|\bpayees?\b|\bbrands?\b|compan(?:y|ies)\b|\bplaces?\b|\bwho\b|\bwhom\b"#)
+        let dim: String
+        if matches(low, #"\bmonths?\b"#) { dim = "month" }
+        else if matches(low, #"\byears?\b"#) { dim = "year" }
+        else if matches(low, #"\baccounts?\b|\bbanks?\b"#) { dim = "account" }
+        else if matches(low, #"\bcategor(?:y|ies)\b"#) { dim = "category" }
+        else if merchantNoun || matches(low, #"\bwhere\b.{0,40}\b(?:at|to)\b"#) { dim = "merchant" }
+        else if matches(low, #"\bwhere\b"#) { dim = "category" }
+        else { return nil }
+
+        // Question shapes that belong to OTHER handlers:
+        if monthNames.contains(where: { matches(low, #"\b"# + $0.0 + #"\b"#) }) { return nil } // named months → comparer
+        if matches(low, #"this (?:month|year)|last (?:month|year)|current (?:month|year)|year to date|\bytd\b|so far"#) { return nil }
+        if matches(low, #"\baverage\b|\bavg\b|\bmean\b|\btypical\b|\beach\b|\bevery\b|\bper\b|monthly|yearly"#) { return nil }
+        if matches(low, #"how many|number of|\bcount\b|transactions?|txns?|\btimes\b|\boften\b|visits?"#) { return nil }
+        if matches(low, #"(?:start|beginning|end|middle|half) of"#) { return nil }
+        if matches(low, #"\bdays?\b|\bdate\b|\bweek\w*"#) { return nil }
+        // It must actually be ABOUT the dimension ("which month…", "where did
+        // I…", "highest-spending month"), not merely mention it.
+        guard matches(low, #"(?:which|what)\s+(?:months?|years?|accounts?|banks?|categor\w+|merchants?|shops?|stores?|places?)\b|(?:months?|years?|accounts?|banks?) did i\b|spending (?:month|year|categor\w+)\b|(?:month|year) was\b|\bwhere (?:do|did|does|have) i\b|\bwho(?:m)? (?:do|did) i\b"#)
+        else { return nil }
+
+        let wantsCredit = matches(low, #"receiv|\bincome\b|credited|came in|come in|\bearn|deposit|paid in|money in\b|\bgot\b"#)
+        let side = wantsCredit ? credits : debits
+        func amt(_ r: TxnRow) -> Double { wantsCredit ? r.credit : r.debit }
+
+        let keyed: [(row: TxnRow, key: String, label: String)]
+        switch dim {
+        case "month":    keyed = side.map { ($0, $0.month, PrettyDate.month($0.month)) }
+        case "year":     keyed = side.map { ($0, String($0.year), String($0.year)) }
+        case "category": keyed = side.filter { !$0.category.isEmpty }
+                                     .map { ($0, $0.category, $0.category) }
+        case "merchant": keyed = side.map { r in
+                             let name = r.merchant.isEmpty ? r.descr : r.merchant
+                             return (r, name.lowercased(), name)
+                         }
+        default:
+            let withAcct = side.filter { $0.account != nil }
+            guard !withAcct.isEmpty else {
+                return "**This statement doesn't say which of your accounts each payment moved through**, so I can't split that by account."
+            }
+            keyed = withAcct.map { ($0, $0.account!, $0.account!) }
+        }
+        var totals: [String: (label: String, total: Double, n: Int)] = [:]
+        for k in keyed {
+            let cur = totals[k.key] ?? (k.label, 0, 0)
+            totals[k.key] = (k.label, cur.total + amt(k.row), cur.n + 1)
+        }
+        let ranked = totals.values.sorted { $0.total > $1.total }
+        guard let pick = wantsLeast ? ranked.last : ranked.first else { return nil }
+        if ranked.count == 1 {
+            let what = wantsCredit ? "received" : "spent"
+            return "**Everything here falls in \(pick.label)** — \(money(pick.total)) \(what)\(scope.label)."
+        }
+        let runner = wantsLeast ? ranked.dropLast().last : ranked.dropFirst().first
+        let runnerTag = wantsLeast ? "Next lowest" : "Runner-up"
+        var out: String
+        let n = "\(pick.n) \(wantsCredit ? "credit" : "transaction")\(pick.n == 1 ? "" : "s")"
+        switch dim {
+        case "account":
+            let verb = wantsCredit ? "came into" : "went out of"
+            out = "**\(wantsLeast ? "The least" : "Most") of your money \(verb) \(pick.label)\(scope.label) — \(money(pick.total)) across \(pick.n) \(wantsCredit ? "credit" : "payment")\(pick.n == 1 ? "" : "s").**"
+        case "category":
+            out = wantsCredit
+                ? "**You received the \(wantsLeast ? "least" : "most") in \(pick.label)\(scope.label) — \(money(pick.total)) across \(n).**"
+                : "**You spent the \(wantsLeast ? "least" : "most") on \(pick.label)\(scope.label) — \(money(pick.total)) across \(n).**"
+        case "merchant":
+            out = wantsCredit
+                ? "**You received the \(wantsLeast ? "least" : "most") from \(pick.label)\(scope.label) — \(money(pick.total)) across \(n).**"
+                : "**You spent the \(wantsLeast ? "least" : "most") at \(pick.label)\(scope.label) — \(money(pick.total)) across \(n).**"
+        default:
+            let kind = wantsCredit ? "income" : "spending"
+            out = "**\(pick.label) was your \(wantsLeast ? "lowest" : "highest")-\(kind) \(dim)\(scope.label) — \(money(pick.total)).**"
+        }
+        if let r = runner { out += " \(runnerTag): \(r.label) at \(money(r.total))." }
+        return out
+    }
 
     private static func signedPct(_ a: Double, _ b: Double) -> String {
         let v = b != 0 ? (a - b) / b * 100 : 0

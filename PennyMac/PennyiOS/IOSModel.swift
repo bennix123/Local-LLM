@@ -480,7 +480,9 @@ final class IOSModel: ObservableObject {
         if q.lowercased().range(
             of: #"\bbank names?\b|(?:what|which|whats|what's|name|names) (?:is |are |of )?(?:the |my |these |those )?banks?\b"#,
             options: .regularExpression) != nil,
-           q.lowercased().range(of: #"transactions?|txns?|spen[dt]|balance|charge"#,
+           // Money questions ABOUT a bank ("which bank did I pay most from?")
+           // are the router's dimension-superlative, not a roster (parity).
+           q.lowercased().range(of: #"transactions?|txns?|spen[dt]|balance|charge|pa(?:y|id)|receiv|\bmost\b|\bleast\b|\bmore\b|\bless\b|highest|lowest"#,
                                 options: .regularExpression) == nil {
             let text: String
             if statements.count == 1 {
