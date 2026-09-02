@@ -269,14 +269,23 @@ public actor PennyLLM {
         onEngine: (@Sendable (String) -> Void)? = nil,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> String {
-        // An explicitly loaded MLX model answers: the user picked and downloaded it,
-        // so it must not be silently bypassed. Apple's on-device system model covers
-        // the no-download case, with MLX as the fallback on an Apple failure.
+        // Selected-model-wins (2026-09-02, Rahul's decision): a DOWNLOADED MLX
+        // model is an explicit user choice — chat loads and uses it, even when
+        // Apple's system model could answer instantly. Apple answers only when
+        // the selected model's weights aren't on disk; a chat question must
+        // never TRIGGER a multi-GB download (load() would — hence the
+        // installed check, not a load attempt).
         // Apple's path is non-streaming-on-failure: it only throws when nothing
         // streamed, so the MLX fallback never double-shows a half-streamed answer.
         // `allowMLXFallback: false` (iOS: Apple-only by product decision) surfaces
-        // the Apple error instead of triggering a multi-GB weights download.
-        if container == nil, #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
+        // the Apple error instead of triggering a multi-GB weights download —
+        // it also skips the weights check, so iOS stays Apple-first.
+        var mlxInstalled = false
+        if allowMLXFallback {
+            mlxInstalled = (await ModelStore.shared.directoryIfInstalled(for: modelID)) != nil
+        }
+        if container == nil, !mlxInstalled,
+           #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             do {
                 onEngine?("apple")
                 // Streams straight to `onToken` for immediate first-token; returns the
