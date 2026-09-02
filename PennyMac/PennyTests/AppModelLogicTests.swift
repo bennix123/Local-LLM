@@ -792,6 +792,20 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("0.00 on Paytm"), reply)
     }
 
+    // 2026-09-02 manual bug: "list those transactions" after a scoped answer
+    // dumped the entire 981-row ledger. A demonstrative refers to the previous
+    // answer's receipts — and each row renders in its own currency.
+    func testListThoseTransactionsScopesToPreviousReceipts() {
+        let m = modelWithTwoDocs()
+        m.send("how much did i spend at alpha?")
+        m.send("list those transactions")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.contains("behind that answer"), reply)
+        XCTAssertTrue(reply.contains("ALPHA"), reply)
+        XCTAssertTrue(reply.contains("$10.00"), "ALPHA is a USD row: \(reply)")
+        XCTAssertFalse(reply.contains("CHARLIE"), "GBP doc's row must not appear: \(reply)")
+    }
+
     // 2026-09-02 manual bug: "do i have prime?" answered "Found 30 transactions
     // at Prime" — a listing header, not an answer. Yes/no questions lead with
     // yes.

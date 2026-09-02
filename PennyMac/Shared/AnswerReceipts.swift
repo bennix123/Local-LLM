@@ -33,4 +33,19 @@ struct AnswerReceipts: Codable, Equatable {
                        currency: $0.currency)
         }
     }
+
+    /// Build from raw rows (StatementsQuery answers etc.), same cap — so
+    /// "list those transactions" can refer back to this answer's scope.
+    init?(rows txnRows: [TxnRow], label: String, limit: Int = 50) {
+        guard !txnRows.isEmpty else { return nil }
+        scopeLabel = label
+        totalCount = txnRows.count
+        rows = txnRows.prefix(limit).map {
+            ReceiptRow(date: $0.txnDate,
+                       name: $0.merchant.isEmpty ? $0.descr : $0.merchant,
+                       amount: $0.credit > 0 ? $0.credit : $0.debit,
+                       isCredit: $0.credit > 0,
+                       currency: $0.currency)
+        }
+    }
 }

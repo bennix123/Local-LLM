@@ -22,8 +22,16 @@ public enum StatementsQuery {
         }
     }
 
+    /// An answer plus the rows behind it, so the caller can attach receipts —
+    /// "list those transactions" must be able to refer back to this scope.
+    public struct Answer {
+        public let text: String
+        public let rows: [TxnRow]
+        public let label: String
+    }
+
     public static func superlative(_ question: String,
-                                   statements: [Statement]) -> String? {
+                                   statements: [Statement]) -> Answer? {
         guard statements.count > 1 else { return nil }
         let low = FinanceRouter.normalizeQuestion(question)
         func has(_ p: String) -> Bool {
@@ -54,6 +62,7 @@ public enum StatementsQuery {
 
         struct Entry { let name: String; let currency: String; let total: Double; let n: Int }
         var entries: [Entry] = []
+        var matched: [TxnRow] = []       // every row behind the answer → receipts
         for s in statements {
             var rows = s.rows
             if let entity = uscope.entity {
@@ -67,17 +76,21 @@ public enum StatementsQuery {
             guard !rows.isEmpty else { continue }
             let total = rows.reduce(0) { $0 + (wantsCredit ? $1.credit : $1.debit) }
             entries.append(Entry(name: s.name, currency: s.currency, total: total, n: rows.count))
+            matched.append(contentsOf: rows)
         }
         guard !entries.isEmpty else { return nil }
 
         let entityTag = uscope.entity.map { uscope.isCategory ? " on \($0)" : " at \($0)" } ?? ""
+        let scopeLabel = (uscope.entity.map { "\(uscope.isCategory ? "on" : "at") \($0)" } ?? "")
+            + (wantsCredit ? " · money in" : " · money out")
         let noun = wantsCredit ? "credit" : "payment"
         func money(_ e: Entry) -> String { FinanceRouter.defaultMoney(e.currency)(e.total) }
         func line(_ e: Entry) -> String { "\(e.name) \(money(e)) across \(e.n) \(noun)\(e.n == 1 ? "" : "s")" }
+        func answer(_ text: String) -> Answer { Answer(text: text, rows: matched, label: scopeLabel) }
 
         if entries.count == 1, let only = entries.first {
             let verb = wantsCredit ? "came into" : "went out of"
-            return "**Everything\(entityTag) \(verb) \(only.name)** — \(money(only)) across \(only.n) \(noun)\(only.n == 1 ? "" : "s")."
+            return answer("**Everything\(entityTag) \(verb) \(only.name)** — \(money(only)) across \(only.n) \(noun)\(only.n == 1 ? "" : "s").")
         }
 
         if countMode {
@@ -87,7 +100,7 @@ public enum StatementsQuery {
             let rest = ranked.filter { $0.name != pick.name }
                 .map { "\($0.name): \($0.n)" }.joined(separator: " · ")
             let what = uscope.entity.map { "your \($0)" } ?? (wantsCredit ? "your incoming" : "your")
-            return "**\(wantsLeast ? "Fewest" : "Most") of \(what) transactions were from \(pick.name) — \(pick.n) of \(total).** \(rest)"
+            return answer("**\(wantsLeast ? "Fewest" : "Most") of \(what) transactions were from \(pick.name) — \(pick.n) of \(total).** \(rest)")
         }
 
         let currencies = Set(entries.map(\.currency))
@@ -99,13 +112,13 @@ public enum StatementsQuery {
                                    : (wantsLeast ? "The least of your money went out of" : "Most of your money went out of")
             var out = "**\(verb) \(pick.name)\(entityTag)** — \(money(pick)) across \(pick.n) \(noun)\(pick.n == 1 ? "" : "s")."
             if let r = runner { out += " \(wantsLeast ? "Next lowest" : "Runner-up"): \(r.name) at \(money(r))." }
-            return out
+            return answer(out)
         }
 
         // Mixed currencies: ₹ vs $ vs £ is not a ranking — say so, then give
         // each account's own-currency total (busiest first).
         let listed = entries.sorted { $0.n > $1.n }.map(line).joined(separator: " · ")
         let dir = wantsCredit ? "received" : "spent"
-        return "**Your accounts use different currencies (\(currencies.sorted().joined(separator: ", "))), so I can't rank what you \(dir)\(entityTag) across them without exchange rates.** Per account: \(listed)."
+        return answer("**Your accounts use different currencies (\(currencies.sorted().joined(separator: ", "))), so I can't rank what you \(dir)\(entityTag) across them without exchange rates.** Per account: \(listed).")
     }
 }

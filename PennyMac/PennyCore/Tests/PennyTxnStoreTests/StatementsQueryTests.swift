@@ -59,7 +59,7 @@ final class StatementsQueryTests: XCTestCase {
     // Exact manual phrasing (typo included): mixed currencies must NOT be
     // ranked, and must NOT be a per-currency triple decline.
     func testToWhichAccountDidIRecieveMostMixedCurrencies() {
-        let a = StatementsQuery.superlative("to which account did i recieve most?", statements: mixed)
+        let a = StatementsQuery.superlative("to which account did i recieve most?", statements: mixed)?.text
         XCTAssertNotNil(a, "must answer, not fall to the per-currency decline")
         XCTAssertTrue(a!.contains("different currencies"), a!)
         XCTAssertTrue(a!.contains("Hdfc Savings") && a!.contains("Chase Usd"), a!)
@@ -69,7 +69,7 @@ final class StatementsQueryTests: XCTestCase {
 
     func testSameCurrencyRanksByAmountWithRunnerUp() {
         let a = StatementsQuery.superlative("which account received the most money?",
-                                            statements: sameCurrency)
+                                            statements: sameCurrency)?.text
         XCTAssertNotNil(a)
         XCTAssertTrue(a!.contains("came into Hdfc Savings"), a!)
         XCTAssertTrue(a!.contains("₹10,200.00"), a!)
@@ -80,7 +80,7 @@ final class StatementsQueryTests: XCTestCase {
     // in all three currencies → honest no-ranking with per-account totals.
     func testFromWhichAccountDidISpendMostOnTaxi() {
         let a = StatementsQuery.superlative("from which account did i spend most on taxi?",
-                                            statements: mixed)
+                                            statements: mixed)?.text
         XCTAssertNotNil(a)
         XCTAssertTrue(a!.contains("₹400.00"), "Hdfc taxi total: \(a!)")
         XCTAssertTrue(a!.contains("$60.00"), a!)
@@ -92,7 +92,7 @@ final class StatementsQueryTests: XCTestCase {
     func testMostOfThePharmacyTransactionsNamesTheWinner() {
         let a = StatementsQuery.superlative(
             "from which account did i make most of the pharmacy related transactions?",
-            statements: mixed)
+            statements: mixed)?.text
         XCTAssertNotNil(a)
         XCTAssertTrue(a!.contains("Most of your Pharmacy transactions were from Hdfc Savings — 3 of 4."), a!)
         XCTAssertTrue(a!.contains("Chase Usd: 1"), a!)
@@ -105,7 +105,7 @@ final class StatementsQueryTests: XCTestCase {
         XCTAssertNotNil(StatementsQuery.superlative("wich account did i spend the most from",
                                                     statements: mixed))
         let least = StatementsQuery.superlative("which statement did i receive the least into?",
-                                                statements: sameCurrency)
+                                                statements: sameCurrency)?.text
         XCTAssertNotNil(least)
         XCTAssertTrue(least!.contains("Icici Current"), least!)
     }

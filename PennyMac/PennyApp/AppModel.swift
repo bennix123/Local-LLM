@@ -2183,7 +2183,8 @@ final class AppModel: ObservableObject {
     /// rows rendered (nil = every row); the caller passes nil when the user asks
     /// for "all"/"full"/"every" so the whole ledger is shown.
     static func transactionsMarkdown(_ txns: [PennyCore.Transaction], currency: String,
-                                     limit: Int? = 200) -> String {
+                                     limit: Int? = 200,
+                                     currencyFor: ((PennyCore.Transaction) -> String)? = nil) -> String {
         let cap = limit ?? txns.count
         let shown = Array(txns.prefix(cap))
         var lines = [
@@ -2191,9 +2192,12 @@ final class AppModel: ObservableObject {
             "|---|------|-------------|----------|-------|--------|---------|",
         ]
         for (i, t) in shown.enumerated() {
-            let debit = t.debit.map { Money.format($0, currency: currency) } ?? ""
-            let credit = t.credit.map { Money.format($0, currency: currency) } ?? ""
-            let balance = t.balance.map { Money.format($0, currency: currency) } ?? ""
+            // Per-row currency when the ledger spans statements: a Paytm ₹ row
+            // must never render with the summary's £ (2026-09-02 manual bug).
+            let rowCur = currencyFor?(t) ?? currency
+            let debit = t.debit.map { Money.format($0, currency: rowCur) } ?? ""
+            let credit = t.credit.map { Money.format($0, currency: rowCur) } ?? ""
+            let balance = t.balance.map { Money.format($0, currency: rowCur) } ?? ""
             var desc = t.description.replacingOccurrences(of: "|", with: "/")
             if desc.count > 40 { desc = String(desc.prefix(39)) + "…" }
             let category = (t.category ?? "").replacingOccurrences(of: "|", with: "/")
@@ -2903,6 +2907,45 @@ final class AppModel: ObservableObject {
         let txns = selectedTransactions()
         if wantsTransactionTable(q), !txns.isEmpty {
             let l = q.lowercased()
+
+            // Rows come from statements in different currencies — each row must
+            // render in ITS OWN currency, never the summary's symbol.
+            var curByKey: [String: String] = [:]
+            for d in selectedDocs() {
+                let dc = Self.effectiveCurrency(of: d)
+                for t in d.transactions {
+                    curByKey["\(t.date)|\(t.description)|\(t.debit ?? 0)|\(t.credit ?? 0)"] = dc
+                }
+            }
+            let currencyFor: (PennyCore.Transaction) -> String = { [cur = summary.currency] t in
+                curByKey["\(t.date)|\(t.description)|\(t.debit ?? 0)|\(t.credit ?? 0)"] ?? cur
+            }
+
+            // "list THOSE transactions" — a demonstrative refers to the previous
+            // answer's receipts, never the whole ledger (2026-09-02 manual bug:
+            // a 31-row cafe scope was answered with all 981 rows).
+            if l.range(of: #"\b(?:those|these)\b"#, options: .regularExpression) != nil,
+               let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
+               !receipts.rows.isEmpty {
+                let keys = Set(receipts.rows.map { "\($0.date)|\($0.amount)|\($0.isCredit)" })
+                let scoped = txns.filter { t in
+                    let isCredit = (t.credit ?? 0) > 0
+                    let amount = isCredit ? (t.credit ?? 0) : (t.debit ?? 0)
+                    return keys.contains("\(t.date)|\(amount)|\(isCredit)")
+                }
+                if !scoped.isEmpty {
+                    let capped = receipts.totalCount > receipts.rows.count
+                    let header = capped
+                        ? "That answer covered \(receipts.totalCount) transactions; here are the \(scoped.count) I kept receipts for (\(receipts.scopeLabel)):\n\n"
+                        : "Here \(scoped.count == 1 ? "is" : "are") the \(scoped.count) transaction\(scoped.count == 1 ? "" : "s") behind that answer (\(receipts.scopeLabel)):\n\n"
+                    let table = Self.transactionsMarkdown(scoped, currency: summary.currency,
+                                                          limit: nil, currencyFor: currencyFor)
+                    messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
+                    PennyLog.shared.log("chat", "A (ledger): \(scoped.count)-row receipts-scoped table")
+                    return
+                }
+            }
+
             // Date window first ("from 2026-03-05 to 2026-04-05", "in March",
             // "last month", "last 7 days") — narrows whatever scope resolves.
             let range = tableDateRange(q, txns: txns)
@@ -2980,7 +3023,8 @@ final class AppModel: ObservableObject {
             let header = (wantsAll || rows.count <= 200)
                 ? "Here \(rows.count == 1 ? "is" : "are") all \(rows.count)\(scope) \(noun)\(rangeSuffix):\n\n"
                 : "Here are your \(rows.count)\(scope) \(noun)\(rangeSuffix) (showing the first 200):\n\n"
-            let table = Self.transactionsMarkdown(rows, currency: summary.currency, limit: limit)
+            let table = Self.transactionsMarkdown(rows, currency: summary.currency, limit: limit,
+                                                  currencyFor: currencyFor)
             messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
             PennyLog.shared.log("chat", "A (ledger): \(rows.count)-row transaction table\(scopeLabel.map { " [\($0)]" } ?? "")\(range.map { " [\($0.label.trimmingCharacters(in: .whitespaces))]" } ?? "")")
             return
@@ -3029,8 +3073,9 @@ final class AppModel: ObservableObject {
                 StatementsQuery.Statement(name: $0.displayName, rows: $0.rows,
                                           currency: Self.effectiveCurrency(of: $0))
             }) {
-                messages.append(ChatMessage(role: .assistant, content: sup, engine: "ANALYTICS"))
-                PennyLog.shared.log("chat", "A (analytics): \(sup)")
+                messages.append(ChatMessage(role: .assistant, content: sup.text, engine: "ANALYTICS",
+                                            receipts: AnswerReceipts(rows: sup.rows, label: sup.label)))
+                PennyLog.shared.log("chat", "A (analytics): \(sup.text)")
                 return
             }
             func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)],

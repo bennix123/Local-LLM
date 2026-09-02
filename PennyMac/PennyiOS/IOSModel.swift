@@ -453,7 +453,8 @@ final class IOSModel: ObservableObject {
             if let sup = StatementsQuery.superlative(resolvedQ, statements: statements.map {
                 StatementsQuery.Statement(name: $0.displayName, rows: $0.rows, currency: $0.currency)
             }) {
-                messages.append(IOSChatMsg(role: .penny, text: sup, engine: "swift engine"))
+                messages.append(IOSChatMsg(role: .penny, text: sup.text, engine: "swift engine",
+                                           receipts: AnswerReceipts(rows: sup.rows, label: sup.label)))
                 return
             }
             func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)]) -> Bool {
