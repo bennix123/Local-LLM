@@ -238,10 +238,15 @@ struct ContextPanelView: View {
             ForEach(s.categories.prefix(6)) { cat in
                 let meta = CategoryMeta.style(for: cat.name)
                 let pct = total > 0 ? abs(cat.amount) / total : 0
-                HStack(spacing: 7) {
-                    Text(meta.icon).font(.system(size: 13)).frame(width: 18)
-                    Text(cat.name).font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.ink2)
-                        .lineLimit(1).frame(width: 56, alignment: .leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Text(meta.icon).font(.system(size: 13)).frame(width: 18)
+                        Text(cat.name).font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.ink2)
+                        Spacer(minLength: 8)
+                        Text(Money.format(abs(cat.amount), currency: s.currency))
+                            .font(Theme.mono(10)).foregroundStyle(Theme.ink)
+                            .lineLimit(1)
+                    }
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 3).fill(Theme.bg2)
@@ -249,11 +254,8 @@ struct ContextPanelView: View {
                                 .frame(width: geo.size.width * pct)
                         }
                     }
-                    .frame(height: 12)
-                    Text(Money.format(abs(cat.amount), currency: s.currency))
-                        .font(Theme.mono(10)).foregroundStyle(Theme.ink)
-                        .lineLimit(1)
-                        .frame(minWidth: 40, alignment: .trailing)
+                    .frame(height: 8)
+                    .padding(.leading, 25)
                 }
                 .padding(.vertical, 2)
             }

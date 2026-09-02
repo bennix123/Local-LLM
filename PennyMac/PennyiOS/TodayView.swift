@@ -106,7 +106,8 @@ struct TodayView: View {
                         Text(look.emoji).font(.system(size: 20))
                         Text(model.money(c.amount)).font(T.display(17, .semibold)).foregroundStyle(T.ink)
                         Text(c.category).font(T.body(11, .medium)).foregroundStyle(T.dim)
-                            .lineLimit(1)
+                            .lineLimit(2, reservesSpace: true)
+                            .minimumScaleFactor(0.85)
                     }
                     .padding(12)
                     .frame(width: 116, alignment: .leading)
