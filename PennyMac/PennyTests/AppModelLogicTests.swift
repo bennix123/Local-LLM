@@ -760,6 +760,38 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("has the most money out"), reply)
     }
 
+    // 2026-09-02 manual bug: "to which account did i recieve most?" (typo and
+    // all) got the same per-currency account-decline three times. The statement
+    // dimension now answers — the statement IS the account.
+    func testToWhichAccountDidIRecieveMostAnswersFromStatements() {
+        let m = modelWithTwoDocs()
+        m.send("to which account did i recieve most?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertFalse(reply.contains("doesn't say which of your accounts"), reply)
+        XCTAssertTrue(reply.contains("came into"), reply)
+    }
+
+    // 2026-09-02 manual bug: "what transaction did i make from paytm related to
+    // that?" → "$0.00 on Paytm" — a statement name is session metadata, never a
+    // phantom merchant.
+    func testStatementNameNeverBecomesAPhantomMerchant() {
+        let m = freshModel()
+        m.loadForTesting([
+            makeDoc(name: "paytm.pdf",
+                    txns: [txn(desc: "TESCO", debit: 10)],
+                    rows: [row(1, desc: "TESCO", debit: 10, currency: "INR")],
+                    currency: "INR"),
+            makeDoc(name: "hdfc.csv",
+                    txns: [txn(desc: "SWIGGY", debit: 20)],
+                    rows: [row(1, desc: "SWIGGY", category: "Food & Dining", debit: 20, currency: "INR")],
+                    currency: "INR"),
+        ])
+        m.recomputeSummary()
+        m.send("what transaction did i make from paytm related to that?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertFalse(reply.contains("0.00 on Paytm"), reply)
+    }
+
     // 2026-09-02 manual bug: "do i have prime?" answered "Found 30 transactions
     // at Prime" — a listing header, not an answer. Yes/no questions lead with
     // yes.

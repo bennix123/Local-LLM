@@ -243,9 +243,16 @@ struct ContextPanelView: View {
                         Text(meta.icon).font(.system(size: 13)).frame(width: 18)
                         Text(cat.name).font(Theme.font(10.5, .semibold)).foregroundStyle(Theme.ink2)
                         Spacer(minLength: 8)
-                        Text(Money.format(abs(cat.amount), currency: s.currency))
+                        // Multi-currency categories show each currency's own
+                        // total — ₹ + £ is never one number under one symbol.
+                        Text(cat.amounts.count > 1
+                             ? cat.amounts.sorted { $0.value > $1.value }
+                                 .map { Money.format($0.value, currency: $0.key) }
+                                 .joined(separator: " + ")
+                             : Money.format(abs(cat.amount),
+                                            currency: cat.amounts.keys.first ?? s.currency))
                             .font(Theme.mono(10)).foregroundStyle(Theme.ink)
-                            .lineLimit(1)
+                            .lineLimit(1).minimumScaleFactor(0.75)
                     }
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {

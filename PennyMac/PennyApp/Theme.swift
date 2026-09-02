@@ -109,6 +109,11 @@ enum Money {
         let fmt = NumberFormatter()
         fmt.numberStyle = .decimal
         fmt.groupingSeparator = ","
+        // Pin the grouping locale: NumberFormatter defaults to the SYSTEM
+        // locale, so on an en_IN Mac every non-INR amount was lakh-grouped
+        // ("£1,68,970" — 2026-09-02 manual bug). Grouping follows the
+        // CURRENCY, never the machine.
+        fmt.locale = Locale(identifier: "en_US")
         return fmt.string(from: NSNumber(value: Int(intPart) ?? 0)) ?? intPart
     }
 

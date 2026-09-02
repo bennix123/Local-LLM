@@ -138,6 +138,13 @@ public enum FinanceRouter {
             sections.append((code, ans, isZero))
         }
         guard !sections.isEmpty else { return nil }
+        // Identical answers in every currency collapse to ONE — repeating the
+        // same decline under INR/USD/GBP headers reads as a stutter, not an
+        // answer (2026-09-02 manual bug). Identical strings can't carry
+        // per-currency amounts, so nothing is lost.
+        if sections.count > 1, Set(sections.map(\.answer)).count == 1 {
+            return sections[0].answer
+        }
         let substantive = sections.filter { !$0.isZero }
         if substantive.isEmpty { return sections[0].answer }   // one honest zero, not three
         if substantive.count == 1 { return substantive[0].answer }
@@ -267,17 +274,18 @@ public enum FinanceRouter {
             directionNote: directionNote)
     }
 
-    static func answerSingleCurrency(_ question: String,
-                                     rows: [TxnRow],
-                                     currency: String,
-                                     accounts: [AccountBalance] = [],
-                                     money: (Double) -> String) -> String? {
+    /// THE question-normalization brain — lowercase + typo repair, shared by
+    /// every deterministic layer (router, cross-document gates, statement
+    /// queries), so a typo'd question reads identically everywhere. Two passes:
+    /// an enumerated table of very common intent-word typos, then typo-TOLERANT
+    /// (nearMatch) canonicalization of the dimension nouns, because no list can
+    /// enumerate every misspelling — "which CATAGORY did i spend most amount?"
+    /// (2026-09-02 manual bug) must read as a category question in every
+    /// handler, and since the canonical spellings are all merchantStopwords,
+    /// canonicalizing also stops a typo becoming a phantom "£0.00 on Catagory"
+    /// target. ("amount" stays 2 edits from "account", outside the threshold.)
+    public static func normalizeQuestion(_ question: String) -> String {
         var low = question.lowercased()
-        guard !rows.isEmpty else { return nil }
-
-        // Normalise a few very common misspellings of intent words up-front, so a
-        // typo like "mcuh"/"totl" doesn't get mistaken for an (absent) merchant and
-        // answered as a misleading "£0 on Mcuh".
         for (typo, fix) in [("mcuh", "much"), ("muhc", "much"), ("moch", "much"),
                             ("totl", "total"), ("toatl", "total"), ("transprot", "transport"),
                             ("trasnport", "transport"), ("expence", "expense"),
@@ -286,13 +294,6 @@ public enum FinanceRouter {
             low = low.replacingOccurrences(of: #"\b"# + typo + #"\b"#, with: fix,
                                            options: .regularExpression)
         }
-        // Dimension nouns get the same treatment typo-TOLERANTLY (nearMatch),
-        // because no list can enumerate every misspelling: "which CATAGORY did
-        // i spend most amount?" (2026-09-02 manual bug) must read as a category
-        // question in every handler below — and, since the canonical spellings
-        // are all merchantStopwords, canonicalizing here also stops the typo
-        // from becoming a phantom "£0.00 on Catagory" target. ("amount" stays
-        // 2 edits from "account", outside nearMatch's threshold.)
         let dimWords = ["month", "months", "year", "years", "account", "accounts",
                         "bank", "banks", "category", "categories", "merchant",
                         "merchants", "shop", "shops", "store", "stores"]
@@ -303,6 +304,16 @@ public enum FinanceRouter {
                                                options: .regularExpression)
             }
         }
+        return low
+    }
+
+    static func answerSingleCurrency(_ question: String,
+                                     rows: [TxnRow],
+                                     currency: String,
+                                     accounts: [AccountBalance] = [],
+                                     money: (Double) -> String) -> String? {
+        let low = normalizeQuestion(question)
+        guard !rows.isEmpty else { return nil }
 
         // ---- statement-header metadata → defer -----------------------------
         // Rewards points, credit limit, interest rates, minimum payment, due date,

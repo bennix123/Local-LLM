@@ -249,7 +249,12 @@ struct CurrencyTotals: Equatable {
 struct CategorySpend: Identifiable, Equatable {
     let id = UUID()
     let name: String
+    /// Dominant-currency amount — the yardstick for bar widths and ordering.
     let amount: Double
+    /// Per-currency sums. ₹ + £ is never one number: multi-currency imports
+    /// display every currency's own total ("₹27,559 + $1,200"), never a blend
+    /// under one symbol (2026-09-02 manual bug).
+    var amounts: [String: Double] = [:]
 }
 
 /// The single source of truth for the whole app UI — the SwiftUI analogue of the
@@ -1776,7 +1781,7 @@ final class AppModel: ObservableObject {
                 acc + (d.isCard ? -d.latestBalance! : d.latestBalance!)
             }
         }
-        s.categories = categorize(txns)
+        s.categories = categorize(chosen)
         // Per-currency breakdown: the same sums grouped by each statement's
         // own currency, so multi-currency imports never show (or hand the
         // model) one meaningless mixed figure.
@@ -1828,17 +1833,28 @@ final class AppModel: ObservableObject {
         return chosen.map(\.currency).first ?? "INR"
     }
 
-    private func categorize(_ txns: [PennyCore.Transaction]) -> [CategorySpend] {
-        var totals: [String: Double] = [:]
-        for t in txns {
-            guard let debit = t.debit, debit > 0 else { continue }
-            // Prefer the parser's deterministic category (from categories.json);
-            // fall back to the keyword heuristic only for model-extracted rows.
-            let name = (t.category?.isEmpty == false) ? t.category! : Self.categoryName(t.description)
-            totals[name, default: 0] += debit
+    private func categorize(_ docs: [LoadedDoc]) -> [CategorySpend] {
+        // category → currency → sum. Currencies never blend: each statement's
+        // debits accumulate under that statement's own currency.
+        var totals: [String: [String: Double]] = [:]
+        for d in docs {
+            let cur = Self.effectiveCurrency(of: d)
+            for t in d.transactions {
+                guard let debit = t.debit, debit > 0 else { continue }
+                // Prefer the parser's deterministic category (from categories.json);
+                // fall back to the keyword heuristic only for model-extracted rows.
+                let name = (t.category?.isEmpty == false) ? t.category! : Self.categoryName(t.description)
+                totals[name, default: [:]][cur, default: 0] += debit
+            }
         }
+        // Dominant currency (largest total spend) is the yardstick for bars and
+        // ordering; the other currencies still display as their own amounts.
+        var byCur: [String: Double] = [:]
+        for m in totals.values { for (c, v) in m { byCur[c, default: 0] += v } }
+        let dom = byCur.max { $0.value < $1.value }?.key ?? ""
         return totals
-            .map { CategorySpend(name: $0.key, amount: $0.value) }
+            .map { CategorySpend(name: $0.key, amount: $0.value[dom] ?? $0.value.values.max() ?? 0,
+                                 amounts: $0.value) }
             .sorted { $0.amount > $1.amount }
     }
 
@@ -2487,7 +2503,9 @@ final class AppModel: ObservableObject {
     /// finance router (which would otherwise answer per-merged-ledger). Nil when
     /// the question isn't one of these cross-document lookups.
     func crossDocumentAnswer(_ question: String) -> String? {
-        let low = question.lowercased()
+        // Same normalization brain as the router — a typo ("recieve") must not
+        // route differently up here than it does downstream.
+        let low = FinanceRouter.normalizeQuestion(question)
         let docs = selectedDocs()
         guard !docs.isEmpty else { return nil }
         let cur = summary.currency
@@ -2623,7 +2641,7 @@ final class AppModel: ObservableObject {
            has(#"\b(?:accounts?|statements?|banks?|cards?|files?)\b"#),
            !has(#"categor|largest (credit|debit|expense|transaction|payment)|\bmonth\b|\bday\b|\bweek\b|\byear\b"#),
            has(#"\b(most|highest|largest|greatest)\b"#) || has(#"which (account|statement|bank)"#) {
-            if has(#"money in|received|credited|income|inflow|paid in|total in\b"#), !has(#"salary"#) {
+            if has(#"money in|receiv\w*|credited|income|inflow|paid in|total in\b"#), !has(#"salary"#) {
                 if let d = docs.max(by: { moneyIn($0) < moneyIn($1) }) {
                     return "**\(d.displayName) has the most money in: \(money(moneyIn(d))).**"
                 }
@@ -3003,6 +3021,18 @@ final class AppModel: ObservableObject {
         if q.lowercased().range(
             of: #"(?:from |in |on |to )?(?:which|what) (?:bank\s+)?(?:accounts?|statements?|banks?)\b"#,
             options: .regularExpression) != nil {
+            // Superlatives first ("to which account did i receive most?",
+            // "from which account did i spend most on taxi?") — ranked totals
+            // per statement from the shared brain, not a bare count roster,
+            // and never a cross-currency ranking (2026-09-02 manual bugs).
+            if let sup = StatementsQuery.superlative(resolvedQ, statements: selectedDocs().map {
+                StatementsQuery.Statement(name: $0.displayName, rows: $0.rows,
+                                          currency: Self.effectiveCurrency(of: $0))
+            }) {
+                messages.append(ChatMessage(role: .assistant, content: sup, engine: "ANALYTICS"))
+                PennyLog.shared.log("chat", "A (analytics): \(sup)")
+                return
+            }
             func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)],
                            noun: String) -> Bool {
                 var byDoc: [String: Int] = [:]
@@ -3077,8 +3107,28 @@ final class AppModel: ObservableObject {
                                          isCard: $0.isCard)
         }
         let money: (Double) -> String = { Money.format($0, currency: cur) }
-        let routerAnswer = FinanceRouter.answer(resolvedQ, rows: selectedRows(), currency: cur,
+        var routerAnswer = FinanceRouter.answer(resolvedQ, rows: selectedRows(), currency: cur,
                                                 accounts: accounts, money: money)
+        // A "£0 on X" honest-zero whose X is really a STATEMENT name means the
+        // router mistook session metadata for a merchant ("what transaction did
+        // i make from paytm…" → "$0.00 on Paytm", 2026-09-02 manual bug). The
+        // router can't know statement names; the app does — swap in that
+        // statement's real summary.
+        if let ans = routerAnswer, ans.contains("I couldn't find any transactions matching"),
+           let d = namedDoc(for: resolvedQ),
+           let tr = ans.range(of: #"matching “([^”]+)”"#, options: .regularExpression) {
+            let phantom = String(String(ans[tr]).dropFirst("matching “".count).dropLast()).lowercased()
+            let ids = [d.displayName, d.bank ?? "", (d.name as NSString).deletingPathExtension]
+                .map { $0.lowercased() }.filter { !$0.isEmpty }
+            if ids.contains(where: { $0.contains(phantom) || phantom.contains($0) }) {
+                let dCur = Self.effectiveCurrency(of: d)
+                let out = d.rows.reduce(0) { $0 + $1.debit }
+                let inc = d.rows.reduce(0) { $0 + $1.credit }
+                routerAnswer = "**\(d.displayName) is one of your statements, not a merchant.** "
+                    + "It has \(d.rows.count) transaction\(d.rows.count == 1 ? "" : "s") — "
+                    + "\(Money.format(out, currency: dCur)) out, \(Money.format(inc, currency: dCur)) in."
+            }
+        }
         // Fixes 4 & 5 — the scope + transactions behind a deterministic figure,
         // so the answer bubble can show what it filtered on and let the user
         // drill into the exact rows. nil for whole-ledger answers (no chip).

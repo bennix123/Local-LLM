@@ -199,10 +199,27 @@ final class IOSModel: ObservableObject {
         }
     }
 
-    var spendByCategory: [(category: String, amount: Double)] {
-        var byCat: [String: Double] = [:]
-        for r in mergedRows where r.debit > 0 { byCat[r.category, default: 0] += r.debit }
-        return byCat.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
+    /// Per-category spend. `amount` is the dominant-currency figure (bar/sort
+    /// yardstick); `display` shows each currency's own total joined — ₹ + £ is
+    /// never blended into one number (parity with macOS, 2026-09-02 bug).
+    var spendByCategory: [(category: String, amount: Double, display: String)] {
+        var byCatCur: [String: [String: Double]] = [:]
+        for r in mergedRows where r.debit > 0 {
+            let c = r.currency.isEmpty ? primaryCurrency : r.currency
+            byCatCur[r.category, default: [:]][c, default: 0] += r.debit
+        }
+        var byCur: [String: Double] = [:]
+        for m in byCatCur.values { for (c, v) in m { byCur[c, default: 0] += v } }
+        let dom = byCur.max { $0.value < $1.value }?.key ?? primaryCurrency
+        return byCatCur
+            .map { name, m -> (String, Double, String) in
+                let display = m.count > 1
+                    ? m.sorted { $0.value > $1.value }
+                        .map { self.money($0.value, $0.key) }.joined(separator: " + ")
+                    : self.money(m.values.first ?? 0, m.keys.first ?? dom)
+                return (name, m[dom] ?? m.values.max() ?? 0, display)
+            }
+            .sorted { $0.amount > $1.amount }
     }
 
     var recentRows: [TxnRow] {
@@ -430,6 +447,15 @@ final class IOSModel: ObservableObject {
         if q.lowercased().range(
             of: #"(?:from |in |on |to )?(?:which|what) (?:bank\s+)?(?:accounts?|statements?|banks?)\b"#,
             options: .regularExpression) != nil {
+            // Superlatives first ("to which account did i receive most?") —
+            // ranked per-statement totals from the shared brain, never a
+            // cross-currency ranking. Parity with macOS.
+            if let sup = StatementsQuery.superlative(resolvedQ, statements: statements.map {
+                StatementsQuery.Statement(name: $0.displayName, rows: $0.rows, currency: $0.currency)
+            }) {
+                messages.append(IOSChatMsg(role: .penny, text: sup, engine: "swift engine"))
+                return
+            }
             func attribute(_ rows: [(date: String, name: String, amount: Double, isCredit: Bool)]) -> Bool {
                 var byDoc: [String: Int] = [:]
                 for r in rows {
@@ -522,9 +548,27 @@ final class IOSModel: ObservableObject {
                                          currency: $0.currency)
         }
         // Mixed currencies come back as one answer per currency from the router.
-        if let det = FinanceRouter.answer(resolvedQ, rows: rows, currency: cur,
+        if var det = FinanceRouter.answer(resolvedQ, rows: rows, currency: cur,
                                           accounts: accounts,
                                           money: { self.money($0, cur) }) {
+            // A "£0 on X" honest-zero whose X is really a STATEMENT name means
+            // the router mistook session metadata for a merchant ("what
+            // transaction did i make from paytm…"). Parity with macOS.
+            if det.contains("I couldn't find any transactions matching"),
+               let tr = det.range(of: #"matching “([^”]+)”"#, options: .regularExpression) {
+                let phantom = String(String(det[tr]).dropFirst("matching “".count).dropLast()).lowercased()
+                if let s = statements.first(where: { st in
+                    [st.displayName, (st.name as NSString).deletingPathExtension]
+                        .map { $0.lowercased() }.filter { !$0.isEmpty }
+                        .contains { $0.contains(phantom) || phantom.contains($0) }
+                }) {
+                    let out = s.rows.reduce(0) { $0 + $1.debit }
+                    let inc = s.rows.reduce(0) { $0 + $1.credit }
+                    det = "**\(s.displayName) is one of your statements, not a merchant.** "
+                        + "It has \(s.rows.count) transaction\(s.rows.count == 1 ? "" : "s") — "
+                        + "\(money(out, s.currency)) out, \(money(inc, s.currency)) in."
+                }
+            }
             // Fixes 4 & 5 — scope + the transactions behind the figure.
             let receipts = FinanceRouter.context(for: resolvedQ, rows: rows)
                 .flatMap { AnswerReceipts(from: $0) }

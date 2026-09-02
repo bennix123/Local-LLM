@@ -104,7 +104,8 @@ struct TodayView: View {
                     let look = T.categoryLook(c.category)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(look.emoji).font(.system(size: 20))
-                        Text(model.money(c.amount)).font(T.display(17, .semibold)).foregroundStyle(T.ink)
+                        Text(c.display).font(T.display(17, .semibold)).foregroundStyle(T.ink)
+                            .lineLimit(1).minimumScaleFactor(0.6)
                         Text(c.category).font(T.body(11, .medium)).foregroundStyle(T.dim)
                             .lineLimit(2, reservesSpace: true)
                             .minimumScaleFactor(0.85)
