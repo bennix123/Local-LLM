@@ -2905,6 +2905,46 @@ final class AppModel: ObservableObject {
         // aligned — instead of asking the model to re-type it from a clipped context
         // (which truncates rows and garbles columns).
         let txns = selectedTransactions()
+
+        // "list them" / "list those transactions" / "show these" — a pronoun
+        // after a receipts-bearing answer means THOSE rows, rendered as the
+        // deterministic ledger table. This must catch the follow-up BEFORE any
+        // other handler: "list them" fell all the way to the MLX model, which
+        // prose-listed the receipt rows and garbled them (2026-09-02 manual
+        // bug); "list those transactions" dumped the whole 981-row ledger.
+        if q.lowercased().range(of: #"\b(?:list|show|display|table)\b"#, options: .regularExpression) != nil,
+           q.lowercased().range(of: #"\b(?:them|those|these)\b"#, options: .regularExpression) != nil,
+           let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
+           !receipts.rows.isEmpty, !txns.isEmpty {
+            var curByKey: [String: String] = [:]
+            for d in selectedDocs() {
+                let dc = Self.effectiveCurrency(of: d)
+                for t in d.transactions {
+                    curByKey["\(t.date)|\(t.description)|\(t.debit ?? 0)|\(t.credit ?? 0)"] = dc
+                }
+            }
+            let currencyFor: (PennyCore.Transaction) -> String = { [cur = summary.currency] t in
+                curByKey["\(t.date)|\(t.description)|\(t.debit ?? 0)|\(t.credit ?? 0)"] ?? cur
+            }
+            let keys = Set(receipts.rows.map { "\($0.date)|\($0.amount)|\($0.isCredit)" })
+            let scoped = txns.filter { t in
+                let isCredit = (t.credit ?? 0) > 0
+                let amount = isCredit ? (t.credit ?? 0) : (t.debit ?? 0)
+                return keys.contains("\(t.date)|\(amount)|\(isCredit)")
+            }
+            if !scoped.isEmpty {
+                let capped = receipts.totalCount > receipts.rows.count
+                let header = capped
+                    ? "That answer covered \(receipts.totalCount) transactions; here are the \(scoped.count) I kept receipts for (\(receipts.scopeLabel)):\n\n"
+                    : "Here \(scoped.count == 1 ? "is" : "are") the \(scoped.count) transaction\(scoped.count == 1 ? "" : "s") behind that answer (\(receipts.scopeLabel)):\n\n"
+                let table = Self.transactionsMarkdown(scoped, currency: summary.currency,
+                                                      limit: nil, currencyFor: currencyFor)
+                messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
+                PennyLog.shared.log("chat", "A (ledger): \(scoped.count)-row receipts-scoped table")
+                return
+            }
+        }
+
         if wantsTransactionTable(q), !txns.isEmpty {
             let l = q.lowercased()
 
@@ -2919,31 +2959,6 @@ final class AppModel: ObservableObject {
             }
             let currencyFor: (PennyCore.Transaction) -> String = { [cur = summary.currency] t in
                 curByKey["\(t.date)|\(t.description)|\(t.debit ?? 0)|\(t.credit ?? 0)"] ?? cur
-            }
-
-            // "list THOSE transactions" — a demonstrative refers to the previous
-            // answer's receipts, never the whole ledger (2026-09-02 manual bug:
-            // a 31-row cafe scope was answered with all 981 rows).
-            if l.range(of: #"\b(?:those|these)\b"#, options: .regularExpression) != nil,
-               let receipts = messages.last(where: { $0.role == .assistant })?.receipts,
-               !receipts.rows.isEmpty {
-                let keys = Set(receipts.rows.map { "\($0.date)|\($0.amount)|\($0.isCredit)" })
-                let scoped = txns.filter { t in
-                    let isCredit = (t.credit ?? 0) > 0
-                    let amount = isCredit ? (t.credit ?? 0) : (t.debit ?? 0)
-                    return keys.contains("\(t.date)|\(amount)|\(isCredit)")
-                }
-                if !scoped.isEmpty {
-                    let capped = receipts.totalCount > receipts.rows.count
-                    let header = capped
-                        ? "That answer covered \(receipts.totalCount) transactions; here are the \(scoped.count) I kept receipts for (\(receipts.scopeLabel)):\n\n"
-                        : "Here \(scoped.count == 1 ? "is" : "are") the \(scoped.count) transaction\(scoped.count == 1 ? "" : "s") behind that answer (\(receipts.scopeLabel)):\n\n"
-                    let table = Self.transactionsMarkdown(scoped, currency: summary.currency,
-                                                          limit: nil, currencyFor: currencyFor)
-                    messages.append(ChatMessage(role: .assistant, content: header + table, engine: "LEDGER"))
-                    PennyLog.shared.log("chat", "A (ledger): \(scoped.count)-row receipts-scoped table")
-                    return
-                }
             }
 
             // Date window first ("from 2026-03-05 to 2026-04-05", "in March",

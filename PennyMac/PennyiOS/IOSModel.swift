@@ -549,6 +549,27 @@ final class IOSModel: ObservableObject {
                                          currency: $0.currency)
         }
         // Mixed currencies come back as one answer per currency from the router.
+        // "list them / those / these" after a receipts-bearing answer means
+        // THOSE rows — a deterministic list, never the model prose-listing
+        // (and garbling) them. Parity with macOS (2026-09-02 manual bug).
+        if q.lowercased().range(of: #"\b(?:list|show|display|table)\b"#, options: .regularExpression) != nil,
+           q.lowercased().range(of: #"\b(?:them|those|these)\b"#, options: .regularExpression) != nil,
+           let receipts = messages.last(where: { $0.role == .penny })?.receipts,
+           !receipts.rows.isEmpty {
+            let label = receipts.scopeLabel.isEmpty ? "" : " (\(receipts.scopeLabel))"
+            var lines = ["**The \(receipts.totalCount) transaction\(receipts.totalCount == 1 ? "" : "s") behind that answer\(label):**"]
+            for r in receipts.rows {
+                let amt = money(r.amount, r.currency.isEmpty ? cur : r.currency)
+                lines.append("- \(PrettyDate.long(r.date)) — \(r.name): \(amt)\(r.isCredit ? " in" : "")")
+            }
+            if receipts.totalCount > receipts.rows.count {
+                lines.append("_showing the \(receipts.rows.count) I kept receipts for_")
+            }
+            messages.append(IOSChatMsg(role: .penny, text: lines.joined(separator: "\n"),
+                                       engine: "swift engine", receipts: receipts))
+            return
+        }
+
         if var det = FinanceRouter.answer(resolvedQ, rows: rows, currency: cur,
                                           accounts: accounts,
                                           money: { self.money($0, cur) }) {

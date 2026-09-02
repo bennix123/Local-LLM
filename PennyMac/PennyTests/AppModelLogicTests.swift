@@ -806,6 +806,19 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("CHARLIE"), "GBP doc's row must not appear: \(reply)")
     }
 
+    // 2026-09-02 manual bug: bare "list them" (no noun) fell past every
+    // deterministic handler to the MLX model, which prose-listed and garbled
+    // the rows. The pronoun alone must reach the receipts table.
+    func testBareListThemAlsoScopesToPreviousReceipts() {
+        let m = modelWithTwoDocs()
+        m.send("how much did i spend at alpha?")
+        m.send("list them")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertEqual(m.messages.last?.engine, "LEDGER", reply)
+        XCTAssertTrue(reply.contains("behind that answer"), reply)
+        XCTAssertFalse(reply.contains("CHARLIE"), reply)
+    }
+
     // 2026-09-02 manual bug: "do i have prime?" answered "Found 30 transactions
     // at Prime" — a listing header, not an answer. Yes/no questions lead with
     // yes.
