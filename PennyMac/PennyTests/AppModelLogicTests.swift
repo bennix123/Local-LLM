@@ -743,6 +743,43 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("has the most money out"), reply)
     }
 
+    // 2026-09-02 manual bugs: the same comparer, new subjects — its exclusion
+    // blacklist lost to a typo ("catagory") and to "on what … in fastfood".
+    // It now requires the question to be ABOUT accounts/statements/banks.
+    func testCategorySuperlativeTypoIsNotAStatementComparison() {
+        let m = modelWithTwoDocs()
+        m.send("which catagory did i spend most amount?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertFalse(reply.contains("has the most money out"), reply)
+    }
+
+    func testOnWhatInFastfoodIsNotAStatementComparison() {
+        let m = modelWithTwoDocs()
+        m.send("on what did i spend most in fastfood?")
+        let reply = m.messages.last?.content ?? ""
+        XCTAssertFalse(reply.contains("has the most money out"), reply)
+    }
+
+    // 2026-09-02 manual bug: "do i have prime?" answered "Found 30 transactions
+    // at Prime" — a listing header, not an answer. Yes/no questions lead with
+    // yes.
+    func testExistenceQuestionLeadsWithYesNotFound() {
+        let m = freshModel()
+        m.loadForTesting([makeDoc(name: "bank.csv",
+            txns: [txn(desc: "AMAZON PRIME", debit: 149), txn(desc: "STARBUCKS", debit: 300)],
+            rows: [row(1, desc: "AMAZON PRIME", category: "Subscriptions", debit: 149),
+                   row(2, desc: "STARBUCKS", category: "Food & Dining", debit: 300)],
+            currency: "INR")])
+        m.recomputeSummary()
+        m.send("do i have prime?")
+        var reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.hasPrefix("**Yes —"), reply)
+        XCTAssertFalse(reply.contains("Found"), reply)
+        m.send("do i got to starbucks?")
+        reply = m.messages.last?.content ?? ""
+        XCTAssertTrue(reply.hasPrefix("**Yes —"), reply)
+    }
+
     private func modelWithDatedTxns() -> AppModel {
         let m = freshModel()
         m.loadForTesting([makeDoc(name: "bank.pdf",

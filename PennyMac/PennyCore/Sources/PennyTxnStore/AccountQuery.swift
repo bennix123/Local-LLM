@@ -183,4 +183,25 @@ public enum AccountQuery {
     }
 
     private static func prettyISO(_ iso: String) -> String { PrettyDate.long(iso) }
+
+    // MARK: - existence questions ("do i have prime?", "did i go to starbucks?")
+
+    /// True when the question is a yes/no about whether something exists in the
+    /// data — not a request to list or total it. "Do i have prime?" answered
+    /// with "Found 30 transactions at Prime" read as a listing, not an answer
+    /// (2026-09-02 manual bug): a yes/no question deserves a yes/no lead.
+    public static func isExistenceQuestion(_ question: String) -> Bool {
+        let low = question.lowercased()
+        guard has(low, #"^\s*(?:do|does|did|have|has|had|am|are|is|was|were)\s+(?:i|we)\b"#) else { return false }
+        // "how much…" / "list…" phrasings that merely START like yes/no stay
+        // quantitative; so do timing questions.
+        return !has(low, #"how much|how many|how often|number of|\blist\b|\bshow\b|\bwhen\b|what (?:date|day)"#)
+    }
+
+    /// Yes-lead phrasing for rows a keyword/scope fallback already matched.
+    /// The caller appends its own spent/received sums.
+    public static func existenceLead(count: Int, label: String?) -> String {
+        let tail = (label?.isEmpty == false) ? " \(label!)" : ""
+        return "**Yes — \(count) transaction\(count == 1 ? "" : "s")\(tail).**"
+    }
 }

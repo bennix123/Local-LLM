@@ -543,6 +543,26 @@ final class IOSModel: ObservableObject {
             return
         }
 
+        // Existence questions ("do i have prime?", "did i go to starbucks?")
+        // get a yes-lead with the sums, deterministically — parity with macOS.
+        if AccountQuery.isExistenceQuestion(resolvedQ),
+           let ctx = FinanceRouter.context(for: resolvedQ, rows: rows), !ctx.rows.isEmpty {
+            var outByCur: [String: Double] = [:], incByCur: [String: Double] = [:]
+            for r in ctx.rows {
+                let c = r.currency.isEmpty ? cur : r.currency
+                if r.debit > 0 { outByCur[c, default: 0] += r.debit }
+                if r.credit > 0 { incByCur[c, default: 0] += r.credit }
+            }
+            var text = AccountQuery.existenceLead(count: ctx.rows.count, label: ctx.label)
+            let outs = outByCur.sorted { $0.value > $1.value }.map { self.money($0.value, $0.key) }
+            let incs = incByCur.sorted { $0.value > $1.value }.map { self.money($0.value, $0.key) }
+            if !outs.isEmpty { text += " Spent \(outs.joined(separator: " + "))." }
+            if !incs.isEmpty { text += " Received \(incs.joined(separator: " + "))." }
+            messages.append(IOSChatMsg(role: .penny, text: text, engine: "swift engine",
+                                       receipts: AnswerReceipts(from: ctx)))
+            return
+        }
+
         // 2) Apple's on-device system model — iOS's ONLY generative engine (user
         //    directive: no MLX download on the phone; the deterministic layer
         //    carries every factual question regardless).

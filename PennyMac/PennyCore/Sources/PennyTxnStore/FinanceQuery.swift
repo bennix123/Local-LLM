@@ -286,6 +286,23 @@ public enum FinanceRouter {
             low = low.replacingOccurrences(of: #"\b"# + typo + #"\b"#, with: fix,
                                            options: .regularExpression)
         }
+        // Dimension nouns get the same treatment typo-TOLERANTLY (nearMatch),
+        // because no list can enumerate every misspelling: "which CATAGORY did
+        // i spend most amount?" (2026-09-02 manual bug) must read as a category
+        // question in every handler below — and, since the canonical spellings
+        // are all merchantStopwords, canonicalizing here also stops the typo
+        // from becoming a phantom "£0.00 on Catagory" target. ("amount" stays
+        // 2 edits from "account", outside nearMatch's threshold.)
+        let dimWords = ["month", "months", "year", "years", "account", "accounts",
+                        "bank", "banks", "category", "categories", "merchant",
+                        "merchants", "shop", "shops", "store", "stores"]
+        for tok in Set(low.split(whereSeparator: { !$0.isLetter }).map(String.init))
+        where tok.count >= 5 && !dimWords.contains(tok) {
+            if let canon = dimWords.first(where: { nearMatch(tok, $0) }) {
+                low = low.replacingOccurrences(of: #"\b"# + tok + #"\b"#, with: canon,
+                                               options: .regularExpression)
+            }
+        }
 
         // ---- statement-header metadata → defer -----------------------------
         // Rewards points, credit limit, interest rates, minimum payment, due date,
@@ -1657,13 +1674,19 @@ public enum FinanceRouter {
         // (b) a content noun (after stripping intent words) that names no row — only
         // when the question is actually asking about spending on / visiting something.
         guard matches(low, #"spen[dt]|how much|paid|\bpay\b|\bcost\b|\bat\b|\bon\b|\buse[ds]?\b|\bvisit\w*|\bgo\b|\bwent\b|\beat\b|\border\w*|\bshop\w*|\bbuy\b|\bbought\b|\blist\b|\bshow\b|\bdisplay\b|\btable\b|\bledger\b|transactions?\b"#) else { return nil }
-        let months = Set(monthNames.map(\.0))
-        // A word right after "at/to/from" is a spend TARGET whatever the POS
-        // tagger thinks — NLTagger reads "starbucks" as an adverb and "walmart"
-        // as a verb, which silently dropped them and turned "how much at
-        // Starbucks?" into the whole-account total.
+        var months = Set(monthNames.map(\.0))
+        // Temporal words are never spend targets: "on friday"/"on weekends"
+        // must not become a phantom "£0.00 on Friday".
+        months.formUnion(["monday", "tuesday", "wednesday", "thursday", "friday",
+                          "saturday", "sunday", "today", "yesterday", "tomorrow",
+                          "weekend", "weekends", "weekday", "weekdays"])
+        // A word right after "at/to/from/on/for" is a spend TARGET whatever the
+        // POS tagger thinks — NLTagger reads "starbucks" as an adverb, "walmart"
+        // as a verb and "appolo" as an adverb, which silently dropped them and
+        // turned "how much at Starbucks?" / "how much did i spend on appolo?"
+        // (2026-09-02 manual bug) into the whole-account total.
         var prepTargets: Set<String> = []
-        if let re = try? NSRegularExpression(pattern: #"\b(?:at|to|from)\s+([a-z0-9]{3,})"#) {
+        if let re = try? NSRegularExpression(pattern: #"\b(?:at|to|from|on|for)\s+([a-z0-9]{3,})"#) {
             for m in re.matches(in: low, range: NSRange(low.startIndex..., in: low)) {
                 if let r = Range(m.range(at: 1), in: low) { prepTargets.insert(String(low[r])) }
             }
@@ -2387,6 +2410,8 @@ public enum FinanceRouter {
     private static func dimensionSuperlative(_ low: String, sr: [TxnRow], scope: Scope,
                                              debits: [TxnRow], credits: [TxnRow],
                                              money: (Double) -> String) -> String? {
+        // (Dimension-noun typos are canonicalized once at router entry —
+        // answerSingleCurrency — so "catagory" already reads "category" here.)
         let wantsLeast = matches(low, #"\bleast\b|\bless\b|lowest|smallest|cheapest|minimum|\bmin\b|\bbottom\b"#)
         let wantsMost = matches(low, #"\bmost\b|\bmore\b|highest|biggest|\btop\b|expensive|costliest|priciest|\bpeak\w*\b|maximum|\bmax\b"#)
         guard wantsLeast || wantsMost else { return nil }
@@ -2404,6 +2429,9 @@ public enum FinanceRouter {
         else if matches(low, #"\bcategor(?:y|ies)\b"#) { dim = "category" }
         else if merchantNoun || matches(low, #"\bwhere\b.{0,40}\b(?:at|to)\b"#) { dim = "merchant" }
         else if matches(low, #"\bwhere\b"#) { dim = "category" }
+        // "on WHAT did i spend most in fastfood?" — a "what" question already
+        // scoped to a category is asking for the thing WITHIN it: the merchant.
+        else if scope.hasCategory, matches(low, #"\bwhat\b.{0,30}\bspen[dt]\b|\bspen[dt]\b.{0,25}\bwhat\b"#) { dim = "merchant" }
         else { return nil }
 
         // Question shapes that belong to OTHER handlers:
@@ -2415,7 +2443,7 @@ public enum FinanceRouter {
         if matches(low, #"\bdays?\b|\bdate\b|\bweek\w*"#) { return nil }
         // It must actually be ABOUT the dimension ("which month…", "where did
         // I…", "highest-spending month"), not merely mention it.
-        guard matches(low, #"(?:which|what)\s+(?:months?|years?|accounts?|banks?|categor\w+|merchants?|shops?|stores?|places?)\b|(?:months?|years?|accounts?|banks?) did i\b|spending (?:month|year|categor\w+)\b|(?:month|year) was\b|\bwhere (?:do|did|does|have) i\b|\bwho(?:m)? (?:do|did) i\b|(?:months?|years?)\s*\??\s*$"#)
+        guard matches(low, #"(?:which|what)\s+(?:months?|years?|accounts?|banks?|categor\w+|merchants?|shops?|stores?|places?)\b|(?:months?|years?|accounts?|banks?) did i\b|spending (?:month|year|categor\w+)\b|(?:month|year) was\b|\bwhere (?:do|did|does|have) i\b|\bwho(?:m)? (?:do|did) i\b|\bwhat did i spen[dt]\b|(?:months?|years?)\s*\??\s*$"#)
         else { return nil }
 
         let wantsCredit = matches(low, #"receiv|\bincome\b|credited|came in|come in|\bearn|deposit|paid in|money in\b|\bgot\b|\bget\b|getting"#)

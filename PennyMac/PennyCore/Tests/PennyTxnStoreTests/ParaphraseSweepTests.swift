@@ -204,6 +204,25 @@ final class ParaphraseSweepTests: XCTestCase {
                 phrasings: ["how many payments did I make?", "how many transactions did i send out",
                             "number of debits?"],
                 expect: ["7"], forbid: ["10 ", "₹10300.00"]),
+
+            // 2026-09-02 manual bugs — dimension-noun typos, "what … in
+            // category" shape, unknown "on X" targets.
+            SweepCase(intent: "category-superlative-typo",
+                phrasings: ["which catagory did i spend most amount?",
+                            "wich catagorie did i spend the most in",
+                            "which catagory has my maximum spending"],
+                expect: ["Shopping", "₹2000.00"], forbid: ["₹3670.00"]),
+
+            SweepCase(intent: "what-in-category-superlative",
+                phrasings: ["on what did i spend most in pharmacy?",
+                            "what did i spend the most on in pharmacy"],
+                expect: ["MEDPLUS", "₹700.00"], forbid: ["₹3670.00"]),
+
+            SweepCase(intent: "unknown-on-target-honesty",
+                phrasings: ["how much did i spend on appolo?",
+                            "how much did i spend on zomatoo",
+                            "how much did i spend for airtel?"],
+                expect: ["₹0.00"], forbid: ["₹3670.00"]),
         ])
     }
 }

@@ -1177,6 +1177,25 @@ final class AppModel: ObservableObject {
                         print("🏦[issuer] \(docName): keep letterhead detection, ignore LLM ‘\(issuer)’")
                         return
                     }
+                    // Model output is untrusted input: a bank lives in the
+                    // HEADER, not the rows. A headerless CSV whose rows say
+                    // "SALARY ACME CORP PAYROLL" got its account named "Acme
+                    // Corp" — the employer, not a bank (2026-09-02 manual bug).
+                    // Reject any candidate found in the doc's own transaction
+                    // text: that's a counterparty, so keep the honest
+                    // filename-derived name instead.
+                    let issuerWords = issuer.lowercased()
+                        .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                        .map(String.init).filter { $0.count >= 3 && $0 != "bank" }
+                    if !issuerWords.isEmpty,
+                       let doc = self.docs.first(where: { $0.name == docName }),
+                       doc.rows.contains(where: { r in
+                           let line = (r.descr + " " + r.merchant).lowercased()
+                           return issuerWords.allSatisfy { line.contains($0) }
+                       }) {
+                        print("🏦[issuer] \(docName): reject LLM ‘\(issuer)’ — it names a counterparty in the rows, not the bank")
+                        return
+                    }
                     // Issuer refinement is a presentation layer, not canonical data:
                     // record it as an override and re-derive the label. It's re-derived
                     // each launch, so it is deliberately NOT persisted (the model stays truth).
@@ -2593,10 +2612,15 @@ final class AppModel: ObservableObject {
         }
 
         // ---- highest money in / out (never a category or single-txn question)
-        // This compares STATEMENTS — it needs more than one, and the subject
-        // must not be a time period ("which MONTH did I spend the most?" was
-        // answered "Paytm has the most money out"; 2026-08-31 manual bug).
+        // This compares STATEMENTS — so the question must actually be ABOUT
+        // statements/accounts/banks (positive trigger). The old exclusion
+        // blacklist (month, day, categor…) lost to every subject it hadn't
+        // enumerated: "which CATAGORY did i spend most amount?" (typo dodges
+        // "categor") and "on what did i spend most in fastfood?" were both
+        // answered "Hdfc Savings has the most money out" (2026-09-02 manual
+        // bugs). A positive trigger can't lose that way.
         if docs.count > 1,
+           has(#"\b(?:accounts?|statements?|banks?|cards?|files?)\b"#),
            !has(#"categor|largest (credit|debit|expense|transaction|payment)|\bmonth\b|\bday\b|\bweek\b|\byear\b"#),
            has(#"\b(most|highest|largest|greatest)\b"#) || has(#"which (account|statement|bank)"#) {
             if has(#"money in|received|credited|income|inflow|paid in|total in\b"#), !has(#"salary"#) {
@@ -3112,7 +3136,11 @@ final class AppModel: ObservableObject {
                 body = AccountQuery.timingAnswer(matched: ctx.rows, label: ctx.label,
                                                  money: { Money.format($0, currency: fallbackCur) })
             } else {
-                body = "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
+                // "Do i have prime?" is a yes/no question — lead with the
+                // answer, not a listing header (2026-09-02 manual bug).
+                body = AccountQuery.isExistenceQuestion(resolvedQ)
+                    ? AccountQuery.existenceLead(count: ctx.rows.count, label: ctx.label)
+                    : "**Found \(ctx.rows.count) transaction\(ctx.rows.count == 1 ? "" : "s") \(ctx.label).**"
                 let outs = outByCur.sorted { $0.value > $1.value }
                     .map { Money.format($0.value, currency: $0.key) }
                 let incs = incByCur.sorted { $0.value > $1.value }
