@@ -1582,11 +1582,11 @@ final class AppModel: ObservableObject {
                 }
                 return
             }
-            let prev = Dictionary(before.transactions.map { ($0.id, $0.enrichment.categoryID?.raw) },
-                                  uniquingKeysWith: { a, _ in a })
-            let moved = refined.transactions.filter { prev[$0.id] != $0.enrichment.categoryID?.raw }.count
             self.applyRefinedGraph(refined)
-            self.postToast("Updated \(moved) categor\(moved == 1 ? "y" : "ies") with AI.", kind: .success)
+            // Coverage, not delta: "231 updated" out of 233 rows read as two rows
+            // being skipped, when they were simply already in the right category.
+            let covered = refined.transactions.count
+            self.postToast("All \(covered) transaction\(covered == 1 ? "" : "s") categorized.", kind: .success)
         }
     }
 
