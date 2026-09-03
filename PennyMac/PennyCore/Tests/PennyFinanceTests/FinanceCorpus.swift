@@ -70,6 +70,20 @@ enum FinanceCorpus {
             expectedRouter: "**4 transactions.**"),
 
         CorpusEntry(
+            intent: "count_debits",
+            query: "how many payments did I make?",
+            expectedQuery: Query(filters: [.direction(.debit)], aggregate: .count),
+            expectedResult: .count(3),
+            expectedRouter: "**3 debits.**"),
+
+        CorpusEntry(
+            intent: "count_credits",
+            query: "number of credits?",
+            expectedQuery: Query(filters: [.direction(.credit)], aggregate: .count),
+            expectedResult: .count(1),
+            expectedRouter: "**1 credit.**"),
+
+        CorpusEntry(
             intent: "total_spend",
             query: "total spending",
             expectedQuery: Query(filters: [.direction(.debit)], aggregate: .sum),
@@ -103,6 +117,13 @@ enum FinanceCorpus {
             expectedQuery: Query(filters: [.direction(.debit)], aggregate: .max),
             expectedResult: .money(dec("600.00"), citations: 1),
             expectedRouter: "**Your largest expense was £600.00** — ACME LETTINGS on 12th July 2026."),
+
+        CorpusEntry(
+            intent: "smallest_expense",
+            query: "what's my smallest purchase?",
+            expectedQuery: Query(filters: [.direction(.debit)], aggregate: .min),
+            expectedResult: .money(dec("45.50"), citations: 1),
+            expectedRouter: "**Your smallest expense was £45.50** — TESCO on 1st June 2026."),
 
         CorpusEntry(
             intent: "topN_expenses",

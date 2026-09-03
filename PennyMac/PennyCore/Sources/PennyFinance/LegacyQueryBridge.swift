@@ -41,7 +41,13 @@ public enum LegacyQueryBridge {
 
         // ---- counts ----
         if matches(q, #"\bhow many\b|\bnumber of\b|\bcount\b"#),
-           matches(q, #"transactions?|txns?|purchases?|payments?"#) {
+           matches(q, #"transactions?|txns?|purchases?|payments?|credits?|debits?|withdrawals?|charges?"#) {
+            if matches(q, incomeWords) || matches(q, #"\bcredits?\b|\bmoney came in\b|\bincoming\b|\bdeposits?\b"#) {
+                return Query(filters: sf + [.direction(.credit)], aggregate: .count)
+            }
+            if matches(q, spendWords) || matches(q, #"\bdebits?\b|\bwithdrawals?\b|\bcharges?\b|\bsent out\b|\bmoney went out\b|\bpayments?\b|\bmade\b"#) {
+                return Query(filters: sf + [.direction(.debit)], aggregate: .count)
+            }
             return Query(filters: sf, aggregate: .count)
         }
 
@@ -53,6 +59,12 @@ public enum LegacyQueryBridge {
         // ---- largest credit / income ----
         if matches(q, #"\b(biggest|largest|highest)\b"#), matches(q, #"credit|deposit|income|received"#) {
             return Query(filters: sf + [.direction(.credit)], aggregate: .max)
+        }
+        // ---- smallest / cheapest expense ----
+        if matches(q, #"\b(smallest|lowest|cheapest|least expensive|tiniest)\b"#),
+           matches(q, #"expense|spend|cost|transaction|payment|purchase|debit|buy"#),
+           !matches(q, #"categor|month|year|merchant|shop|store|place|account|bank|statement|day\b|weekday"#) {
+            return Query(filters: sf + [.direction(.debit)], aggregate: .min)
         }
 
         // ---- top N expenses / merchants ----

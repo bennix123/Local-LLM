@@ -33,12 +33,12 @@ public enum CapabilityRegistry {
 
     public static let all: [Capability] = [
         // Wave A1 — transaction aggregates
-        Capability(id: "count",              title: "Transaction count",     state: .activated,   intents: ["count"]),
+        Capability(id: "count",              title: "Transaction count",     state: .activated,   intents: ["count", "count_debits", "count_credits"]),
         Capability(id: "total_spend",        title: "Total spending",        state: .activated,   intents: ["total_spend"]),
         Capability(id: "total_income",       title: "Total income",          state: .activated,   intents: ["total_income"]),
         Capability(id: "net_cashflow",       title: "Net cash flow",         state: .verified,    intents: ["net_cashflow"]),
         Capability(id: "average",            title: "Average transaction",   state: .verified,    intents: ["average_transaction"]),
-        Capability(id: "largest",            title: "Largest expense",       state: .verified,    intents: ["largest_expense"]),
+        Capability(id: "extreme_expense",    title: "Extreme expense",       state: .verified,    intents: ["largest_expense", "smallest_expense"]),
         Capability(id: "top_n",              title: "Top-N expenses",        state: .verified,    intents: ["topN_expenses"]),
         Capability(id: "category_breakdown", title: "Spending by category",  state: .verified,    intents: ["spend_by_category"]),
         Capability(id: "monthly_summary",    title: "Monthly summary",       state: .implemented, intents: ["monthly_summary"]),
