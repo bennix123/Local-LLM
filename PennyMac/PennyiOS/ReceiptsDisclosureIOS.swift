@@ -7,30 +7,35 @@ import SwiftUI
 
 struct ReceiptsDisclosureIOS: View {
     let receipts: AnswerReceipts
+    @EnvironmentObject private var model: IOSModel
     @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 10))
-                Text(receipts.scopeLabel).font(T.mono(9, .semibold))
-            }
-            .foregroundStyle(T.dim)
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
-            } label: {
+            HStack(spacing: 8) {
                 HStack(spacing: 5) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(expanded
-                         ? "Hide transactions"
-                         : "Show \(receipts.totalCount) transaction\(receipts.totalCount == 1 ? "" : "s")")
-                        .font(T.body(12, .semibold))
+                    Image(systemName: "line.3.horizontal.decrease.circle").font(.system(size: 10))
+                    Text(receipts.scopeLabel).font(T.mono(9, .semibold))
                 }
-                .foregroundStyle(T.ink)
+                .foregroundStyle(T.dim)
+
+                // Citation pill — tap to expand the cited transactions
+                // (parity with the macOS hover pill; iOS has no hover).
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.text").font(.system(size: 9, weight: .bold))
+                        Text("\(receipts.totalCount)").font(T.mono(10, .bold))
+                    }
+                    .foregroundStyle(T.ink)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(T.bg, in: Capsule())
+                    .overlay(Capsule().stroke(T.line, lineWidth: 1.2))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show \(receipts.totalCount) cited transactions")
             }
-            .buttonStyle(.plain)
 
             if expanded {
                 VStack(spacing: 0) {
@@ -53,10 +58,19 @@ struct ReceiptsDisclosureIOS: View {
     }
 
     private func rowView(_ r: ReceiptRow) -> some View {
-        HStack(spacing: 10) {
+        let source = sourceStatement(for: r)
+        return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(r.name).font(T.body(13, .semibold)).foregroundStyle(T.ink).lineLimit(1)
-                Text(r.date).font(T.mono(9, .semibold)).foregroundStyle(T.dim)
+                HStack(spacing: 5) {
+                    Text(r.date).font(T.mono(9, .semibold)).foregroundStyle(T.dim)
+                    if let source {
+                        Text(source)
+                            .font(T.mono(8, .semibold)).foregroundStyle(T.dim)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(T.bg, in: Capsule())
+                    }
+                }
             }
             Spacer()
             Text((r.isCredit ? "+" : "−") + IOSModel.symbol(r.currency) + String(format: "%.2f", r.amount))
@@ -64,5 +78,17 @@ struct ReceiptsDisclosureIOS: View {
                 .foregroundStyle(r.isCredit ? T.limeDeep : T.ink)
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
+    }
+
+    /// Lazy source attribution — receipts don't carry doc identity, so match
+    /// the row back to its statement (parity with the macOS pill).
+    private func sourceStatement(for r: ReceiptRow) -> String? {
+        model.statements.first { s in
+            s.rows.contains {
+                $0.txnDate == r.date
+                    && (r.isCredit ? $0.credit : $0.debit) == r.amount
+                    && (r.isCredit ? $0.credit : $0.debit) > 0
+            }
+        }?.displayName
     }
 }
