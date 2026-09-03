@@ -3292,6 +3292,61 @@ final class AppModel: ObservableObject {
             return
         }
         generateTask = Task {
+            // LLM-as-parser tier (Rahul's architecture, 2026-09-03): before any
+            // prose generation, give factual questions ONE more deterministic
+            // chance — the model maps the question onto the restricted query
+            // vocabulary (Apple guided generation first, MLX JSON fallback),
+            // the engine computes with citations, a template renders. The model
+            // never sees transactions and never produces a number. Parse
+            // failure falls through to today's grounded prose chat unchanged.
+            if !Self.isAdvisoryQuestion(q), scopedGrounding == nil {
+                let graph = selectedGraph()
+                let vocabulary = QueryVocabulary.from(graph)
+                let now = Date(), cal = Calendar.current
+                let today = CalendarDate(year: cal.component(.year, from: now),
+                                         month: cal.component(.month, from: now),
+                                         day: cal.component(.day, from: now))
+                var mlxGen: (@Sendable (String, String) async throws -> String)?
+                if await ModelStore.shared.directoryIfInstalled(for: selectedModelID) != nil {
+                    let llm = self.llm
+                    mlxGen = { sys, p in try await llm.generateRaw(system: sys, prompt: p) }
+                }
+                if let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
+                                                        today: today, mlxGenerate: mlxGen),
+                   !Task.isCancelled {
+                    let result = QueryEngine.execute(parsed.query, in: graph)
+                    let moneyFmt: (Decimal, String?) -> String = { amt, code in
+                        Money.format(NSDecimalNumber(decimal: amt).doubleValue, currency: code ?? cur)
+                    }
+                    if let text = ResultRenderer.render(result, query: parsed.query,
+                                                        vocabulary: vocabulary, money: moneyFmt) {
+                        let byID = Dictionary(graph.transactions.map { ($0.id, $0) },
+                                              uniquingKeysWith: { a, _ in a })
+                        let cited = result.citations.prefix(50).compactMap { byID[$0] }
+                        messages[idx].content = text
+                        messages[idx].engine = "QUERY"   // badge renders "QUERY ENGINE"
+                        if !cited.isEmpty {
+                            let label = ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
+                                .trimmingCharacters(in: .whitespaces)
+                            messages[idx].receipts = AnswerReceipts(
+                                scopeLabel: label,
+                                rows: cited.map { t in
+                                    ReceiptRow(date: String(format: "%04d-%02d-%02d",
+                                                            t.date.year, t.date.month, t.date.day),
+                                               name: t.enrichment.cleanDescription ?? t.rawDescription,
+                                               amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
+                                               isCredit: t.direction == .credit,
+                                               currency: t.currency.code)
+                                },
+                                totalCount: result.citations.count)
+                        }
+                        isThinking = false
+                        PennyLog.shared.log("chat",
+                            "A (engine-parse \(parsed.engine) x\(parsed.attempts)): \(text.prefix(120))")
+                        return
+                    }
+                }
+            }
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which
             // blows the context window and dilutes relevance on big statements).

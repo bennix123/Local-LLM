@@ -34,6 +34,11 @@ struct AnswerReceipts: Codable, Equatable {
         }
     }
 
+    /// Direct construction (the engine tier builds ReceiptRows from citations).
+    init(scopeLabel: String, rows: [ReceiptRow], totalCount: Int) {
+        self.scopeLabel = scopeLabel; self.rows = rows; self.totalCount = totalCount
+    }
+
     /// Build from raw rows (StatementsQuery answers etc.), same cap — so
     /// "list those transactions" can refer back to this answer's scope.
     init?(rows txnRows: [TxnRow], label: String, limit: Int = 50) {

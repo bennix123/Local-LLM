@@ -8,6 +8,8 @@
 import SwiftUI
 import PennyCore
 import PennyTxnStore
+import PennyModel     // FinancialGraph / CalendarDate — the engine tier's substrate
+import PennyFinance   // QueryParser DTO + QueryEngine + ResultRenderer
 
 struct IOSStatement: Identifiable {
     let id = UUID()
@@ -642,6 +644,59 @@ final class IOSModel: ObservableObject {
         let idx = messages.count
         messages.append(IOSChatMsg(role: .penny, text: "", engine: nil))
         Task {
+            // LLM-as-parser tier — parity with macOS: before prose generation,
+            // try mapping the question onto the restricted query vocabulary
+            // (Apple guided generation only on iOS) and computing with the
+            // engine. Parse failure falls through to the chat below unchanged.
+            let engineGraphs = statements.map {
+                ModelAssembler.assemble(
+                    IngestOutput(rows: $0.rows, bankName: $0.displayName, confidence: "ios",
+                                 detectedCurrency: $0.currency, closingBalance: $0.closingBalance,
+                                 isCard: $0.isCard),
+                    sourceName: $0.name).graph
+            }
+            let graph = FinancialGraph(accounts: engineGraphs.flatMap(\.accounts),
+                                       statements: engineGraphs.flatMap(\.statements),
+                                       transactions: engineGraphs.flatMap(\.transactions),
+                                       merchants: engineGraphs.flatMap(\.merchants),
+                                       categories: engineGraphs.flatMap(\.categories))
+            let vocabulary = QueryVocabulary.from(graph)
+            let now = Date(), calNow = Calendar.current
+            let today = CalendarDate(year: calNow.component(.year, from: now),
+                                     month: calNow.component(.month, from: now),
+                                     day: calNow.component(.day, from: now))
+            if let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
+                                                    today: today, mlxGenerate: nil),
+               messages.indices.contains(idx) {
+                let result = QueryEngine.execute(parsed.query, in: graph)
+                let moneyFmt: (Decimal, String?) -> String = { [cur] amt, code in
+                    self.money(NSDecimalNumber(decimal: amt).doubleValue, code ?? cur)
+                }
+                if let text = ResultRenderer.render(result, query: parsed.query,
+                                                    vocabulary: vocabulary, money: moneyFmt) {
+                    let byID = Dictionary(graph.transactions.map { ($0.id, $0) },
+                                          uniquingKeysWith: { a, _ in a })
+                    let cited = result.citations.prefix(50).compactMap { byID[$0] }
+                    messages[idx].text = text
+                    messages[idx].engine = "query engine"
+                    if !cited.isEmpty {
+                        messages[idx].receipts = AnswerReceipts(
+                            scopeLabel: ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
+                                .trimmingCharacters(in: .whitespaces),
+                            rows: cited.map { t in
+                                ReceiptRow(date: String(format: "%04d-%02d-%02d",
+                                                        t.date.year, t.date.month, t.date.day),
+                                           name: t.enrichment.cleanDescription ?? t.rawDescription,
+                                           amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
+                                           isCredit: t.direction == .credit,
+                                           currency: t.currency.code)
+                            },
+                            totalCount: result.citations.count)
+                    }
+                    isThinking = false
+                    return
+                }
+            }
             do {
                 _ = try await llm.ask(question: resolvedQ, statementText: digest(for: resolvedQ),
                                       maxTokens: 512,
