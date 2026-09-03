@@ -17,6 +17,7 @@ import Foundation
 
 #if canImport(FoundationModels)
 import FoundationModels
+import PennyFinance   // ParsedQueryDTO — the query-parsing tier's output shape
 
 @available(macOS 26.0, iOS 26.0, *)
 enum AppleFoundationLLM {
@@ -292,6 +293,56 @@ enum AppleFoundationLLM {
             // otherwise keep the partial already shown (never fail after streaming)
         }
         return shown
+    }
+
+    // MARK: - Query parsing (LLM-as-parser tier, 2026-09-03)
+
+    /// The guided-generation twin of `ParsedQueryDTO` — the framework constrains
+    /// the model's output to this shape, so an invalid operation like "summ"
+    /// cannot even be generated (the mapper still validates values).
+    @Generable
+    struct GenParsedQuery: Equatable {
+        @Guide(description: "One of: sum, count, average, min, max, top_n, list")
+        let aggregate: String
+        @Guide(description: "\"debit\" for spending/paying, \"credit\" for income/receiving, or omit")
+        let direction: String?
+        @Guide(description: "Category words as the user said them, or omit")
+        let category: String?
+        @Guide(description: "Merchant/payee words as the user said them, or omit")
+        let merchant: String?
+        @Guide(description: "Account/bank words as the user said them, or omit")
+        let account: String?
+        @Guide(description: "Period token (last_month, this_year, 2025-11, november 2025, YYYY-MM-DD..YYYY-MM-DD…) or omit")
+        let period: String?
+        @Guide(description: "Lower amount bound when the question sets one, else omit")
+        let amountMin: Double?
+        @Guide(description: "Upper amount bound when the question sets one, else omit")
+        let amountMax: Double?
+        @Guide(description: "One of month, day, category, merchant, account, currency — only for per-X breakdowns")
+        let groupBy: String?
+        @Guide(description: "N for top_n, else omit")
+        let topN: Int?
+        @Guide(description: "Free-text search word when no entity fits, else omit")
+        let text: String?
+    }
+
+    /// Parse a question into a `ParsedQueryDTO` under guided generation.
+    /// `feedback` carries the mapper's rejection message on the retry pass.
+    static func parseQuery(question: String, instructions: String,
+                           feedback: String?) async throws -> ParsedQueryDTO {
+        var prompt = "Translate this question into the structured query:\n\(question)"
+        if let feedback {
+            prompt += "\n\nYour previous attempt was rejected: \(feedback). Fix it."
+        }
+        let session = LanguageModelSession(instructions: instructions)
+        let r = try await session.respond(to: prompt, generating: GenParsedQuery.self,
+                                          options: GenerationOptions(temperature: 0))
+        let g = r.content
+        return ParsedQueryDTO(aggregate: g.aggregate, direction: g.direction,
+                              category: g.category, merchant: g.merchant,
+                              account: g.account, period: g.period,
+                              amountMin: g.amountMin, amountMax: g.amountMax,
+                              groupBy: g.groupBy, topN: g.topN, text: g.text)
     }
 }
 #endif

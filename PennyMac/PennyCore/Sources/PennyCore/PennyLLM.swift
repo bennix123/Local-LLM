@@ -344,6 +344,27 @@ public actor PennyLLM {
         }
     }
 
+    /// Raw MLX generation with an explicit system prompt — the LLM-as-parser
+    /// tier's fallback (JSON-only output). Deliberately MLX-only: the caller has
+    /// already tried Apple, and the caller is responsible for checking that
+    /// weights are installed so this never triggers a download from a question.
+    public func generateRaw(system: String, prompt: String, maxTokens: Int = 400) async throws -> String {
+        let container = try await load()
+        let parameters = GenerateParameters(maxTokens: maxTokens, temperature: 0.0, topP: 1.0,
+                                            repetitionPenalty: 1.15, repetitionContextSize: 40)
+        return try await container.perform { context in
+            let input = try await context.processor.prepare(
+                input: UserInput(chat: [.system(system), .user(prompt)]))
+            var output = ""
+            let stream = try MLXLMCommon.generate(input: input, parameters: parameters, context: context)
+            for await generation in stream {
+                if Task.isCancelled { break }
+                if case .chunk(let piece) = generation { output += piece }
+            }
+            return output
+        }
+    }
+
     /// One-time structured extraction: turn the statement text into `[Transaction]`.
     /// The model ONLY reads out the rows; every figure is later computed in Swift, so
     /// the model can't fudge a total. Temperature 0 for deterministic extraction.

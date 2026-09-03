@@ -42,6 +42,7 @@ let package = Package(
             name: "PennyCore",
             dependencies: [
                 "PennyTxnStore",
+                "PennyFinance",   // QueryParser emits PennyFinance.Query (LLM-as-parser tier)
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
                 .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
