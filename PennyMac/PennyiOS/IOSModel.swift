@@ -42,6 +42,12 @@ final class IOSModel: ObservableObject {
 
     // MARK: statements
     @Published var statements: [IOSStatement] = []
+
+    /// Wave 2 flag — LLM-first dispatch, parity with macOS (same defaults key).
+    @Published var engineFirstDispatch: Bool =
+        UserDefaults.standard.bool(forKey: "penny.engineFirstDispatch") {
+        didSet { UserDefaults.standard.set(engineFirstDispatch, forKey: "penny.engineFirstDispatch") }
+    }
     @Published var isImporting = false
     @Published var importedRowCount = 0      // live counter for the sync screen
     @Published var importStatus = ""
@@ -442,6 +448,94 @@ final class IOSModel: ObservableObject {
             return
         }
 
+        // Wave 2 (flagged, default off): LLM-FIRST dispatch — parity with
+        // macOS. The parser sees the question before the regex ladder; parse
+        // failure hands it to the ladder unchanged. Pronoun follow-ups stay
+        // ladder-first (they need the previous answer's receipts).
+        if engineFirstDispatch, PennyLLM.systemModelAvailable,
+           q.lowercased().range(of: #"\b(?:them|those|these|that|this|it)\b"#,
+                                options: .regularExpression) == nil {
+            engineFirstDispatchTask(q: q, resolvedQ: resolvedQ)
+            return
+        }
+        routeThroughLadder(q: q, resolvedQ: resolvedQ)
+    }
+
+    /// Run the parser tier end-to-end (Apple-only on iOS): parse → execute →
+    /// render → receipts. Shared by the LLM-first dispatcher and the fallback
+    /// tier. nil = the model couldn't map the question.
+    private func tryEngineAnswer(resolvedQ: String) async -> (text: String, receipts: AnswerReceipts?)? {
+        let engineGraphs = statements.map {
+            ModelAssembler.assemble(
+                IngestOutput(rows: $0.rows, bankName: $0.displayName, confidence: "ios",
+                             detectedCurrency: $0.currency, closingBalance: $0.closingBalance,
+                             isCard: $0.isCard),
+                sourceName: $0.name).graph
+        }
+        let graph = FinancialGraph(accounts: engineGraphs.flatMap(\.accounts),
+                                   statements: engineGraphs.flatMap(\.statements),
+                                   transactions: engineGraphs.flatMap(\.transactions),
+                                   merchants: engineGraphs.flatMap(\.merchants),
+                                   categories: engineGraphs.flatMap(\.categories))
+        let vocabulary = QueryVocabulary.from(graph)
+        let now = Date(), calNow = Calendar.current
+        let today = CalendarDate(year: calNow.component(.year, from: now),
+                                 month: calNow.component(.month, from: now),
+                                 day: calNow.component(.day, from: now))
+        guard let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
+                                                   today: today, mlxGenerate: nil) else { return nil }
+        let result = QueryEngine.execute(parsed.query, in: graph)
+        let cur = primaryCurrency
+        let moneyFmt: (Decimal, String?) -> String = { amt, code in
+            self.money(NSDecimalNumber(decimal: amt).doubleValue, code ?? cur)
+        }
+        guard let text = ResultRenderer.render(result, query: parsed.query,
+                                               vocabulary: vocabulary, money: moneyFmt) else { return nil }
+        var receipts: AnswerReceipts?
+        let byID = Dictionary(graph.transactions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let cited = result.citations.prefix(50).compactMap { byID[$0] }
+        if !cited.isEmpty {
+            receipts = AnswerReceipts(
+                scopeLabel: ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
+                    .trimmingCharacters(in: .whitespaces),
+                rows: cited.map { t in
+                    ReceiptRow(date: String(format: "%04d-%02d-%02d",
+                                            t.date.year, t.date.month, t.date.day),
+                               name: t.enrichment.cleanDescription ?? t.rawDescription,
+                               amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
+                               isCredit: t.direction == .credit,
+                               currency: t.currency.code)
+                },
+                totalCount: result.citations.count)
+        }
+        return (text, receipts)
+    }
+
+    /// Wave 2: LLM-first dispatch — the parser answers when it can; anything
+    /// it can't map is handed to the deterministic ladder unchanged.
+    private func engineFirstDispatchTask(q: String, resolvedQ: String) {
+        isThinking = true
+        let idx = messages.count
+        messages.append(IOSChatMsg(role: .penny, text: "", engine: "query engine"))
+        Task {
+            if let a = await tryEngineAnswer(resolvedQ: resolvedQ),
+               messages.indices.contains(idx) {
+                messages[idx].text = a.text
+                messages[idx].receipts = a.receipts
+                isThinking = false
+                return
+            }
+            if messages.indices.contains(idx), messages[idx].text.isEmpty {
+                messages.remove(at: idx)
+            }
+            isThinking = false
+            routeThroughLadder(q: q, resolvedQ: resolvedQ)
+        }
+    }
+
+    /// The deterministic ladder — extracted so the flagged LLM-first
+    /// dispatcher can fall back into it wholesale (mirrors macOS).
+    private func routeThroughLadder(q: String, resolvedQ: String) {
         // Account-dimension questions — direct ("which bank accounts did I use
         // for zara?") or back-referencing ("from which accounts?", "this
         // transaction") — answered from the statements themselves (mirrors the
@@ -645,57 +739,17 @@ final class IOSModel: ObservableObject {
         messages.append(IOSChatMsg(role: .penny, text: "", engine: nil))
         Task {
             // LLM-as-parser tier — parity with macOS: before prose generation,
-            // try mapping the question onto the restricted query vocabulary
-            // (Apple guided generation only on iOS) and computing with the
-            // engine. Parse failure falls through to the chat below unchanged.
-            let engineGraphs = statements.map {
-                ModelAssembler.assemble(
-                    IngestOutput(rows: $0.rows, bankName: $0.displayName, confidence: "ios",
-                                 detectedCurrency: $0.currency, closingBalance: $0.closingBalance,
-                                 isCard: $0.isCard),
-                    sourceName: $0.name).graph
-            }
-            let graph = FinancialGraph(accounts: engineGraphs.flatMap(\.accounts),
-                                       statements: engineGraphs.flatMap(\.statements),
-                                       transactions: engineGraphs.flatMap(\.transactions),
-                                       merchants: engineGraphs.flatMap(\.merchants),
-                                       categories: engineGraphs.flatMap(\.categories))
-            let vocabulary = QueryVocabulary.from(graph)
-            let now = Date(), calNow = Calendar.current
-            let today = CalendarDate(year: calNow.component(.year, from: now),
-                                     month: calNow.component(.month, from: now),
-                                     day: calNow.component(.day, from: now))
-            if let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
-                                                    today: today, mlxGenerate: nil),
+            // try parse → engine → cited answer. Skipped when the LLM-first
+            // flag is on (the dispatcher already ran it up front). Parse
+            // failure falls through to the chat below unchanged.
+            if !engineFirstDispatch,
+               let a = await tryEngineAnswer(resolvedQ: resolvedQ),
                messages.indices.contains(idx) {
-                let result = QueryEngine.execute(parsed.query, in: graph)
-                let moneyFmt: (Decimal, String?) -> String = { [cur] amt, code in
-                    self.money(NSDecimalNumber(decimal: amt).doubleValue, code ?? cur)
-                }
-                if let text = ResultRenderer.render(result, query: parsed.query,
-                                                    vocabulary: vocabulary, money: moneyFmt) {
-                    let byID = Dictionary(graph.transactions.map { ($0.id, $0) },
-                                          uniquingKeysWith: { a, _ in a })
-                    let cited = result.citations.prefix(50).compactMap { byID[$0] }
-                    messages[idx].text = text
-                    messages[idx].engine = "query engine"
-                    if !cited.isEmpty {
-                        messages[idx].receipts = AnswerReceipts(
-                            scopeLabel: ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
-                                .trimmingCharacters(in: .whitespaces),
-                            rows: cited.map { t in
-                                ReceiptRow(date: String(format: "%04d-%02d-%02d",
-                                                        t.date.year, t.date.month, t.date.day),
-                                           name: t.enrichment.cleanDescription ?? t.rawDescription,
-                                           amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
-                                           isCredit: t.direction == .credit,
-                                           currency: t.currency.code)
-                            },
-                            totalCount: result.citations.count)
-                    }
-                    isThinking = false
-                    return
-                }
+                messages[idx].text = a.text
+                messages[idx].engine = "query engine"
+                messages[idx].receipts = a.receipts
+                isThinking = false
+                return
             }
             do {
                 _ = try await llm.ask(question: resolvedQ, statementText: digest(for: resolvedQ),

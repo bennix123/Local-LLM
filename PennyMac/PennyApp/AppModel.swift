@@ -265,6 +265,15 @@ struct CategorySpend: Identifiable, Equatable {
 final class AppModel: ObservableObject {
     @Published var stage: AppStage = .onboarding
 
+    /// Wave 2 flag — LLM-first dispatch: the query parser sees questions BEFORE
+    /// the regex ladder (ladder becomes the fallback). Persisted so Rahul's
+    /// A/B testing survives relaunch. Default off: the ladder stays primary
+    /// until the honest eval corpus says otherwise.
+    @Published var engineFirstDispatch: Bool =
+        UserDefaults.standard.bool(forKey: "penny.engineFirstDispatch") {
+        didSet { UserDefaults.standard.set(engineFirstDispatch, forKey: "penny.engineFirstDispatch") }
+    }
+
     // MARK: onboarding flow (the template's 7-step wizard)
 
     /// Which of the 7 onboarding screens is showing (1 = welcome … 7 = insights).
@@ -2900,6 +2909,99 @@ final class AppModel: ObservableObject {
         messages.append(ChatMessage(role: .user, content: q))
         PennyLog.shared.log("chat", "Q: \(q)")
 
+        // Wave 2 (flagged, default off): LLM-FIRST dispatch — the parser tier
+        // sees the question BEFORE the regex ladder, so a two-word keyword
+        // collision can no longer blurt a wrong answer ahead of understanding.
+        // Parse failure hands the question to the proven ladder unchanged.
+        // Pronoun follow-ups ("list them") stay ladder-first — they need the
+        // previous answer's receipts, which the parser has no concept of.
+        if engineFirstDispatch, !TestMode.active, !Self.isAdvisoryQuestion(q),
+           !selectedRows().isEmpty,
+           q.lowercased().range(of: #"\b(?:them|those|these|that|this|it)\b"#,
+                                options: .regularExpression) == nil {
+            engineFirstDispatchTask(q: q, resolvedQ: resolvedQ)
+            return
+        }
+        routeThroughLadder(q: q, resolvedQ: resolvedQ)
+    }
+
+    /// Run the parser tier end-to-end: parse → execute → render → receipts.
+    /// Shared by the LLM-first dispatcher (flag on) and the wave-1 fallback
+    /// tier (flag off). nil = the model couldn't map the question.
+    private func tryEngineAnswer(resolvedQ: String) async -> (text: String, receipts: AnswerReceipts?,
+                                                              engine: String, attempts: Int)? {
+        let graph = selectedGraph()
+        let vocabulary = QueryVocabulary.from(graph)
+        let now = Date(), cal = Calendar.current
+        let today = CalendarDate(year: cal.component(.year, from: now),
+                                 month: cal.component(.month, from: now),
+                                 day: cal.component(.day, from: now))
+        var mlxGen: (@Sendable (String, String) async throws -> String)?
+        if await ModelStore.shared.directoryIfInstalled(for: selectedModelID) != nil {
+            let llm = self.llm
+            mlxGen = { sys, p in try await llm.generateRaw(system: sys, prompt: p) }
+        }
+        guard let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
+                                                   today: today, mlxGenerate: mlxGen) else { return nil }
+        let result = QueryEngine.execute(parsed.query, in: graph)
+        let cur = summary.currency
+        let moneyFmt: (Decimal, String?) -> String = { amt, code in
+            Money.format(NSDecimalNumber(decimal: amt).doubleValue, currency: code ?? cur)
+        }
+        guard let text = ResultRenderer.render(result, query: parsed.query,
+                                               vocabulary: vocabulary, money: moneyFmt) else { return nil }
+        var receipts: AnswerReceipts?
+        let byID = Dictionary(graph.transactions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let cited = result.citations.prefix(50).compactMap { byID[$0] }
+        if !cited.isEmpty {
+            receipts = AnswerReceipts(
+                scopeLabel: ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
+                    .trimmingCharacters(in: .whitespaces),
+                rows: cited.map { t in
+                    ReceiptRow(date: String(format: "%04d-%02d-%02d",
+                                            t.date.year, t.date.month, t.date.day),
+                               name: t.enrichment.cleanDescription ?? t.rawDescription,
+                               amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
+                               isCredit: t.direction == .credit,
+                               currency: t.currency.code)
+                },
+                totalCount: result.citations.count)
+        }
+        return (text, receipts, parsed.engine, parsed.attempts)
+    }
+
+    /// Wave 2: LLM-first dispatch. The parser answers when it can; anything it
+    /// can't map is handed to the deterministic ladder unchanged.
+    private func engineFirstDispatchTask(q: String, resolvedQ: String) {
+        isThinking = true
+        let idx = messages.count
+        messages.append(ChatMessage(role: .assistant, content: "", engine: "QUERY"))
+        generateTask = Task {
+            if let a = await tryEngineAnswer(resolvedQ: resolvedQ), !Task.isCancelled,
+               messages.indices.contains(idx) {
+                messages[idx].content = a.text
+                messages[idx].engine = "QUERY"
+                messages[idx].receipts = a.receipts
+                isThinking = false
+                PennyLog.shared.log("chat", "A (engine-first \(a.engine) x\(a.attempts)): \(a.text.prefix(140))")
+                return
+            }
+            // The model couldn't map it — remove the placeholder and let the
+            // proven ladder take the question, exactly as with the flag off.
+            if messages.indices.contains(idx), messages[idx].content.isEmpty {
+                messages.remove(at: idx)
+            }
+            isThinking = false
+            guard !Task.isCancelled else { return }
+            PennyLog.shared.log("chat", "engine-first: no parse, falling to ladder")
+            routeThroughLadder(q: q, resolvedQ: resolvedQ)
+        }
+    }
+
+    /// The deterministic ladder — gates → cross-document analytics → finance
+    /// router → keyword fallback → prose chat. Extracted from `send()` so the
+    /// flagged LLM-first dispatcher can fall back into it wholesale.
+    private func routeThroughLadder(q: String, resolvedQ: String) {
         // Deterministic route: if they want the transaction list/table and we've
         // already extracted it, answer straight from the data — complete and correctly
         // aligned — instead of asking the model to re-type it from a clipped context
@@ -3294,58 +3396,17 @@ final class AppModel: ObservableObject {
         generateTask = Task {
             // LLM-as-parser tier (Rahul's architecture, 2026-09-03): before any
             // prose generation, give factual questions ONE more deterministic
-            // chance — the model maps the question onto the restricted query
-            // vocabulary (Apple guided generation first, MLX JSON fallback),
-            // the engine computes with citations, a template renders. The model
-            // never sees transactions and never produces a number. Parse
-            // failure falls through to today's grounded prose chat unchanged.
-            if !Self.isAdvisoryQuestion(q), scopedGrounding == nil {
-                let graph = selectedGraph()
-                let vocabulary = QueryVocabulary.from(graph)
-                let now = Date(), cal = Calendar.current
-                let today = CalendarDate(year: cal.component(.year, from: now),
-                                         month: cal.component(.month, from: now),
-                                         day: cal.component(.day, from: now))
-                var mlxGen: (@Sendable (String, String) async throws -> String)?
-                if await ModelStore.shared.directoryIfInstalled(for: selectedModelID) != nil {
-                    let llm = self.llm
-                    mlxGen = { sys, p in try await llm.generateRaw(system: sys, prompt: p) }
-                }
-                if let parsed = await QueryParser.parse(question: resolvedQ, vocabulary: vocabulary,
-                                                        today: today, mlxGenerate: mlxGen),
-                   !Task.isCancelled {
-                    let result = QueryEngine.execute(parsed.query, in: graph)
-                    let moneyFmt: (Decimal, String?) -> String = { amt, code in
-                        Money.format(NSDecimalNumber(decimal: amt).doubleValue, currency: code ?? cur)
-                    }
-                    if let text = ResultRenderer.render(result, query: parsed.query,
-                                                        vocabulary: vocabulary, money: moneyFmt) {
-                        let byID = Dictionary(graph.transactions.map { ($0.id, $0) },
-                                              uniquingKeysWith: { a, _ in a })
-                        let cited = result.citations.prefix(50).compactMap { byID[$0] }
-                        messages[idx].content = text
-                        messages[idx].engine = "QUERY"   // badge renders "QUERY ENGINE"
-                        if !cited.isEmpty {
-                            let label = ResultRenderer.scopeLabel(parsed.query, vocabulary: vocabulary)
-                                .trimmingCharacters(in: .whitespaces)
-                            messages[idx].receipts = AnswerReceipts(
-                                scopeLabel: label,
-                                rows: cited.map { t in
-                                    ReceiptRow(date: String(format: "%04d-%02d-%02d",
-                                                            t.date.year, t.date.month, t.date.day),
-                                               name: t.enrichment.cleanDescription ?? t.rawDescription,
-                                               amount: NSDecimalNumber(decimal: t.amount.magnitude).doubleValue,
-                                               isCredit: t.direction == .credit,
-                                               currency: t.currency.code)
-                                },
-                                totalCount: result.citations.count)
-                        }
-                        isThinking = false
-                        PennyLog.shared.log("chat",
-                            "A (engine-parse \(parsed.engine) x\(parsed.attempts)): \(text.prefix(120))")
-                        return
-                    }
-                }
+            // chance — parse → engine → cited answer. Skipped when the
+            // LLM-first flag is on (the dispatcher already ran this up front).
+            if !Self.isAdvisoryQuestion(q), scopedGrounding == nil, !engineFirstDispatch,
+               let a = await tryEngineAnswer(resolvedQ: resolvedQ), !Task.isCancelled {
+                messages[idx].content = a.text
+                messages[idx].engine = "QUERY"   // badge renders "QUERY ENGINE"
+                messages[idx].receipts = a.receipts
+                isThinking = false
+                PennyLog.shared.log("chat",
+                    "A (engine-parse \(a.engine) x\(a.attempts)): \(a.text.prefix(120))")
+                return
             }
             // On-device hybrid RAG: ground the model on the handful of transactions
             // most relevant to the question instead of the whole statement (which

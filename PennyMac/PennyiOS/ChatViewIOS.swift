@@ -35,6 +35,14 @@ struct ChatViewIOS: View {
                     .font(T.mono(10)).foregroundStyle(T.dim)
             }
             Spacer()
+            // Wave 2 experiment switch — parity with macOS: the query parser
+            // sees questions before the regex handlers.
+            Toggle(isOn: $model.engineFirstDispatch) {
+                Text("LLM-first").font(T.mono(9, .semibold)).foregroundStyle(T.dim)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .fixedSize()
         }
         .padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 12)
     }

@@ -52,6 +52,15 @@ struct ChatView: View {
                 }
             }
             Spacer()
+            // Wave 2 experiment switch: the query parser sees questions BEFORE
+            // the regex handlers. Off = classic ladder-first routing.
+            Toggle(isOn: $app.engineFirstDispatch) {
+                Text("LLM-first")
+                    .font(Theme.mono(9, .semibold)).foregroundStyle(Theme.dim)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .help("Route questions through the on-device query parser before the regex handlers (experiment)")
             Button { app.newChat() } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.ink)
