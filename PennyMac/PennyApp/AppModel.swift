@@ -1057,17 +1057,23 @@ final class AppModel: ObservableObject {
                 var current = batch
                 var succeededHere = 0
                 while true {
-                    let failed = await runBatchFiles(toRun, kind: kind)
-                    succeededHere += (toRun.count - failed.count)
-                    if failed.isEmpty { break }
-                    // Retry ONLY the files that failed, on this batch alone.
+                    let outcome = await runBatchFiles(toRun, kind: kind)
+                    succeededHere += (toRun.count - outcome.retryable.count - outcome.rejected.count)
+                    // Deterministic rejections are FINAL — say so immediately,
+                    // never retry them (retrying a parser on the same bytes
+                    // can't succeed; it only made rejection take ~10s).
+                    for message in outcome.rejected {
+                        postToast(message, kind: .warning)
+                    }
+                    if outcome.retryable.isEmpty { break }
+                    // Retry ONLY the files that failed transiently, on this batch alone.
                     guard let retry = StatementBatchPlanner.nextAttempt(current) else {
                         failedBatches += 1
-                        postToast("Couldn't read \(failed.count) file(s) in months \(batch.monthRange) — skipped. You can re-add them.", kind: .warning)
+                        postToast("Couldn't read \(outcome.retryable.count) file(s) in months \(batch.monthRange) — skipped. You can re-add them.", kind: .warning)
                         break
                     }
                     current = retry
-                    toRun = failed
+                    toRun = outcome.retryable
                     postToast("Retrying months \(batch.monthRange)…", kind: .progress)
                 }
 
@@ -1116,6 +1122,28 @@ final class AppModel: ObservableObject {
         analysis = StatementBatchPlanner.progress(stage: stage, batches: batches, batchesDone: done)
     }
 
+    /// Cheap statement smell-test: real statement text carries several lines
+    /// with dates AND several with money-formatted amounts. Counted separately
+    /// (never required on the SAME line — Paytm-class layouts split them), so a
+    /// real statement can't be false-rejected; an article or résumé almost
+    /// never has 3+ of each. First 400 lines only — this must be milliseconds.
+    nonisolated static func looksLikeStatement(_ text: String) -> Bool {
+        let dateRe = try! NSRegularExpression(
+            pattern: #"\b(?:\d{1,2}[/\-. ](?:\d{1,2}|[A-Za-z]{3})[/\-. ]?\d{0,4}|\d{4}-\d{2}-\d{2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2})\b"#,
+            options: [.caseInsensitive])
+        let amountRe = try! NSRegularExpression(pattern: #"\d[\d,]*\.\d{2}\b|[₹£$€]\s?\d|(?:rs|inr)\.?\s?\d"#,
+                                                options: [.caseInsensitive])
+        var dateLines = 0, amountLines = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true).prefix(400) {
+            let s = String(line)
+            let r = NSRange(s.startIndex..., in: s)
+            if dateRe.firstMatch(in: s, range: r) != nil { dateLines += 1 }
+            if amountRe.firstMatch(in: s, range: r) != nil { amountLines += 1 }
+            if dateLines >= 3, amountLines >= 3 { return true }
+        }
+        return false
+    }
+
     /// Canonical fingerprint lines for graph transactions — the same identity
     /// rules as `StatementFingerprint` uses over TxnRows, so a new slice can be
     /// compared against already-imported docs.
@@ -1149,10 +1177,14 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    /// Parse + persist + merge each file in a batch concurrently. Returns the
-    /// URLs that failed to yield any transactions (for retry).
-    private func runBatchFiles(_ urls: [URL], kind: String?) async -> [URL] {
+    /// Parse + persist + merge each file in a batch concurrently. `retryable`
+    /// failures (I/O flakiness) can be re-attempted; `rejected` files parsed
+    /// cleanly to ZERO transactions — deterministic, so retrying is pointless
+    /// and only made rejection feel slow (2026-09-04: ~10s for a non-statement).
+    private func runBatchFiles(_ urls: [URL], kind: String?) async
+    -> (retryable: [URL], rejected: [String]) {
         var failures: [URL] = []
+        var rejected: [String] = []
         // Fingerprints accepted within THIS batch — two copies of the same
         // statement in one drop must not both land (docs only updates later).
         var batchStrict = Set<String>(), batchLoose = Set<String>()
@@ -1190,7 +1222,15 @@ final class AppModel: ObservableObject {
                     if let kind, uploadsByKind[kind]?.contains(r.name) != true {
                         uploadsByKind[kind, default: []].append(r.name)
                     }
-                default:
+                case .success(let r):
+                    // Parsed cleanly to zero transactions — not a statement.
+                    // The whole rejection message is built here so the caller
+                    // just toasts it.
+                    rejected.append(r.text.isEmpty
+                        ? "\(r.name): no readable text — is it a scanned image?"
+                        : "\(r.name): no transactions found — is it a bank or card statement?")
+                    PennyLog.shared.log("import", "rejected (no transactions): \(r.name)")
+                case .failure:
                     failures.append(url)
                 }
             }
@@ -1198,7 +1238,7 @@ final class AppModel: ObservableObject {
         for (file, of) in skippedDuplicates {
             postToast("Skipped \(file) — it's the same statement as \(of).", kind: .progress)
         }
-        return failures
+        return (failures, rejected)
     }
 
     // MARK: - Toasts
@@ -1318,8 +1358,13 @@ final class AppModel: ObservableObject {
                     let digital = try StatementText.extract(from: url)
                     if !ScannedPDFOCR.looksScanned(text: digital) {
                         text = digital
-                        parsed = (try? DeterministicIngest.ingest(pdfAt: url, statementText: text))
-                            ?? DeterministicIngest.Result()
+                        // Cheap smell-test before the full parser cascade: an
+                        // unrelated PDF (article, résumé) rejects in
+                        // milliseconds instead of ~10s (2026-09-04 manual bug).
+                        parsed = Self.looksLikeStatement(digital)
+                            ? ((try? DeterministicIngest.ingest(pdfAt: url, statementText: text))
+                                ?? DeterministicIngest.Result())
+                            : DeterministicIngest.Result()
                     } else if let aiKey, !aiKey.isEmpty,
                               let slice = await Self.ocrAndExtract(url: url, aiKey: aiKey) {
                         // Scanned / image-only PDF → OCR + LLM extraction fallback.

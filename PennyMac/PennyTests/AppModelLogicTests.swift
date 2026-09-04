@@ -18,6 +18,7 @@
 
 import XCTest
 import SwiftUI
+import PDFKit
 import PennyCore
 import PennyTxnStore
 @testable import Penny
@@ -817,6 +818,37 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertEqual(m.messages.last?.engine, "LEDGER", reply)
         XCTAssertTrue(reply.contains("behind that answer"), reply)
         XCTAssertFalse(reply.contains("CHARLIE"), reply)
+    }
+
+    // 2026-09-04 manual bug: rejecting an unrelated PDF took ~10s (full parser
+    // cascade × retries). The smell-test must pass real statement text —
+    // including layouts where dates and amounts sit on DIFFERENT lines — and
+    // fail prose in milliseconds.
+    func testLooksLikeStatementSmellTest() {
+        let statement = """
+        Paytm UPI Statement
+        Aug 23, 2026 Paid to Balaji Stores
+        Rs.140.00
+        Aug 24, 2026 Received from Subbireddy
+        ₹1,000.00
+        Sep 01, 2026 Paid to Pharmacy
+        250.50
+        """
+        XCTAssertTrue(AppModel.looksLikeStatement(statement))
+        let article = """
+        The quick brown fox jumped over the lazy dog. This article discusses
+        the economic history of the 1990s and its impact on modern policy.
+        In 1994, several reforms were introduced across many countries.
+        Chapter Two describes the conference and the people who attended it.
+        """
+        XCTAssertFalse(AppModel.looksLikeStatement(article))
+        // Env-gated: the REAL statement must pass — false-rejecting a genuine
+        // import would be far worse than a slow rejection ever was.
+        if let probe = ProcessInfo.processInfo.environment["PENNY_PROBE_PDF"],
+           let doc = PDFDocument(url: URL(fileURLWithPath: probe)) {
+            let text = (0..<doc.pageCount).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
+            XCTAssertTrue(AppModel.looksLikeStatement(text), "real statement failed the smell test")
+        }
     }
 
     // 2026-09-04 manual bug: the same statement uploaded as xlsx AND pdf stored
