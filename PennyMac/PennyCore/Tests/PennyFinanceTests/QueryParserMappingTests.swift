@@ -171,6 +171,30 @@ final class QueryParserMappingTests: XCTestCase {
         XCTAssertTrue(q.filters.contains(.category(CategoryID("Pharmacy"))), "\(q.filters)")
     }
 
+    func testSemanticSynonymMappingIsTrusted() {
+        // "eating out" shares no word with "Fast Food" — but that's exactly the
+        // semantic mapping the model is FOR. The guard must not drop it
+        // (2026-09-04: the original shares-a-word guard did).
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "sum", direction: "debit", category: "Fast Food"),
+            vocabulary: vocab, today: today,
+            question: "how much did i spend eating out?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertTrue(q.filters.contains(.category(CategoryID("Fast Food"))), "\(q.filters)")
+    }
+
+    func testQuestionWordOverridesModelsCategorySlip() {
+        // The question plainly says "shoping" (→ Shopping); a model slip to
+        // Pharmacy is overridden by our own resolution — the question wins.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "sum", direction: "debit", category: "Pharmacy"),
+            vocabulary: vocab, today: today,
+            question: "how much did i spend on shoping?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertTrue(q.filters.contains(.category(CategoryID("Shopping"))), "\(q.filters)")
+        XCTAssertFalse(q.filters.contains(.category(CategoryID("Pharmacy"))), "\(q.filters)")
+    }
+
     func testMonthlyGroupByAliasResolves() {
         guard case .success(let q) = map(.init(aggregate: "sum", groupBy: "monthly")) else { return XCTFail() }
         XCTAssertEqual(q.groupBy, .month)

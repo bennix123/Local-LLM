@@ -109,20 +109,48 @@ public enum QueryDTOMapper {
             }
         }
 
-        // category (typo/synonym tolerant — the same forgiveness the router has)
-        if let raw = dto.category?.trimmingCharacters(in: .whitespaces), !raw.isEmpty,
-           saidInQuestion(raw) {
-            guard let cat = resolveCategory(raw, in: vocabulary.categories) else {
+        // Generic-dimension ask ("top categories", "which merchants") — an
+        // entity the model picked for one of these is a hallucination.
+        func genericAsk(_ nouns: [String]) -> Bool {
+            questionWords.contains { qw in
+                nouns.contains { qw == $0 || nearMatch(qw, $0) }
+            }
+        }
+
+        // category — three-way policy (2026-09-04, fixing the guard's own flaw):
+        // 1. QUESTION WINS: if our brains resolve a question word to a present
+        //    category, that resolution is used (the model agreeing is nice, the
+        //    model disagreeing is overridden — "how much on shoping?" can never
+        //    be scoped to Pharmacy by a model slip).
+        // 2. A generic categories-ask with a picked entity drops it (the
+        //    original hallucination class).
+        // 3. Otherwise the model's SEMANTIC mapping is trusted — "eating out" →
+        //    Food & Dining shares no word with the question and is exactly the
+        //    understanding we hired the model for. The old shares-a-word guard
+        //    was dropping correct resolutions.
+        let questionCategories = Set(questionWords.compactMap {
+            $0.count >= 4 ? resolveCategory($0, in: vocabulary.categories) : nil
+        })
+        if let pick = questionCategories.sorted().first {
+            let modelCat = dto.category.flatMap { resolveCategory($0, in: vocabulary.categories) }
+            let final = (modelCat.flatMap { questionCategories.contains($0) ? $0 : nil }) ?? pick
+            filters.append(.category(CategoryID(final)))
+        } else if let raw = dto.category?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+            if genericAsk(["category", "categories"]), !saidInQuestion(raw) {
+                // hallucinated pick for a "top categories"-style question → drop
+            } else if let cat = resolveCategory(raw, in: vocabulary.categories) {
+                filters.append(.category(CategoryID(cat)))
+            } else {
                 let sample = vocabulary.categories.prefix(12).joined(separator: ", ")
                 return .failure(QueryMappingError(
                     "unknown category '\(raw)'; categories present in the data: \(sample)"))
             }
-            filters.append(.category(CategoryID(cat)))
         }
 
-        // merchant — engine resolves names itself and text-falls-back, so pass through.
+        // merchant — engine resolves names itself and text-falls-back; trust the
+        // model's mapping except on a generic merchants-ask it wasn't said for.
         if let m = dto.merchant?.trimmingCharacters(in: .whitespaces), !m.isEmpty,
-           saidInQuestion(m) {
+           !(genericAsk(["merchant", "merchants", "shops", "stores"]) && !saidInQuestion(m)) {
             filters.append(.merchant(.name(m)))
         }
 
