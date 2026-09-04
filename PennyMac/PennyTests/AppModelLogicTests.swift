@@ -819,6 +819,31 @@ final class AppModelLogicTests: XCTestCase {
         XCTAssertFalse(reply.contains("CHARLIE"), reply)
     }
 
+    // 2026-09-04 manual bug: the same statement uploaded as xlsx AND pdf stored
+    // duplicates on the Mac (iOS had a fingerprint gate; the Mac path didn't).
+    func testCrossFormatDuplicateIsDetected() {
+        let m = freshModel()
+        let pdfRows = (1...6).map {
+            row($0, date: "2026-01-0\($0)", desc: "AMAZON MARKETPLACE LTD \($0)", debit: Double($0) * 10)
+        }
+        m.loadForTesting([makeDoc(name: "stmt.pdf", rows: pdfRows, currency: "INR")])
+        m.recomputeSummary()
+        // Same export as xlsx: descriptions differ cosmetically, dates+amounts identical.
+        let xlsxRows = (1...6).map {
+            row($0, date: "2026-01-0\($0)", desc: "Amazon Marketplace \($0)", debit: Double($0) * 10)
+        }
+        let slice = ModelAssembler.assemble(
+            IngestOutput(rows: xlsxRows, bankName: nil, confidence: "test", detectedCurrency: "INR"),
+            sourceName: "stmt.xlsx").graph
+        XCTAssertNotNil(AppModel.duplicateOf(slice, in: m.docs), "cross-format duplicate must be caught")
+        // A genuinely different statement passes the gate.
+        let other = ModelAssembler.assemble(
+            IngestOutput(rows: [row(1, date: "2026-03-01", desc: "UNRELATED", debit: 42)],
+                         bankName: nil, confidence: "test", detectedCurrency: "INR"),
+            sourceName: "other.xlsx").graph
+        XCTAssertNil(AppModel.duplicateOf(other, in: m.docs))
+    }
+
     // 2026-09-02 manual bug: "do i have prime?" answered "Found 30 transactions
     // at Prime" — a listing header, not an answer. Yes/no questions lead with
     // yes.

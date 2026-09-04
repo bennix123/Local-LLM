@@ -100,7 +100,12 @@ final class IOSModel: ObservableObject {
                 return
             }
             let fp = StatementFingerprint.compute(out.rows)
-            if statements.contains(where: { StatementFingerprint.compute($0.rows) == fp }) {
+            let lfp = StatementFingerprint.computeLoose(out.rows)
+            if statements.contains(where: {
+                StatementFingerprint.compute($0.rows) == fp
+                    || (out.rows.count >= 5 && $0.rows.count >= 5
+                        && StatementFingerprint.computeLoose($0.rows) == lfp)
+            }) {
                 importErrors = ["\(p.name): already loaded — skipped so totals don't double."]
                 return
             }
@@ -309,9 +314,16 @@ final class IOSModel: ObservableObject {
                         }
                         continue
                     }
-                    // Duplicate guard — same rows under any filename would double every total.
+                    // Duplicate guard — same rows under any filename would double
+                    // every total; the loose net also catches the same statement
+                    // in a DIFFERENT FORMAT (xlsx vs pdf, 2026-09-04).
                     let fp = StatementFingerprint.compute(out.rows)
-                    if let existing = statements.first(where: { StatementFingerprint.compute($0.rows) == fp }) {
+                    let lfp = StatementFingerprint.computeLoose(out.rows)
+                    if let existing = statements.first(where: {
+                        StatementFingerprint.compute($0.rows) == fp
+                            || (out.rows.count >= 5 && $0.rows.count >= 5
+                                && StatementFingerprint.computeLoose($0.rows) == lfp)
+                    }) {
                         importErrors.append("\(url.lastPathComponent): already loaded as “\(existing.name)” — skipped so totals don't double.")
                         continue
                     }

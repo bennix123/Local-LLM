@@ -39,4 +39,25 @@ final class StatementFingerprintTests: XCTestCase {
         XCTAssertNotEqual(StatementFingerprint.compute([row(1, date: "2026-06-01")]),
                           StatementFingerprint.compute([row(1, date: "2026-07-01")]))
     }
+
+    // 2026-09-04 manual bug: the same statement uploaded as xlsx AND pdf parsed
+    // to cosmetically different descriptions, dodged the strict fingerprint,
+    // and doubled every total. The loose (dates+amounts) identity catches it.
+    func testLooseFingerprintIgnoresDescriptionCosmetics() {
+        let pdf = [row(1, descr: "AMAZON MARKETPLACE LTD", debit: 100),
+                   row(2, descr: "SALARY  CREDIT", credit: 500)]
+        let xlsx = [row(1, descr: "Amazon Marketplace", debit: 100),
+                    row(2, descr: "Salary Credit", credit: 500)]
+        XCTAssertNotEqual(StatementFingerprint.compute(pdf), StatementFingerprint.compute(xlsx),
+                          "strict identity rightly differs")
+        XCTAssertEqual(StatementFingerprint.computeLoose(pdf), StatementFingerprint.computeLoose(xlsx),
+                       "loose identity must match across export formats")
+    }
+
+    func testLooseFingerprintStillSeparatesRealDifferences() {
+        XCTAssertNotEqual(StatementFingerprint.computeLoose([row(1, debit: 10)]),
+                          StatementFingerprint.computeLoose([row(1, debit: 10.01)]))
+        XCTAssertNotEqual(StatementFingerprint.computeLoose([row(1, date: "2026-06-01")]),
+                          StatementFingerprint.computeLoose([row(1, date: "2026-06-02")]))
+    }
 }

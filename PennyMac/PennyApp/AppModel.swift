@@ -1116,10 +1116,47 @@ final class AppModel: ObservableObject {
         analysis = StatementBatchPlanner.progress(stage: stage, batches: batches, batchesDone: done)
     }
 
+    /// Canonical fingerprint lines for graph transactions — the same identity
+    /// rules as `StatementFingerprint` uses over TxnRows, so a new slice can be
+    /// compared against already-imported docs.
+    nonisolated static func fingerprintLines(_ txns: [PennyModel.Transaction],
+                                             loose: Bool) -> [String] {
+        txns.map { t in
+            let date = String(format: "%04d-%02d-%02d", t.date.year, t.date.month, t.date.day)
+            let mag = NSDecimalNumber(decimal: t.amount.magnitude).doubleValue
+            let debit = t.amount.isDebit ? mag : 0
+            let credit = t.amount.isDebit ? 0 : mag
+            return loose
+                ? "\(date)|\(String(format: "%.2f", debit))|\(String(format: "%.2f", credit))"
+                : "\(date)|\(t.rawDescription)|\(String(format: "%.2f", debit))|\(String(format: "%.2f", credit))"
+        }
+    }
+
+    /// The duplicate gate (parity with iOS, plus a cross-format net): the name
+    /// of the already-imported statement this slice duplicates, or nil.
+    /// Strict = rows byte-identical. Loose = same dates+amounts with different
+    /// descriptions — the xlsx-and-pdf-of-the-same-export case (2026-09-04
+    /// manual bug) — only trusted at ≥5 rows so tiny statements can't collide.
+    static func duplicateOf(_ slice: FinancialGraph, in docs: [LoadedDoc]) -> String? {
+        guard !slice.transactions.isEmpty else { return nil }
+        let strict = StatementFingerprint.computeLines(fingerprintLines(slice.transactions, loose: false))
+        let loose = StatementFingerprint.computeLines(fingerprintLines(slice.transactions, loose: true))
+        for d in docs {
+            if StatementFingerprint.compute(d.rows) == strict { return d.displayName }
+            if slice.transactions.count >= 5, d.rows.count >= 5,
+               StatementFingerprint.computeLoose(d.rows) == loose { return d.displayName }
+        }
+        return nil
+    }
+
     /// Parse + persist + merge each file in a batch concurrently. Returns the
     /// URLs that failed to yield any transactions (for retry).
     private func runBatchFiles(_ urls: [URL], kind: String?) async -> [URL] {
         var failures: [URL] = []
+        // Fingerprints accepted within THIS batch — two copies of the same
+        // statement in one drop must not both land (docs only updates later).
+        var batchStrict = Set<String>(), batchLoose = Set<String>()
+        var skippedDuplicates: [(file: String, of: String)] = []
         let aiKey = claudeAPIKey   // capture off the main actor for the detached tasks
         await withTaskGroup(of: (URL, Result<ExtractResult, ImportFailure>).self) { group in
             for url in urls {
@@ -1130,6 +1167,22 @@ final class AppModel: ObservableObject {
                 // Success = we parsed transactions. Empty text is fine (XLSX has none)
                 // — it only affects chat grounding, not whether the statement loaded.
                 case .success(let r) where !r.graph.transactions.isEmpty:
+                    let strict = StatementFingerprint.computeLines(
+                        Self.fingerprintLines(r.graph.transactions, loose: false))
+                    let loose = StatementFingerprint.computeLines(
+                        Self.fingerprintLines(r.graph.transactions, loose: true))
+                    if let dupOf = Self.duplicateOf(r.graph, in: docs) {
+                        skippedDuplicates.append((r.name, dupOf))
+                        PennyLog.shared.log("import", "duplicate skipped: \(r.name) — already imported as \(dupOf)")
+                        continue
+                    }
+                    if batchStrict.contains(strict)
+                        || (r.graph.transactions.count >= 5 && batchLoose.contains(loose)) {
+                        skippedDuplicates.append((r.name, "another file in this import"))
+                        PennyLog.shared.log("import", "duplicate skipped: \(r.name) — repeated in the same import")
+                        continue
+                    }
+                    batchStrict.insert(strict); batchLoose.insert(loose)
                     let record = StatementStore.StatementRecord(from: r.graph, text: r.text)
                     StatementStore.save(record)
                     addSlice(r.graph, text: r.text)
@@ -1141,6 +1194,9 @@ final class AppModel: ObservableObject {
                     failures.append(url)
                 }
             }
+        }
+        for (file, of) in skippedDuplicates {
+            postToast("Skipped \(file) — it's the same statement as \(of).", kind: .progress)
         }
         return failures
     }
