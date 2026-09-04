@@ -147,6 +147,30 @@ final class QueryParserMappingTests: XCTestCase {
         XCTAssertTrue(q2.filters.contains(.text("refund")))
     }
 
+    func testHallucinatedEntityIsDropped() {
+        // Live-caught 2026-09-03: "show me largest transactions from top 2
+        // catagories." — the model grabbed "Pharmacy" from the vocabulary and
+        // leaked text:"largest". Neither may survive the mapper.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "max", direction: "debit", category: "Pharmacy", text: "largest"),
+            vocabulary: vocab, today: today,
+            question: "show me largest transactions from top 2 catagories.")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertFalse(q.filters.contains { if case .category = $0 { return true }; return false },
+                       "hallucinated category must be dropped: \(q.filters)")
+        XCTAssertFalse(q.filters.contains { if case .text = $0 { return true }; return false },
+                       "superlative text noise must be dropped: \(q.filters)")
+    }
+
+    func testGenuinelySaidEntitySurvivesTheGuard() {
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "sum", direction: "debit", category: "pharamcy"),
+            vocabulary: vocab, today: today,
+            question: "how much did i spend on pharamcy?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertTrue(q.filters.contains(.category(CategoryID("Pharmacy"))), "\(q.filters)")
+    }
+
     func testMonthlyGroupByAliasResolves() {
         guard case .success(let q) = map(.init(aggregate: "sum", groupBy: "monthly")) else { return XCTFail() }
         XCTAssertEqual(q.groupBy, .month)

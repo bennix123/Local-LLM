@@ -54,4 +54,28 @@ final class QueryParserLiveTests: XCTestCase {
             }
         }
     }
+
+    // 2026-09-03 manual find: "show me largest transactions from top 2
+    // catagories." fell to the ladder. Probe what the model emits (rejections
+    // print the DTO) — must parse to SOMETHING computable.
+    func testLiveTopCategoriesFamily() async throws {
+        guard ProcessInfo.processInfo.environment["PENNY_PARSE_LIVE"] == "1" else {
+            throw XCTSkip("set PENNY_PARSE_LIVE=1 to run live guided-generation parse tests")
+        }
+        let vocab = QueryVocabulary(
+            categories: ["Pharmacy", "Fast Food", "Shopping", "Income"],
+            merchants: ["Amazon", "KFC", "Medplus"],
+            accounts: [.init(name: "Hdfc Savings", id: "a1")],
+            currencies: ["INR"], months: ["2026-01", "2026-02"], dateRange: nil)
+        let today = CalendarDate(year: 2026, month: 9, day: 3)
+        let out = await QueryParser.parse(
+            question: "show me largest transactions from top 2 catagories.",
+            vocabulary: vocab, today: today)
+        print("🧪 top-2-categories → \(String(describing: out.map { ($0.engine, $0.attempts, $0.query) }))")
+        XCTAssertNotNil(out, "must map to something computable, not fall to the ladder")
+        if let q = out?.query {
+            XCTAssertFalse(q.filters.contains { if case .category = $0 { return true }; return false },
+                           "a general 'categories' question must never be scoped to one category: \(q)")
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import PennyFinance
 import PennyModel
+import PennyTxnStore   // PennyLog — every rejected parse is mined for the eval corpus
 
 // QueryParser — the LLM-as-parser tier (Rahul's architecture, 2026-09-03).
 //
@@ -41,11 +42,12 @@ public enum QueryParser {
                 guard let dto = try? await AppleFoundationLLM.parseQuery(
                     question: question, instructions: instructions, feedback: feedback)
                 else { break }   // model unavailable/error → try MLX
-                switch QueryDTOMapper.map(dto, vocabulary: vocabulary, today: today) {
+                switch QueryDTOMapper.map(dto, vocabulary: vocabulary, today: today, question: question) {
                 case .success(let q): return Outcome(query: q, attempts: attempts, engine: "apple")
                 case .failure(let e):
                     feedback = e.message
                     print("🧭[parse] apple attempt \(attempts) rejected: \(e.message) — dto: \(dto)")
+                    PennyLog.shared.log("parse", "apple x\(attempts) rejected: \(e.message) — \(dto)")
                 }
             }
         }
@@ -58,9 +60,12 @@ public enum QueryParser {
             let prompt = Self.mlxPrompt(question: question, feedback: feedback)
             guard let raw = try? await mlxGenerate(instructions, prompt),
                   let dto = Self.decodeJSON(raw) else { return nil }
-            switch QueryDTOMapper.map(dto, vocabulary: vocabulary, today: today) {
+            switch QueryDTOMapper.map(dto, vocabulary: vocabulary, today: today, question: question) {
             case .success(let q): return Outcome(query: q, attempts: attempts, engine: "mlx")
-            case .failure(let e): feedback = e.message
+            case .failure(let e):
+                feedback = e.message
+                print("🧭[parse] mlx attempt \(attempts) rejected: \(e.message) — dto: \(dto)")
+                PennyLog.shared.log("parse", "mlx x\(attempts) rejected: \(e.message) — \(dto)")
             }
         }
         return nil
@@ -95,7 +100,12 @@ public enum QueryParser {
         - amountMin/amountMax: only when the question sets an amount bound \
         ("over 1000", "under 50").
         - groupBy: month | day | category | merchant | account | currency — only \
-        for per-X breakdowns ("by month", "per category").
+        for per-X breakdowns ("by month", "per category"). When the question is \
+        about categories/merchants IN GENERAL ("top categories", "largest \
+        transaction in each category", "which merchants"), use groupBy and \
+        leave the category/merchant fields EMPTY — never pick one from the \
+        data context. "largest transactions from top categories" = aggregate \
+        max with groupBy category.
         - text: a free-text word to search descriptions for, when it is clearly \
         not a category/merchant/account.
 

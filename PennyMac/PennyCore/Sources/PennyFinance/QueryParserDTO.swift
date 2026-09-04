@@ -53,10 +53,31 @@ public enum QueryDTOMapper {
     /// Deterministically map a parsed DTO to an executable `Query`, resolving
     /// entities against the data's vocabulary and the period token against
     /// `today`. Pure and total: same inputs, same output, no I/O.
+    ///
+    /// `question` (when supplied) powers the HALLUCINATION GUARD: an entity the
+    /// model filled that shares no word with the question is dropped — "top 2
+    /// categories" must never become a Pharmacy-scoped query because the model
+    /// grabbed a vocabulary item (live-caught 2026-09-03). "Never invent
+    /// entities" is enforced here, not just requested in the prompt.
     public static func map(_ dto: ParsedQueryDTO, vocabulary: QueryVocabulary,
-                           today: CalendarDate) -> Result<Query, QueryMappingError> {
+                           today: CalendarDate,
+                           question: String = "") -> Result<Query, QueryMappingError> {
         var filters: [Filter] = []
         var sort: [SortKey] = []
+
+        let questionWords: Set<String> = Set(
+            question.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .map(String.init))
+        func saidInQuestion(_ entity: String) -> Bool {
+            guard !questionWords.isEmpty else { return true }   // no question → guard off
+            let words = entity.lowercased()
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+            return words.contains { w in
+                w.count >= 3 && questionWords.contains { qw in
+                    qw == w || qw.contains(w) || w.contains(qw) || nearMatch(qw, w)
+                }
+            }
+        }
 
         // aggregate
         let aggregate: Aggregation
@@ -89,7 +110,8 @@ public enum QueryDTOMapper {
         }
 
         // category (typo/synonym tolerant — the same forgiveness the router has)
-        if let raw = dto.category?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+        if let raw = dto.category?.trimmingCharacters(in: .whitespaces), !raw.isEmpty,
+           saidInQuestion(raw) {
             guard let cat = resolveCategory(raw, in: vocabulary.categories) else {
                 let sample = vocabulary.categories.prefix(12).joined(separator: ", ")
                 return .failure(QueryMappingError(
@@ -99,12 +121,14 @@ public enum QueryDTOMapper {
         }
 
         // merchant — engine resolves names itself and text-falls-back, so pass through.
-        if let m = dto.merchant?.trimmingCharacters(in: .whitespaces), !m.isEmpty {
+        if let m = dto.merchant?.trimmingCharacters(in: .whitespaces), !m.isEmpty,
+           saidInQuestion(m) {
             filters.append(.merchant(.name(m)))
         }
 
         // account
-        if let raw = dto.account?.trimmingCharacters(in: .whitespaces), !raw.isEmpty {
+        if let raw = dto.account?.trimmingCharacters(in: .whitespaces), !raw.isEmpty,
+           saidInQuestion(raw) {
             let low = raw.lowercased()
             let hits = vocabulary.accounts.filter {
                 $0.name.lowercased().contains(low) || low.contains($0.name.lowercased())
@@ -125,8 +149,10 @@ public enum QueryDTOMapper {
         var groupByRaw = dto.groupBy
         if let token = dto.period?.trimmingCharacters(in: .whitespaces).lowercased(),
            !token.isEmpty, token != "all" {
-            if ["month", "months", "monthly", "day", "days", "daily"].contains(token), groupByRaw == nil {
-                groupByRaw = token.hasPrefix("d") ? "day" : "month"
+            if ["month", "months", "monthly", "day", "days", "daily"].contains(token) {
+                // With groupBy already set this is just a redundant restatement
+                // of the grouping ("by month" emitted into both slots) — drop it.
+                if groupByRaw == nil { groupByRaw = token.hasPrefix("d") ? "day" : "month" }
             } else {
                 switch resolvePeriod(token, today: today, months: vocabulary.months) {
                 case .success(let range): filters.append(.dateRange(range))
@@ -148,10 +174,16 @@ public enum QueryDTOMapper {
                                       "total", "transaction", "transactions", "payment",
                                       "payments", "expense", "expenses", "income",
                                       "purchases", "cost", "debit", "debits", "credit",
-                                      "credits"]
-        if let t = dto.text?.trimmingCharacters(in: .whitespaces), !t.isEmpty,
-           !textNoise.contains(t.lowercased()) {
-            filters.append(.text(t))
+                                      "credits", "largest", "biggest", "smallest",
+                                      "highest", "lowest", "most", "least", "top",
+                                      "categories", "category", "merchants", "accounts"]
+        if let t = dto.text?.trimmingCharacters(in: .whitespaces), !t.isEmpty {
+            let tl = t.lowercased()
+            // Typo-tolerant: a leaked "catagories" is noise as surely as
+            // "categories" (live-caught 2026-09-03).
+            if !textNoise.contains(tl), !textNoise.contains(where: { nearMatch(tl, $0) }) {
+                filters.append(.text(t))
+            }
         }
 
         // group by ("monthly" → month; small-model slips are absorbed above)
