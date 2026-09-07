@@ -142,9 +142,11 @@ final class QueryParserMappingTests: XCTestCase {
         guard case .success(let q) = map(.init(aggregate: "sum", direction: "debit",
                                                text: "spending")) else { return XCTFail() }
         XCTAssertFalse(q.filters.contains { if case .text = $0 { return true }; return false })
-        // …but a genuine needle survives.
+        // Since the judge run (2026-09-04), text must ALSO be substantiated by
+        // the data — "refund" names no merchant/category in this vocabulary, so
+        // it drops too (see testUnsubstantiatedTextIsDropped for the policy).
         guard case .success(let q2) = map(.init(aggregate: "sum", text: "refund")) else { return XCTFail() }
-        XCTAssertTrue(q2.filters.contains(.text("refund")))
+        XCTAssertFalse(q2.filters.contains(.text("refund")))
     }
 
     func testHallucinatedEntityIsDropped() {
@@ -198,6 +200,130 @@ final class QueryParserMappingTests: XCTestCase {
     func testMonthlyGroupByAliasResolves() {
         guard case .success(let q) = map(.init(aggregate: "sum", groupBy: "monthly")) else { return XCTFail() }
         XCTAssertEqual(q.groupBy, .month)
+    }
+
+    // MARK: judge-run absorptions (real engine wrongs, 2026-09-04)
+
+    func testSuperlativeByDimensionBecomesGroupedSum() {
+        // "Which category did I spend the most on?" parsed as max (single
+        // largest transaction). A superlative + generic dimension noun means
+        // ranked per-dimension totals.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "max", direction: "debit"),
+            vocabulary: vocab, today: today,
+            question: "Which category did I spend the most on?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertEqual(q.aggregate, .sum)
+        XCTAssertEqual(q.groupBy, .category)
+    }
+
+    func testLeastSuperlativeFlagsAscending() {
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "min", direction: "debit"),
+            vocabulary: vocab, today: today,
+            question: "which month did i spend the least?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertEqual(q.aggregate, .sum)
+        XCTAssertEqual(q.groupBy, .month)
+        XCTAssertEqual(q.sort.first?.order, .ascending)
+    }
+
+    func testScopedSuperlativeStaysAMax() {
+        // "biggest transaction this month" — the noun is a PERIOD, not a
+        // dimension; the conversion must not fire.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "max", direction: "debit", period: "this_month"),
+            vocabulary: vocab, today: today,
+            question: "biggest transaction this month?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertEqual(q.aggregate, .max)
+        XCTAssertNil(q.groupBy)
+    }
+
+    func testModelSetGroupByWithMinStillBecomesTotals() {
+        // Round 2: model emitted min + groupBy month for "which month did i
+        // spend the least?" — the engine computed the smallest TXN per month
+        // (Dec ₹300, not the ₹750 total). Converts to sum even when the model
+        // already grouped.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "min", direction: "debit", groupBy: "month"),
+            vocabulary: vocab, today: today,
+            question: "Which month did I spend the least?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertEqual(q.aggregate, .sum)
+        XCTAssertEqual(q.groupBy, .month)
+        XCTAssertEqual(q.sort.first?.order, .ascending)
+    }
+
+    func testTopNWithDimensionNounGroups() {
+        // Round 2: "top merchant by spend?" returned the top TRANSACTION.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "top_n", topN: 1),
+            vocabulary: vocab, today: today, question: "top merchant by spend?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertEqual(q.aggregate, .topN(1))
+        XCTAssertEqual(q.groupBy, .merchant)
+        XCTAssertTrue(q.filters.contains(.direction(.debit)), "\(q.filters)")
+    }
+
+    func testShortQuestionWordsCannotVouchForEntities() {
+        // Round 2: the question word "i" matched inside "dInIng", letting a
+        // hallucinated "Food & Dining" through the guard on a generic
+        // categories question.
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "max", direction: "debit", category: "Food & Dining",
+                  groupBy: "category"),
+            vocabulary: vocab, today: today,
+            question: "Which category did I spend the most on?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertFalse(q.filters.contains { if case .category = $0 { return true }; return false },
+                       "hallucinated category must drop: \(q.filters)")
+        XCTAssertEqual(q.aggregate, .sum)
+        XCTAssertEqual(q.groupBy, .category)
+    }
+
+    func testUndirectedSuperlativeDefaultsToDebit() {
+        // Undirected max crowned a ₹5,200 SALARY credit "your largest expense".
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "max"),
+            vocabulary: vocab, today: today, question: "biggest transaction amount?")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertTrue(q.filters.contains(.direction(.debit)), "\(q.filters)")
+    }
+
+    func testUnsubstantiatedTextIsDropped() {
+        // text:"inflow"/"aamdani"/"outgoing payments" each made a confident
+        // ₹0.00 — text survives only when the DATA contains it.
+        for noise in ["inflow", "aamdani", "outgoing payments", "receive"] {
+            guard case .success(let q) = map(.init(aggregate: "sum", direction: "credit",
+                                                   text: noise)) else { return XCTFail() }
+            XCTAssertFalse(q.filters.contains { if case .text = $0 { return true }; return false },
+                           "'\(noise)' must not become a text filter")
+        }
+        // …but a term the data substantiates survives (Medplus is a merchant).
+        guard case .success(let q) = map(.init(aggregate: "sum", text: "medplus")) else { return XCTFail() }
+        XCTAssertTrue(q.filters.contains(.text("medplus")), "\(q.filters)")
+    }
+
+    func testHallucinatedTodayPeriodIsDropped() {
+        let r = QueryDTOMapper.map(
+            .init(aggregate: "average", direction: "debit", period: "today"),
+            vocabulary: vocab, today: today,
+            question: "typical amount I spend each time")
+        guard case .success(let q) = r else { return XCTFail() }
+        XCTAssertFalse(q.filters.contains { if case .dateRange = $0 { return true }; return false },
+                       "unsaid 'today' must be dropped: \(q.filters)")
+    }
+
+    func testRendererShowsMagnitudesForDirectedSums() {
+        // Engine sums are signed (debits negative); "You spent ₹-3,670.00" is
+        // nonsense to a reader.
+        let q = Query(filters: [.direction(.debit)], aggregate: .sum)
+        let r = QueryResult(scalar: .money(-3670), citations: [TransactionID("a")],
+                            currency: Currency("INR"))
+        let text = ResultRenderer.render(r, query: q, vocabulary: vocab,
+                                         money: { amt, _ in "₹\(amt)" })
+        XCTAssertEqual(text, "**You spent ₹3670** across 1 transaction.")
     }
 
     // MARK: renderer wording

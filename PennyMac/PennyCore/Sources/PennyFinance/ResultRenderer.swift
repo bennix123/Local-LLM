@@ -15,18 +15,27 @@ public enum ResultRenderer {
         let wantsCredit = query.filters.contains(.direction(.credit))
         let wantsDebit = query.filters.contains(.direction(.debit))
 
+        // Direction-filtered figures display as magnitudes: the engine's sums
+        // are SIGNED (debits negative — correct for net math), but "You spent
+        // ₹-3,670.00" is nonsense to a reader (judge run 2026-09-04).
+        let directed = wantsCredit || wantsDebit
+        func show(_ m: Decimal, _ cur: String?) -> String { money(directed ? abs(m) : m, cur) }
+
         // Grouped output — either an explicit groupBy or a mixed-currency split.
         if let groups = result.groups, !groups.isEmpty {
             if let grouping = query.groupBy {
+                // An ascending sort key marks a LEAST question (mapper's
+                // superlative absorption) — lead with the smallest.
+                let ordered = query.sort.first?.order == .ascending ? groups.reversed() : groups
                 var lines = ["**By \(grouping.rawValue)\(label):**"]
-                for (i, g) in groups.prefix(8).enumerated() {
-                    lines.append("\(i + 1). \(g.key) — \(scalarText(g.result, money: money))")
+                for (i, g) in ordered.prefix(8).enumerated() {
+                    lines.append("\(i + 1). \(g.key) — \(scalarText(g.result, magnitude: directed, money: money))")
                 }
                 if groups.count > 8 { lines.append("_…and \(groups.count - 8) more_") }
                 return lines.joined(separator: "\n")
             }
             // Per-currency split of a scalar: one figure per currency, joined.
-            let parts = groups.map { "\($0.key) \(scalarText($0.result, money: money))" }
+            let parts = groups.map { "\($0.key) \(scalarText($0.result, magnitude: directed, money: money))" }
             let verb = wantsCredit ? "You received" : (wantsDebit ? "You spent" : "Net")
             return "**\(verb)\(label):** " + parts.joined(separator: " · ")
         }
@@ -40,21 +49,21 @@ public enum ResultRenderer {
             let n = result.citations.count
             switch query.aggregate {
             case .average:
-                return "**Average: \(money(m, cur)) per transaction\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
+                return "**Average: \(show(m, cur)) per transaction\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
             case .min, .max:
                 let superlative = query.aggregate == .max
                     ? (wantsCredit ? "largest credit" : "largest expense")
                     : (wantsCredit ? "smallest credit" : "smallest expense")
                 if let t = result.rows.first {
-                    return "**Your \(superlative) was \(money(m, cur))** — \(descr(t)) (\(pretty(t.date)))."
+                    return "**Your \(superlative) was \(show(m, cur))** — \(descr(t)) (\(pretty(t.date)))."
                 }
-                return "**Your \(superlative) was \(money(m, cur))\(label).**"
+                return "**Your \(superlative) was \(show(m, cur))\(label).**"
             default:
                 if wantsCredit {
-                    return "**You received \(money(m, cur))\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
+                    return "**You received \(show(m, cur))\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
                 }
                 if wantsDebit {
-                    return "**You spent \(money(m, cur))\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
+                    return "**You spent \(show(m, cur))\(label)** across \(n) transaction\(n == 1 ? "" : "s")."
                 }
                 return "**Net\(label): \(money(m, cur))** (income − spend, \(n) transaction\(n == 1 ? "" : "s"))."
             }
@@ -87,11 +96,12 @@ public enum ResultRenderer {
 
     // MARK: - pieces
 
-    private static func scalarText(_ r: QueryResult, money: (Decimal, String?) -> String) -> String {
+    private static func scalarText(_ r: QueryResult, magnitude: Bool,
+                                   money: (Decimal, String?) -> String) -> String {
         switch r.scalar {
         case .money(let m):
             let n = r.citations.count
-            return "\(money(m, r.currency?.code)) (\(n) txn\(n == 1 ? "" : "s"))"
+            return "\(money(magnitude ? abs(m) : m, r.currency?.code)) (\(n) txn\(n == 1 ? "" : "s"))"
         case .count(let n): return "\(n)"
         default: return "—"
         }

@@ -72,15 +72,17 @@ public enum QueryDTOMapper {
             guard !questionWords.isEmpty else { return true }   // no question → guard off
             let words = entity.lowercased()
                 .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+            // Both sides ≥3 chars: the question word "i" lives inside "dInIng",
+            // which let a hallucinated "Food & Dining" through (judge round 2).
             return words.contains { w in
                 w.count >= 3 && questionWords.contains { qw in
-                    qw == w || qw.contains(w) || w.contains(qw) || nearMatch(qw, w)
+                    qw == w || (qw.count >= 3 && (qw.contains(w) || w.contains(qw) || nearMatch(qw, w)))
                 }
             }
         }
 
         // aggregate
-        let aggregate: Aggregation
+        var aggregate: Aggregation
         switch dto.aggregate.lowercased() {
         case "sum": aggregate = .sum
         case "count": aggregate = .count
@@ -181,6 +183,10 @@ public enum QueryDTOMapper {
                 // With groupBy already set this is just a redundant restatement
                 // of the grouping ("by month" emitted into both slots) — drop it.
                 if groupByRaw == nil { groupByRaw = token.hasPrefix("d") ? "day" : "month" }
+            } else if ["today", "yesterday"].contains(token), !questionWords.contains(token) {
+                // Hallucinated immediacy ("typical amount I spend each time" →
+                // period:"today", judge run 2026-09-04): a today/yesterday scope
+                // the question never said is dropped, not obeyed.
             } else {
                 switch resolvePeriod(token, today: today, months: vocabulary.months) {
                 case .success(let range): filters.append(.dateRange(range))
@@ -207,9 +213,18 @@ public enum QueryDTOMapper {
                                       "categories", "category", "merchants", "accounts"]
         if let t = dto.text?.trimmingCharacters(in: .whitespaces), !t.isEmpty {
             let tl = t.lowercased()
-            // Typo-tolerant: a leaked "catagories" is noise as surely as
-            // "categories" (live-caught 2026-09-03).
-            if !textNoise.contains(tl), !textNoise.contains(where: { nearMatch(tl, $0) }) {
+            // Typo-tolerant noise cut PLUS vocabulary substantiation (judge run
+            // 2026-09-04): the model kept stuffing intent words into text
+            // ("receive", "inflow", "aamdani", "outgoing payments"), each one a
+            // confident ₹0.00. No stoplist can enumerate every intent word — a
+            // text term now survives ONLY when a merchant/category in the DATA
+            // contains it (i.e. the model spotted an entity our slots missed).
+            // A rare genuine free-description search loses; wrong zeros lose
+            // trust. Trust wins.
+            let substantiated = vocabulary.merchants.contains { $0.lowercased().contains(tl) }
+                || vocabulary.categories.contains { $0.lowercased().contains(tl) }
+            if substantiated,
+               !textNoise.contains(tl), !textNoise.contains(where: { nearMatch(tl, $0) }) {
                 filters.append(.text(t))
             }
         }
@@ -224,6 +239,47 @@ public enum QueryDTOMapper {
                     "invalid groupBy '\(g)'; allowed: \(Grouping.allCases.map(\.rawValue).joined(separator: ", "))"))
             }
             groupBy = grouping
+        }
+
+        // A superlative over transactions without a direction is an EXPENSE
+        // question by default — undirected max happily crowned a ₹5,200 SALARY
+        // credit "your largest expense" (judge round 1). Credit superlatives
+        // say so ("largest credit/deposit") and set direction. Runs BEFORE the
+        // absorption below so grouped conversions inherit the direction
+        // (round 2: it ran after, so grouped sums came out signed and
+        // Income-polluted).
+        if aggregate == .max || aggregate == .min || dto.topN != nil,
+           !filters.contains(.direction(.debit)), !filters.contains(.direction(.credit)) {
+            filters.append(.direction(.debit))
+        }
+
+        // Superlative-by-dimension absorption (judge rounds 1–2, the engine's
+        // single biggest wrong-class): "which category/month/merchant did i
+        // spend the most" arrived as max — the single largest TRANSACTION —
+        // instead of ranked per-dimension totals. Converts when the question
+        // carries a generic dimension noun, WHETHER OR NOT the model already
+        // set groupBy (round 2: model-set groupBy + min computed the smallest
+        // txn per month — also not the meaning). min flags ascending so the
+        // renderer leads with the least. top_n + dimension noun groups too
+        // ("top merchant" was returning the top transaction). Skipped when the
+        // question says this/last <noun> or a date range already scoped it.
+        let isTopN: Bool = { if case .topN = aggregate { return true }; return false }()
+        if aggregate == .max || aggregate == .min || isTopN,
+           !filters.contains(where: { if case .dateRange = $0 { return true }; return false }) {
+            let ql = question.lowercased()
+            let dims: [(nouns: [String], g: Grouping)] = [
+                (["month", "months"], .month),
+                (["category", "categories", "where"], .category),
+                (["merchant", "merchants", "shop", "shops", "store", "stores", "vendor", "vendors"], .merchant),
+                (["account", "accounts", "bank", "banks"], .account),
+            ]
+            for d in dims where (groupBy == nil || groupBy == d.g) && genericAsk(d.nouns)
+                && !d.nouns.contains(where: { ql.contains("this \($0)") || ql.contains("last \($0)") }) {
+                if aggregate == .min { sort = [SortKey(.amount, .ascending)] }
+                if !isTopN { aggregate = .sum }
+                groupBy = d.g
+                break
+            }
         }
 
         return .success(Query(filters: filters, aggregate: aggregate, groupBy: groupBy, sort: sort))
