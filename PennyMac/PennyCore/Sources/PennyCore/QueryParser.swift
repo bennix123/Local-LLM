@@ -29,13 +29,16 @@ public enum QueryParser {
     public static func parse(question: String,
                              vocabulary: QueryVocabulary,
                              today: CalendarDate,
-                             mlxGenerate: (@Sendable (String, String) async throws -> String)? = nil)
+                             mlxGenerate: (@Sendable (String, String) async throws -> String)? = nil,
+                             allowApple: Bool = true)
     async -> Outcome? {
         let instructions = Self.instructions(vocabulary: vocabulary, today: today)
         var attempts = 0
 
         // ---- Apple on-device guided generation --------------------------------
-        if #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
+        // (`allowApple: false` is the judge's A/B lever — measure the MLX
+        // fallback parser on its own.)
+        if allowApple, #available(macOS 26.0, iOS 26.0, *), AppleFoundationLLM.isAvailable {
             var feedback: String?
             for _ in 0..<2 {
                 attempts += 1
